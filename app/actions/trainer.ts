@@ -103,6 +103,7 @@ async function resolveTrainerAssignment(gymId: string, fallbackId: string, reque
 export async function createMemberAsTrainer(payload: MemberPayload) {
   const ctx = await getTrainerContext();
   if (!ctx) return { error: "Unauthorized" };
+  if (ctx.isDemo) return { error: "Demo mode — sign up to make changes." };
   if (!ctx.staff.can_add_members) return { error: "Permission denied" };
 
   const admin = createAdminClient();
@@ -173,6 +174,7 @@ type UpdatePayload = {
 export async function updateMemberAsTrainer(memberId: string, payload: UpdatePayload) {
   const ctx = await getTrainerContext();
   if (!ctx) return { error: "Unauthorized" };
+  if (ctx.isDemo) return { error: "Demo mode — sign up to make changes." };
   if (!ctx.staff.can_add_members) return { error: "Permission denied" };
 
   const admin = createAdminClient();
@@ -221,6 +223,7 @@ export async function updateMemberAsTrainer(memberId: string, payload: UpdatePay
 export async function checkInMemberAsTrainer(memberId: string) {
   const ctx = await getTrainerContext();
   if (!ctx) return { error: "Unauthorized" };
+  if (ctx.isDemo) return { error: "Demo mode — sign up to make changes." };
 
   const admin = createAdminClient();
 
@@ -284,6 +287,7 @@ type GoalInput = {
 async function verifyOwnsMember(memberId: string) {
   const ctx = await getTrainerContext();
   if (!ctx) return { error: "Unauthorized" as const };
+  if (ctx.isDemo) return { error: "Demo mode — sign up to make changes." as const };
   const admin = createAdminClient();
   const { data: member } = await admin
     .from("pulse_members")
@@ -299,6 +303,7 @@ async function verifyOwnsMember(memberId: string) {
 async function verifyOwnsGoal(goalId: string) {
   const ctx = await getTrainerContext();
   if (!ctx) return { error: "Unauthorized" as const };
+  if (ctx.isDemo) return { error: "Demo mode — sign up to make changes." as const };
   const admin = createAdminClient();
   const { data: goal } = await admin
     .from("pulse_member_goals")

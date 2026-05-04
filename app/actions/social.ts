@@ -155,6 +155,12 @@ export async function createSocialLead(payload: {
     .single();
   if (!manager || manager.status !== "active") return { error: "Unauthorized" };
 
+  const { data: gym } = await admin.from("pulse_gyms").select("owner_id").eq("id", manager.gym_id).single();
+  if (gym) {
+    const { data: ownerProfile } = await admin.from("pulse_profiles").select("is_demo").eq("id", gym.owner_id).single();
+    if (ownerProfile?.is_demo) return { error: "Demo mode — sign up to make changes." };
+  }
+
   const { data, error } = await admin
     .from("pulse_social_leads")
     .insert({

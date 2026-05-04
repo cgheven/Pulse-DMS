@@ -425,7 +425,7 @@ export const getTrainerContext = cache(async () => {
 
   const { data: profile } = await supabase
     .from("pulse_profiles")
-    .select("role, is_admin")
+    .select("role, is_admin, is_demo")
     .eq("id", user.id)
     .single();
 
@@ -445,6 +445,7 @@ export const getTrainerContext = cache(async () => {
     profile,
     staff: staff as Staff & { gym?: { name: string } | null },
     gymId: staff.gym_id as string,
+    isDemo: !!(profile as { is_demo?: boolean } | null)?.is_demo,
   };
 });
 

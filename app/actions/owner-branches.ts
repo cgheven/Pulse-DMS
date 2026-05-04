@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
 import { getAuthContext } from "@/lib/data";
 
 export async function createBranch(data: {
@@ -12,17 +11,16 @@ export async function createBranch(data: {
   email?: string | null;
 }): Promise<{ gymId?: string; error?: string }> {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return { error: "Unauthorized" };
     const ctx = await getAuthContext();
-    if (ctx?.isDemo) return { error: "Demo mode — sign up to make changes." };
+    if (!ctx?.user || !ctx.gymId) return { error: "Unauthorized" };
+    if (ctx.isDemo) return { error: "Demo mode — sign up to make changes." };
 
     const admin = createAdminClient();
+    const userId = ctx.user.id;
     // Look up branch limit + count current gyms
     const [{ data: profile }, { data: existing, count }] = await Promise.all([
-      admin.from("pulse_profiles").select("branch_limit").eq("id", user.id).single(),
-      admin.from("pulse_gyms").select("id", { count: "exact" }).eq("owner_id", user.id),
+      admin.from("pulse_profiles").select("branch_limit").eq("id", userId).single(),
+      admin.from("pulse_gyms").select("id", { count: "exact" }).eq("owner_id", userId),
     ]);
 
     const limit = profile?.branch_limit ?? 1;
@@ -37,7 +35,7 @@ export async function createBranch(data: {
     const { data: gym, error } = await admin
       .from("pulse_gyms")
       .insert({
-        owner_id: user.id,
+        owner_id: userId,
         name: data.name.trim(),
         address: data.address?.trim() || null,
         phone: data.phone?.trim() || null,
