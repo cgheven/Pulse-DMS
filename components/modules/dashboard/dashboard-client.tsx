@@ -57,7 +57,7 @@ export function DashboardClient({ data, leadsSummary }: Props) {
     : 0;
 
   // Unified action items — sorted by urgency, capped to keep UI compact
-  const ACTION_LIMIT = 8;
+  const ACTION_LIMIT = 12;
   const allActionItems = [
     ...expiringMembers.map((m) => ({
       key: `exp-${m.id}`,
@@ -79,16 +79,43 @@ export function DashboardClient({ data, leadsSummary }: Props) {
       href: "/payments",
       urgency: 100,
     })),
-    ...upcomingBills.filter((b) => b.status === "overdue").map((b) => ({
-      key: `bill-${b.id}`,
-      icon: FileWarning,
-      color: "text-rose-400",
-      bg: "bg-rose-500/10 border-rose-500/20",
-      text: `${b.title} bill overdue — ${formatCurrency(b.amount)}`,
-      action: "View",
-      href: "/bills",
-      urgency: 200,
-    })),
+    ...(() => {
+      const todayMs = new Date().setHours(0, 0, 0, 0);
+      const overdue: typeof allActionItems = [];
+      const upcoming: typeof allActionItems = [];
+      for (const b of upcomingBills) {
+        if (b.status === "paid") continue;
+        const dueMs = new Date(b.due_date).setHours(0, 0, 0, 0);
+        const daysUntil = Math.round((dueMs - todayMs) / 86400000);
+        if (daysUntil < 0 || b.status === "overdue") {
+          overdue.push({
+            key: `bill-overdue-${b.id}`,
+            icon: FileWarning,
+            color: "text-rose-400",
+            bg: "bg-rose-500/10 border-rose-500/20",
+            text: `${b.title} bill overdue — ${formatCurrency(Number(b.amount) + Number(b.late_fee))}${b.late_fee > 0 ? ` (incl. ${formatCurrency(b.late_fee)} late fee)` : ""}`,
+            action: "View",
+            href: "/bills",
+            urgency: 90,
+          });
+        } else {
+          const reminderDays = b.reminder_days ?? 5;
+          if (reminderDays > 0 && daysUntil <= reminderDays) {
+            upcoming.push({
+              key: `bill-due-${b.id}`,
+              icon: FileWarning,
+              color: "text-amber-400",
+              bg: "bg-amber-500/10 border-amber-500/20",
+              text: `${b.title} due ${daysUntil === 0 ? "today" : `in ${daysUntil} day${daysUntil !== 1 ? "s" : ""}`} — ${formatCurrency(b.amount)}`,
+              action: "View",
+              href: "/bills",
+              urgency: 50 + daysUntil,
+            });
+          }
+        }
+      }
+      return [...overdue, ...upcoming];
+    })(),
   ].sort((a, b) => a.urgency - b.urgency);
   const actionItems = allActionItems.slice(0, ACTION_LIMIT);
   const hiddenCount = allActionItems.length - actionItems.length;
@@ -174,6 +201,12 @@ export function DashboardClient({ data, leadsSummary }: Props) {
             <span>Exp <span className="text-rose-400 font-medium">{formatCurrency(stats.monthly_expenses)}</span></span>
             <span>·</span>
             <span>Sal <span className="text-purple-400 font-medium">{formatCurrency(stats.monthly_salaries)}</span></span>
+            {stats.monthly_paid_bills > 0 && (
+              <>
+                <span>·</span>
+                <span>Bills <span className="text-orange-400 font-medium">{formatCurrency(stats.monthly_paid_bills)}</span></span>
+              </>
+            )}
             {stats.paid_commissions_this_month > 0 && (
               <>
                 <span>·</span>

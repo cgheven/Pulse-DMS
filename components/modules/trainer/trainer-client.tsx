@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import {
   CheckCircle2, Clock, Wallet, Users,
   ChevronLeft, ChevronRight, Search, TrendingUp, UserPlus, Pencil, LogIn, Target,
+  MessageCircle,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { createMemberAsTrainer, updateMemberAsTrainer, checkInMemberAsTrainer, checkMemberByPhone } from "@/app/actions/trainer";
@@ -15,7 +16,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import { formatCurrency, formatDate, formatDateInput } from "@/lib/utils";
-import type { Payment, PaymentMethod, PaymentStatus, Member, MembershipPlan, Staff, MemberGoal, BodyMetric, MetricSkip, TrainerShift } from "@/types";
+import { buildReminderMessage, whatsappUrl } from "@/lib/whatsapp-reminder";
+import type { Payment, PaymentMethod, PaymentStatus, Member, MembershipPlan, Staff, MemberGoal, BodyMetric, MetricSkip, TrainerShift, PaymentMethodAccount } from "@/types";
 
 type MemberRow = Pick<Member,
   "id" | "full_name" | "member_number" | "phone" | "email" | "cnic" |
@@ -45,6 +47,9 @@ function computeExpiry(joinDate: string, durationType: string | undefined): stri
 interface Props {
   staff: Staff & { gym?: { name: string } | null };
   gymId: string;
+  gymName: string;
+  reminderTemplate: string | null;
+  paymentMethods: PaymentMethodAccount[];
   members: MemberRow[];
   selfMembers: MemberRow[];
   payments: Payment[];
@@ -76,12 +81,20 @@ function offsetMonth(key: string, delta: number) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function paymentBadge(payment: Payment | null, selectedMonth: string) {
+  if (payment?.status === "paid")    return { label: "Paid",    cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" };
+  if (payment?.status === "overdue" || selectedMonth < CURRENT_MONTH)
+                                     return { label: "Overdue", cls: "bg-rose-500/10 text-rose-400 border-rose-500/20" };
+  if (payment?.status === "pending") return { label: "Pending", cls: "bg-primary/10 text-primary border-primary/20" };
+  return { label: "Unpaid", cls: "bg-primary/10 text-primary border-primary/20" };
+}
+
 function genReceipt(name: string, period: string) {
   const initials = name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
   return `PLS-${period.replace("-", "")}-${initials}-${Math.floor(Math.random() * 900 + 100)}`;
 }
 
-export function TrainerClient({ staff, gymId, members, selfMembers, payments: initialPayments, plans, trainers, checkedInToday: initialCheckedIn, goals, bodyMetrics, metricSkips }: Props) {
+export function TrainerClient({ staff, gymId, gymName, reminderTemplate, paymentMethods, members, selfMembers, payments: initialPayments, plans, trainers, checkedInToday: initialCheckedIn, goals, bodyMetrics, metricSkips }: Props) {
   const router = useRouter();
   const [payments, setPayments] = useState<Payment[]>(initialPayments);
   const [selectedMonth, setSelectedMonth] = useState(CURRENT_MONTH);
@@ -308,6 +321,19 @@ export function TrainerClient({ staff, gymId, members, selfMembers, payments: in
       });
   }, [selfMembers, monthPayments, search]);
 
+  function sendReminder(member: MemberRow) {
+    const msg = buildReminderMessage({
+      template: reminderTemplate,
+      memberName: member.full_name,
+      amount: member.monthly_fee,
+      month: monthLabel(selectedMonth),
+      gymName,
+      accounts: paymentMethods,
+    });
+    const url = whatsappUrl(member.phone, msg);
+    if (url) window.open(url, "_blank");
+  }
+
   function openPay(member: MemberRow, payment: Payment | null) {
     setPayDialog({ member, payment });
     setPayForm({
@@ -531,6 +557,7 @@ export function TrainerClient({ staff, gymId, members, selfMembers, payments: in
                   <th className="text-right px-4 py-3 text-xs font-semibold text-primary/70 uppercase tracking-wider">My Cut</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden lg:table-cell">Paid On</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Check In</th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Action</th>
                 </tr>
               </thead>
@@ -581,42 +608,33 @@ export function TrainerClient({ staff, gymId, members, selfMembers, payments: in
                         </div>
                       </td>
                       <td className="px-4 py-3 text-center">
-                        {payment ? (
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${
-                            payment.status === "paid"     ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
-                            payment.status === "overdue"  ? "bg-rose-500/10 text-rose-400 border-rose-500/20" :
-                                                            "bg-primary/10 text-primary border-primary/20"
-                          }`}>
-                            {payment.status.charAt(0).toUpperCase() + payment.status.slice(1)}
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border bg-white/5 text-muted-foreground border-white/10">
-                            Unpaid
-                          </span>
-                        )}
+                        {(() => { const { label, cls } = paymentBadge(payment, selectedMonth); return (
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${cls}`}>{label}</span>
+                        ); })()}
                       </td>
                       <td className="px-4 py-3 hidden lg:table-cell">
                         <span className="text-sm text-muted-foreground">
                           {payment?.payment_date ? formatDate(payment.payment_date) : "—"}
                         </span>
                       </td>
+                      <td className="px-4 py-3 text-center">
+                        {checkedInToday.has(member.id) ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 whitespace-nowrap">
+                            <CheckCircle2 className="w-3 h-3" /> In
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={checkingIn === member.id}
+                            onClick={() => handleCheckIn(member.id)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground bg-white/[0.03] border border-white/10 hover:border-white/20 hover:bg-white/5 transition-colors disabled:opacity-50 whitespace-nowrap"
+                          >
+                            <LogIn className="w-3 h-3" /> Check In
+                          </button>
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-1.5">
-                          {checkedInToday.has(member.id) ? (
-                            <span title="Checked in today" className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20">
-                              <CheckCircle2 className="w-3 h-3" /> In
-                            </span>
-                          ) : (
-                            <button
-                              type="button"
-                              title="Check in"
-                              disabled={checkingIn === member.id}
-                              onClick={() => handleCheckIn(member.id)}
-                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground bg-white/[0.03] border border-white/10 hover:border-white/20 hover:bg-white/5 transition-colors disabled:opacity-50"
-                            >
-                              <LogIn className="w-3 h-3" /> Check In
-                            </button>
-                          )}
                           {staff.can_add_members && (
                             <button
                               type="button"
@@ -628,18 +646,29 @@ export function TrainerClient({ staff, gymId, members, selfMembers, payments: in
                             </button>
                           )}
                           {isPaid ? (
-                            <span className="flex items-center gap-1 text-xs text-emerald-400 font-medium px-2">
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Paid
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20">
+                              <CheckCircle2 className="w-3 h-3" /> Paid
                             </span>
                           ) : (
-                            <Button
-                              size="sm"
-                              className="h-7 text-xs gap-1 bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20"
-                              variant="ghost"
-                              onClick={() => openPay(member, payment)}
-                            >
-                              <CheckCircle2 className="w-3 h-3" /> Pay
-                            </Button>
+                            <>
+                              {member.phone && (
+                                <button
+                                  type="button"
+                                  title="Send WhatsApp reminder"
+                                  onClick={() => sendReminder(member)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors whitespace-nowrap"
+                                >
+                                  <MessageCircle className="w-3 h-3" /> Remind
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => openPay(member, payment)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors whitespace-nowrap"
+                              >
+                                <CheckCircle2 className="w-3 h-3" /> Pay
+                              </button>
+                            </>
                           )}
                         </div>
                       </td>
@@ -699,19 +728,9 @@ export function TrainerClient({ staff, gymId, members, selfMembers, payments: in
                             <span className="font-medium text-foreground">{formatCurrency(member.monthly_fee)}</span>
                           </td>
                           <td className="px-4 py-3 text-center">
-                            {payment ? (
-                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${
-                                payment.status === "paid"     ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
-                                payment.status === "overdue"  ? "bg-rose-500/10 text-rose-400 border-rose-500/20" :
-                                                                "bg-primary/10 text-primary border-primary/20"
-                              }`}>
-                                {payment.status.charAt(0).toUpperCase() + payment.status.slice(1)}
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border bg-white/5 text-muted-foreground border-white/10">
-                                Unpaid
-                              </span>
-                            )}
+                            {(() => { const { label, cls } = paymentBadge(payment, selectedMonth); return (
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${cls}`}>{label}</span>
+                            ); })()}
                           </td>
                           <td className="px-4 py-3 hidden lg:table-cell">
                             <span className="text-sm text-muted-foreground">
@@ -729,18 +748,29 @@ export function TrainerClient({ staff, gymId, members, selfMembers, payments: in
                                 <Pencil className="w-3.5 h-3.5" />
                               </button>
                               {isPaid ? (
-                                <span className="flex items-center gap-1 text-xs text-emerald-400 font-medium px-2">
-                                  <CheckCircle2 className="w-3.5 h-3.5" /> Paid
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20">
+                                  <CheckCircle2 className="w-3 h-3" /> Paid
                                 </span>
                               ) : (
-                                <Button
-                                  size="sm"
-                                  className="h-7 text-xs gap-1 bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20"
-                                  variant="ghost"
-                                  onClick={() => openPay(member, payment)}
-                                >
-                                  <CheckCircle2 className="w-3 h-3" /> Pay
-                                </Button>
+                                <>
+                                  {member.phone && (
+                                    <button
+                                      type="button"
+                                      title="Send WhatsApp reminder"
+                                      onClick={() => sendReminder(member)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors whitespace-nowrap"
+                                    >
+                                      <MessageCircle className="w-3 h-3" /> Remind
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => openPay(member, payment)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors whitespace-nowrap"
+                                  >
+                                    <CheckCircle2 className="w-3 h-3" /> Pay
+                                  </button>
+                                </>
                               )}
                             </div>
                           </td>

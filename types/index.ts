@@ -437,6 +437,8 @@ export interface Bill {
   status: BillStatus;
   notes: string | null;
   condition: BillCondition | null;
+  reminder_days: number;
+  late_fee: number;
   created_at: string;
 }
 
@@ -518,6 +520,7 @@ export interface DashboardStats {
   monthly_outstanding: number;
   monthly_expenses: number;
   monthly_salaries: number;
+  monthly_paid_bills: number;
   net_profit: number;
   unpaid_bills: number;
   unpaid_bills_amount: number;

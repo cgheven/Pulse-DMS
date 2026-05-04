@@ -47,9 +47,10 @@ const PRESETS: { icon: string; label: string; category: BillCategory }[] = [
 
 const emptyForm = {
   title: "", category: "electricity" as BillCategory,
-  amount: "", due_date: formatDateInput(new Date()),
+  amount: "", late_fee: "0", due_date: formatDateInput(new Date()),
   paid_date: "", status: "unpaid" as BillStatus, notes: "",
   condition: "" as BillCondition | "",
+  reminder_days: "5",
 };
 
 interface Props {
@@ -104,6 +105,8 @@ export function BillsClient({ gymId, bills: initialBills }: Props) {
       notes: form.notes || null,
       // Condition only meaningful for equipment purchases — clear for all other categories.
       condition: form.category === "equipment" ? (form.condition || null) : null,
+      late_fee: parseInt(form.late_fee) || 0,
+      reminder_days: parseInt(form.reminder_days) || 0,
     };
     const { error } = editing
       ? await supabase.from("pulse_bills").update(payload).eq("id", editing.id)
@@ -129,8 +132,8 @@ export function BillsClient({ gymId, bills: initialBills }: Props) {
   }
 
   const totals = useMemo(() => ({
-    unpaid:  bills.filter((b) => b.status !== "paid").reduce((s, b) => s + Number(b.amount), 0),
-    paid:    bills.filter((b) => b.status === "paid").reduce((s, b) => s + Number(b.amount), 0),
+    unpaid:  bills.filter((b) => b.status !== "paid").reduce((s, b) => s + Number(b.amount) + Number(b.late_fee), 0),
+    paid:    bills.filter((b) => b.status === "paid").reduce((s, b) => s + Number(b.amount) + Number(b.late_fee), 0),
     overdue: bills.filter((b) => b.status === "overdue").length,
   }), [bills]);
 
@@ -272,9 +275,16 @@ export function BillsClient({ gymId, bills: initialBills }: Props) {
                       </td>
                       {/* Due date */}
                       <td className="px-4 py-3 hidden md:table-cell">
-                        <span className={`text-sm ${bill.status === "overdue" ? "text-rose-400 font-medium" : "text-muted-foreground"}`}>
-                          {formatDate(bill.due_date)}
-                        </span>
+                        <div className="flex flex-col gap-1">
+                          <span className={`text-sm ${bill.status === "overdue" ? "text-rose-400 font-medium" : "text-muted-foreground"}`}>
+                            {formatDate(bill.due_date)}
+                          </span>
+                          {bill.reminder_days > 0 && bill.status !== "paid" && (
+                            <span className="text-[10px] text-amber-400/70">
+                              🔔 {bill.reminder_days}d reminder
+                            </span>
+                          )}
+                        </div>
                       </td>
                       {/* Paid date */}
                       <td className="px-4 py-3 hidden lg:table-cell">
@@ -284,7 +294,14 @@ export function BillsClient({ gymId, bills: initialBills }: Props) {
                       </td>
                       {/* Amount */}
                       <td className="px-4 py-3 text-right">
-                        <span className="font-semibold text-foreground">{formatCurrency(bill.amount)}</span>
+                        {bill.late_fee > 0 ? (
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span className="font-semibold text-foreground">{formatCurrency(bill.amount + bill.late_fee)}</span>
+                            <span className="text-[10px] text-rose-400/80">{formatCurrency(bill.amount)} + {formatCurrency(bill.late_fee)} late fee</span>
+                          </div>
+                        ) : (
+                          <span className="font-semibold text-foreground">{formatCurrency(bill.amount)}</span>
+                        )}
                       </td>
                       {/* Actions — always visible (hover-only is broken on touch) */}
                       <td className="px-4 py-3 text-right">
@@ -300,11 +317,13 @@ export function BillsClient({ gymId, bills: initialBills }: Props) {
                               title: bill.title,
                               category: bill.category,
                               amount: bill.amount.toString(),
+                              late_fee: String(bill.late_fee ?? 0),
                               due_date: bill.due_date,
                               paid_date: bill.paid_date ?? "",
                               status: bill.status,
                               notes: bill.notes ?? "",
                               condition: bill.condition ?? "",
+                              reminder_days: String(bill.reminder_days ?? 5),
                             });
                             setDialogOpen(true);
                           }}>
@@ -355,6 +374,18 @@ export function BillsClient({ gymId, bills: initialBills }: Props) {
                 <Input type="number" placeholder="0" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
               </div>
             </div>
+            <div className="space-y-1.5">
+              <Label>Late Fee / Penalty (PKR)</Label>
+              <div className="flex items-center gap-3">
+                <Input type="number" min="0" placeholder="0" value={form.late_fee} onChange={(e) => setForm({ ...form, late_fee: e.target.value })} className="w-36" />
+                {parseInt(form.late_fee) > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Total payable: <span className="font-semibold text-foreground">{formatCurrency((parseFloat(form.amount) || 0) + (parseInt(form.late_fee) || 0))}</span>
+                    <span className="text-rose-400/80 ml-1">(+{formatCurrency(parseInt(form.late_fee))} penalty)</span>
+                  </p>
+                )}
+              </div>
+            </div>
             {form.category === "equipment" && (
               <div className="space-y-1.5">
                 <Label>Condition</Label>
@@ -382,6 +413,22 @@ export function BillsClient({ gymId, bills: initialBills }: Props) {
                     <SelectItem value="overdue">Overdue</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Reminder (days before due)</Label>
+              <div className="flex items-center gap-3">
+                <Input
+                  type="number" min="0" max="30"
+                  value={form.reminder_days}
+                  onChange={(e) => setForm({ ...form, reminder_days: e.target.value })}
+                  className="w-24"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {parseInt(form.reminder_days) > 0
+                    ? `Alert on dashboard ${form.reminder_days} day${parseInt(form.reminder_days) !== 1 ? "s" : ""} before due date`
+                    : "No reminder — bill won't appear until overdue"}
+                </p>
               </div>
             </div>
             {form.status === "paid" && (

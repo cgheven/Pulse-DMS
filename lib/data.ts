@@ -89,12 +89,13 @@ async function _fetchDashboard(gymId: string, gym: Gym | null) {
     paidReferralsRes,
     pendingSocialRes,
     paidSocialRes,
+    paidBillsRes,
   ] = await Promise.all([
     supabase.from("pulse_members").select("id, full_name, status, monthly_fee, plan_expiry_date").eq("gym_id", gymId),
     supabase.from("pulse_check_ins").select("id").eq("gym_id", gymId).gte("checked_in_at", `${todayStr}T00:00:00`).lte("checked_in_at", `${todayStr}T23:59:59`),
     supabase.from("pulse_expenses").select("amount").eq("gym_id", gymId).gte("date", start).lte("date", end),
     supabase.from("pulse_salary_payments").select("total_amount").eq("gym_id", gymId).eq("for_month", currentMonthKey).eq("status", "paid"),
-    supabase.from("pulse_bills").select("id,gym_id,title,category,amount,due_date,paid_date,status,notes,condition,created_at").eq("gym_id", gymId).neq("status", "paid").order("due_date").limit(5),
+    supabase.from("pulse_bills").select("id,gym_id,title,category,amount,late_fee,due_date,paid_date,status,notes,condition,reminder_days,created_at").eq("gym_id", gymId).neq("status", "paid").order("due_date").limit(10),
     supabase.from("pulse_payments").select("total_amount").eq("gym_id", gymId).gte("payment_date", start).lte("payment_date", end).eq("status", "paid"),
     supabase.from("pulse_payments").select("for_period,total_amount,status,payment_date").eq("gym_id", gymId).gte("payment_date", ranges[0].start).lte("payment_date", ranges[5].end),
     supabase.from("pulse_expenses").select("amount,date").eq("gym_id", gymId).gte("date", ranges[0].start).lte("date", ranges[5].end),
@@ -109,6 +110,7 @@ async function _fetchDashboard(gymId: string, gym: Gym | null) {
     supabase.from("pulse_referrals").select("commission_amount").eq("gym_id", gymId).eq("status", "paid").gte("paid_at", start).lte("paid_at", end),
     supabase.from("pulse_social_leads").select("commission_amount").eq("gym_id", gymId).in("status", ["pending_review", "pending_payment"]),
     supabase.from("pulse_social_leads").select("commission_amount").eq("gym_id", gymId).eq("status", "paid").gte("paid_at", start).lte("paid_at", end),
+    supabase.from("pulse_bills").select("amount,late_fee").eq("gym_id", gymId).eq("status", "paid").gte("paid_date", start).lte("paid_date", end),
   ]);
 
   const members = membersRes.data ?? [];
@@ -127,6 +129,7 @@ async function _fetchDashboard(gymId: string, gym: Gym | null) {
   const monthlyExpenses = (expensesRes.data ?? []).reduce((s, e) => s + Number(e.amount), 0);
   const monthlySalaries = (salariesRes.data ?? []).reduce((s, e) => s + Number(e.total_amount), 0);
   const monthlyCollected = (collectedPaymentsRes.data ?? []).reduce((s, e) => s + Number(e.total_amount), 0);
+  const monthlyPaidBills = (paidBillsRes.data ?? []).reduce((s, b) => s + Number(b.amount) + Number(b.late_fee), 0);
 
   const unpaidBills = unpaidBillsRes.data ?? [];
   const monthlyRevenue = activeMembers.reduce((s, m) => s + Number(m.monthly_fee), 0);
@@ -170,9 +173,10 @@ async function _fetchDashboard(gymId: string, gym: Gym | null) {
     monthly_outstanding: monthlyOutstanding,
     monthly_expenses: monthlyExpenses,
     monthly_salaries: monthlySalaries,
-    net_profit: monthlyCollected - monthlyExpenses - monthlySalaries,
+    monthly_paid_bills: monthlyPaidBills,
+    net_profit: monthlyCollected - monthlyExpenses - monthlySalaries - monthlyPaidBills,
     unpaid_bills: unpaidBills.length,
-    unpaid_bills_amount: unpaidBills.reduce((s, b) => s + Number(b.amount), 0),
+    unpaid_bills_amount: unpaidBills.reduce((s, b) => s + Number(b.amount) + Number(b.late_fee), 0),
     expiring_this_week: expiringThisWeek.length,
     revenue_target: gym?.monthly_revenue_target ?? 0,
     pending_commissions_amount: (pendingReferralsRes.data ?? []).reduce((s, r) => s + Number(r.commission_amount), 0),
@@ -183,7 +187,7 @@ async function _fetchDashboard(gymId: string, gym: Gym | null) {
     paid_social_commissions_this_month: (paidSocialRes.data ?? []).reduce((s, r) => s + Number(r.commission_amount), 0),
   };
   // Recalculate net profit to include paid partner + social commissions this month
-  stats.net_profit = stats.monthly_collected - stats.monthly_expenses - stats.monthly_salaries - stats.paid_commissions_this_month - stats.paid_social_commissions_this_month;
+  stats.net_profit = stats.monthly_collected - stats.monthly_expenses - stats.monthly_salaries - stats.monthly_paid_bills - stats.paid_commissions_this_month - stats.paid_social_commissions_this_month;
 
   const trainers = trainersRes.data ?? [];
   const assignedMembers = assignedMembersRes.data ?? [];
@@ -429,7 +433,7 @@ export const getTrainerContext = cache(async () => {
 
   const { data: staff } = await supabase
     .from("pulse_staff")
-    .select("*, gym:pulse_gyms(name)")
+    .select("*, gym:pulse_gyms(name,reminder_template,payment_methods)")
     .eq("user_id", user.id)
     .single();
 
@@ -549,9 +553,18 @@ export async function getTrainerPageData() {
   const bodyMetrics = (metricsRes.data ?? []) as BodyMetric[];
   const metricSkips = (skipsRes.data ?? []) as MetricSkip[];
 
+  const { data: gymData } = await createAdminClient()
+    .from("pulse_gyms")
+    .select("name,reminder_template,payment_methods")
+    .eq("id", gymId)
+    .single();
+
   return {
     staff: ctx.staff,
     gymId,
+    gymName: gymData?.name ?? "",
+    reminderTemplate: gymData?.reminder_template ?? null,
+    paymentMethods: (gymData?.payment_methods ?? []) as import("@/types").PaymentMethodAccount[],
     members: (members ?? []) as unknown as (Pick<Member, "id" | "full_name" | "member_number" | "phone" | "email" | "cnic" | "gender" | "date_of_birth" | "emergency_contact" | "address" | "monthly_fee" | "admission_fee" | "plan_id" | "assigned_trainer_id" | "assigned_shift_id" | "status" | "plan_expiry_date" | "outstanding_balance" | "join_date" | "notes"> & { plan?: { name: string } | null })[],
     selfMembers: (selfRes.data ?? []) as unknown as (Pick<Member, "id" | "full_name" | "member_number" | "phone" | "email" | "cnic" | "gender" | "date_of_birth" | "emergency_contact" | "address" | "monthly_fee" | "admission_fee" | "plan_id" | "assigned_trainer_id" | "assigned_shift_id" | "status" | "plan_expiry_date" | "outstanding_balance" | "join_date" | "notes"> & { plan?: { name: string } | null })[],
     payments: (paymentsRes.data ?? []) as Payment[],
@@ -774,7 +787,7 @@ export async function getBills() {
   const ctx = await getAuthContext();
   if (!ctx?.gymId) return { gymId: null, bills: [] };
   const { supabase, gymId } = ctx;
-  const { data } = await supabase.from("pulse_bills").select("*").eq("gym_id", gymId).order("due_date", { ascending: false });
+  const { data } = await supabase.from("pulse_bills").select("id,gym_id,title,category,amount,late_fee,due_date,paid_date,status,notes,condition,reminder_days,created_at").eq("gym_id", gymId).order("due_date", { ascending: false });
   return { gymId, bills: (data as Bill[]) ?? [] };
 }
 
