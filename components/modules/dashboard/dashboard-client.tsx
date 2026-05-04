@@ -16,6 +16,17 @@ const ExpenseChart = dynamic(
 
 interface ExpiringMember { id: string; name: string; plan_expiry_date: string; days_left: number }
 
+type ActionItem = {
+  key: string;
+  icon: React.ElementType;
+  color: string;
+  bg: string;
+  text: string;
+  action: string;
+  href: string;
+  urgency: number;
+};
+
 interface LeadsSummary {
   open: number;
   overdue: number;
@@ -58,7 +69,7 @@ export function DashboardClient({ data, leadsSummary }: Props) {
 
   // Unified action items — sorted by urgency, capped to keep UI compact
   const ACTION_LIMIT = 12;
-  const allActionItems = [
+  const allActionItems: ActionItem[] = [
     ...expiringMembers.map((m) => ({
       key: `exp-${m.id}`,
       icon: AlertTriangle,
@@ -81,8 +92,8 @@ export function DashboardClient({ data, leadsSummary }: Props) {
     })),
     ...(() => {
       const todayMs = new Date().setHours(0, 0, 0, 0);
-      const overdue: typeof allActionItems = [];
-      const upcoming: typeof allActionItems = [];
+      const overdue: ActionItem[] = [];
+      const upcoming: ActionItem[] = [];
       for (const b of upcomingBills) {
         if (b.status === "paid") continue;
         const dueMs = new Date(b.due_date).setHours(0, 0, 0, 0);

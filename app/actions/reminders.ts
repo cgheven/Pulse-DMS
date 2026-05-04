@@ -12,7 +12,6 @@ interface SaveReminderInput {
 export async function saveReminderSettings(input: SaveReminderInput) {
   const ctx = await getAuthContext();
   if (!ctx?.gymId) return { error: "Unauthorized" };
-  if (ctx.profile?.role === "trainer") return { error: "Trainers cannot edit payment settings." };
   if (ctx.isDemo) return { error: "Demo mode — sign up to make changes." };
 
   const admin = createAdminClient();
