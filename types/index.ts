@@ -33,7 +33,7 @@ export type IssueStatus = "open" | "in_progress" | "resolved";
 export type ClassScheduleType = "one_time" | "recurring";
 export type ClassBookingStatus = "booked" | "attended" | "cancelled" | "no_show";
 export type PTSessionStatus = "scheduled" | "completed" | "cancelled" | "no_show";
-export type CheckInMethod = "manual" | "qr" | "app";
+export type CheckInMethod = "manual" | "qr" | "app" | "device";
 export type GymType = "general" | "ladies_only" | "mens_only" | "crossfit" | "martial_arts" | "yoga" | "mixed";
 export type ProspectStatus = "pending" | "visited" | "onboarded" | "rejected";
 
@@ -103,6 +103,8 @@ export interface Gym {
   } | null;
   reminder_template: string | null;
   payment_methods: PaymentMethodAccount[];
+  device_serial: string | null;
+  device_last_seen: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -251,6 +253,7 @@ export interface Member {
   emergency_contact: string | null;
   emergency_phone: string | null;
   medical_notes: string | null;
+  device_user_id: string | null;
   join_date: string;
   plan_start_date: string | null;
   plan_expiry_date: string | null;
@@ -324,6 +327,7 @@ export interface Staff {
   notes: string | null;
   user_id: string | null;
   can_add_members: boolean;
+  member_capacity: number;
   created_at: string;
   updated_at: string;
 }
@@ -571,6 +575,23 @@ export interface TrainerReportRow {
   totalCost: number;
   netContribution: number;
   salaryGenerated: boolean;
+}
+
+export interface TrainerFlowMonth {
+  month: string;
+  monthKey: string;
+  gained: number;
+  lost: number;
+  net: number;
+}
+
+export interface TrainerFlowRow {
+  id: string;
+  name: string;
+  months: TrainerFlowMonth[];
+  avgGained: number;
+  avgLost: number;
+  avgNet: number;
 }
 
 export interface ExpiringMember {

@@ -9,7 +9,7 @@ import type {
   Expense, Bill, Staff, SalaryPayment, CheckIn, GymClass,
   DashboardStats, DashboardMember, RevenueMonth, AgingBucket, TrainerStat,
   MemberGoal, GoalProgressEntry, BodyMetric, MetricSkip, Lead, LeadActivity,
-  Referrer, SocialManager, SocialLead, TrainerReportRow, MemberReportSummary,
+  Referrer, SocialManager, SocialLead, TrainerReportRow, TrainerFlowRow, MemberReportSummary,
   DefaulterRow, PlanDistributionRow,
 } from "@/types";
 
@@ -581,22 +581,25 @@ export async function getTrainerPageData() {
 
 export async function getCheckIns() {
   const ctx = await getAuthContext();
-  if (!ctx?.gymId) return { gymId: null, checkIns: [], members: [] };
+  if (!ctx?.gymId) return { gymId: null, checkIns: [], members: [], unlinked: [] };
   const { supabase, gymId } = ctx;
 
   const today = formatDateInput(new Date());
-  const [{ data: checkIns }, { data: members }] = await Promise.all([
+  const [{ data: checkIns }, { data: members }, { data: unlinked }] = await Promise.all([
     supabase.from("pulse_check_ins")
-      .select("*, member:pulse_members(full_name,photo_url,member_number,status,assigned_trainer_id,trainer:pulse_staff(full_name))")
+      .select("*, member:pulse_members(full_name,photo_url,member_number,status,plan_expiry_date,outstanding_balance,assigned_trainer_id,trainer:pulse_staff(full_name))")
       .eq("gym_id", gymId)
       .gte("checked_in_at", `${today}T00:00:00`)
       .order("checked_in_at", { ascending: false }),
-    // Only PT clients (members with an assigned trainer) — SELF members aren't attendance-tracked.
     supabase.from("pulse_members")
       .select("id,full_name,member_number,photo_url,status,plan_expiry_date,assigned_trainer_id,trainer:pulse_staff(full_name)")
       .eq("gym_id", gymId)
       .eq("status", "active")
       .not("assigned_trainer_id", "is", null),
+    supabase.from("pulse_unlinked_punches")
+      .select("id,device_user_id,device_serial,punched_at")
+      .eq("gym_id", gymId)
+      .order("punched_at", { ascending: false }),
   ]);
 
   // Filter check-ins to PT clients only (drop SELF check-ins from owner view).
@@ -609,6 +612,7 @@ export async function getCheckIns() {
     gymId,
     checkIns: ptCheckIns as CheckIn[],
     members: (members ?? []) as Pick<Member, "id" | "full_name" | "member_number" | "photo_url" | "status" | "plan_expiry_date">[],
+    unlinked: (unlinked ?? []) as { id: string; device_user_id: string; device_serial: string; punched_at: string }[],
   };
 }
 
@@ -978,6 +982,30 @@ async function _fetchReports(gymId: string) {
     };
   }).sort((a, b) => b.netContribution - a.netContribution);
 
+  // ── Trainer member flow (gained/lost per month) ────────
+  const CHURN_STATUSES = ["expired", "cancelled", "defaulter"];
+  const trainerFlow: TrainerFlowRow[] = trainers.map((t) => {
+    const months = ranges.map(({ month, monthKey, start, end }) => {
+      const gained = members.filter(
+        (m) => m.assigned_trainer_id === t.id && m.join_date >= start && m.join_date <= end
+      ).length;
+      const lost = members.filter(
+        (m) =>
+          m.assigned_trainer_id === t.id &&
+          CHURN_STATUSES.includes(m.status) &&
+          m.plan_expiry_date &&
+          m.plan_expiry_date >= start &&
+          m.plan_expiry_date <= end
+      ).length;
+      return { month, monthKey, gained, lost, net: gained - lost };
+    });
+    const last6      = months.slice(-6);
+    const avgGained  = Math.round(last6.reduce((s, m) => s + m.gained, 0) / 6 * 10) / 10;
+    const avgLost    = Math.round(last6.reduce((s, m) => s + m.lost,   0) / 6 * 10) / 10;
+    const avgNet     = Math.round((avgGained - avgLost) * 10) / 10;
+    return { id: t.id, name: t.full_name, months, avgGained, avgLost, avgNet };
+  });
+
   // ── Member summary ─────────────────────────────────────
   const thisMonthStart = ranges[11].start;
   const lastMonthStart = ranges[10].start;
@@ -1052,7 +1080,7 @@ async function _fetchReports(gymId: string) {
     planDistribution,
   };
 
-  return { revenueByMonth, aging, trainerRows, memberSummary };
+  return { revenueByMonth, aging, trainerRows, trainerFlow, memberSummary };
 }
 
 export async function getReportsData() {
@@ -1369,29 +1397,34 @@ export async function getComplianceSettingsForGym(gymId: string) {
 
 export async function getSmartEarnData() {
   const ctx = await getAuthContext();
-  if (!ctx?.gymId) return { gymId: null, trainers: [], members: [], plans: [] };
+  if (!ctx?.gymId) return { gymId: null, trainers: [], members: [], plans: [], defaultTrainerCapacity: 20 };
   const admin = createAdminClient();
-  const [trainersRes, membersRes, plansRes] = await Promise.all([
+  const [trainersRes, membersRes, plansRes, gymRes] = await Promise.all([
     admin.from("pulse_staff")
-      .select("id,full_name,commission_percentage,commission_floor")
+      .select("id,full_name,commission_percentage,commission_floor,member_capacity")
       .eq("gym_id", ctx.gymId)
       .eq("role", "trainer")
       .eq("status", "active")
       .order("full_name"),
     admin.from("pulse_members")
-      .select("id,assigned_trainer_id,plan_id,monthly_fee,join_date,plan_expiry_date,status,updated_at")
+      .select("id,full_name,member_number,assigned_trainer_id,plan_id,monthly_fee,join_date,plan_expiry_date,status,updated_at")
       .eq("gym_id", ctx.gymId),
     admin.from("pulse_membership_plans")
       .select("id,name,price")
       .eq("gym_id", ctx.gymId)
       .eq("is_active", true)
       .order("price"),
+    admin.from("pulse_gyms")
+      .select("default_trainer_capacity")
+      .eq("id", ctx.gymId)
+      .single(),
   ]);
   return {
     gymId: ctx.gymId,
-    trainers: (trainersRes.data ?? []) as { id: string; full_name: string; commission_percentage: number | null; commission_floor: number | null }[],
-    members:  (membersRes.data  ?? []) as { id: string; assigned_trainer_id: string | null; plan_id: string | null; monthly_fee: number; join_date: string; plan_expiry_date: string | null; status: string; updated_at: string }[],
+    trainers: (trainersRes.data ?? []) as { id: string; full_name: string; commission_percentage: number | null; commission_floor: number | null; member_capacity: number }[],
+    members:  (membersRes.data  ?? []) as { id: string; full_name: string; member_number: string | null; assigned_trainer_id: string | null; plan_id: string | null; monthly_fee: number; join_date: string; plan_expiry_date: string | null; status: string; updated_at: string }[],
     plans:    (plansRes.data    ?? []) as { id: string; name: string; price: number }[],
+    defaultTrainerCapacity: (gymRes.data?.default_trainer_capacity ?? 20) as number,
   };
 }
 

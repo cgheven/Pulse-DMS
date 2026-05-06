@@ -31,6 +31,45 @@ const ALL_AMENITIES = [
   "Juice Bar", "Supplements Shop", "Kids Area", "Pro Shop",
 ];
 
+function DeviceStatusBadge({ lastSeen }: { lastSeen: string | null }) {
+  if (!lastSeen) {
+    return (
+      <p className="text-xs text-muted-foreground flex items-center gap-1.5 mt-1">
+        <span className="text-muted-foreground">●</span> Never connected
+      </p>
+    );
+  }
+
+  const diffMs = Date.now() - new Date(lastSeen).getTime();
+  const diffMins = diffMs / 60_000;
+  const diffHours = diffMs / 3_600_000;
+  const diffDays = diffMs / 86_400_000;
+
+  if (diffMins < 10) {
+    return (
+      <p className="text-xs text-emerald-600 flex items-center gap-1.5 mt-1">
+        <span>●</span> Connected
+      </p>
+    );
+  }
+
+  if (diffHours < 24) {
+    const h = Math.floor(diffHours);
+    return (
+      <p className="text-xs text-amber-500 flex items-center gap-1.5 mt-1">
+        <span>⚠</span> Last seen {h === 1 ? "1 hour" : `${h} hours`} ago
+      </p>
+    );
+  }
+
+  const d = Math.floor(diffDays);
+  return (
+    <p className="text-xs text-rose-500 flex items-center gap-1.5 mt-1">
+      <span>●</span> Inactive — last seen {d === 1 ? "1 day" : `${d} days`} ago
+    </p>
+  );
+}
+
 export function SettingsClient() {
   const { profile, gym, isDemo } = useGymContext();
   const gymId = gym?.id ?? null;
@@ -39,6 +78,7 @@ export function SettingsClient() {
     name: "", address: "", city: "", area: "", phone: "", email: "",
     monthly_revenue_target: "",
     default_trainer_capacity: "20",
+    device_serial: "",
   });
   const [listingForm, setListingForm] = useState({
     listing_enabled: false,
@@ -156,6 +196,7 @@ export function SettingsClient() {
         email: gym.email ?? "",
         monthly_revenue_target: gym.monthly_revenue_target?.toString() ?? "",
         default_trainer_capacity: ((gym as typeof gym & { default_trainer_capacity?: number }).default_trainer_capacity ?? 20).toString(),
+        device_serial: gym.device_serial ?? "",
       });
       const cs = (gym as typeof gym & { compliance_settings?: Record<string, unknown> | null }).compliance_settings;
       setDefaulterThreshold(Math.max(1, Math.min(6, (cs?.defaulter_threshold_months as number) ?? 2)));
@@ -194,6 +235,7 @@ export function SettingsClient() {
       email: gymForm.email || null,
       monthly_revenue_target: parseFloat(gymForm.monthly_revenue_target) || 0,
       default_trainer_capacity: Math.max(1, parseInt(gymForm.default_trainer_capacity) || 20),
+      device_serial: gymForm.device_serial.trim() || null,
     }).eq("id", gymId);
     if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
     else toast({ title: "Gym settings saved" });
@@ -372,6 +414,20 @@ export function SettingsClient() {
               <p className="text-xs text-muted-foreground">
                 Default max members per trainer for Profit Insights. Override per trainer in Trainers settings.
               </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Fingerprint Device Serial (SN)</Label>
+              <Input
+                placeholder="e.g. JJA1251000463"
+                value={gymForm.device_serial}
+                onChange={(e) => setGymForm({ ...gymForm, device_serial: e.target.value.toUpperCase() })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Found on the device label or Menu → System Info. Links your ZKTeco device to this gym.
+              </p>
+              {gym?.device_serial && (
+                <DeviceStatusBadge lastSeen={gym.device_last_seen ?? null} />
+              )}
             </div>
             <Button type="submit" disabled={savingGym} className="gap-2">
               {savingGym ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}

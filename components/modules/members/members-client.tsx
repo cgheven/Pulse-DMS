@@ -1,5 +1,6 @@
 "use client";
 import { useState, useMemo, useEffect, memo } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Plus, Users, Search, Edit2, Trash2,
   UserCheck, Clock, CalendarX,
@@ -93,6 +94,7 @@ const emptyForm = {
   emergency_phone: "",
   medical_notes: "",
   notes: "",
+  device_user_id: "",
   status: "active" as MemberStatus,
 };
 
@@ -283,6 +285,27 @@ export function MembersClient({
         setShifts(grouped);
       });
   }, [gymId]);
+  const searchParams = useSearchParams();
+  const [pendingDeviceUserId, setPendingDeviceUserId] = useState<string | null>(null);
+  const [pendingUnlinkedId, setPendingUnlinkedId] = useState<string | null>(null);
+
+  // Auto-open add dialog when navigated from unlinked punch banner
+  useEffect(() => {
+    const deviceUserId = searchParams.get("register_device_user");
+    const unlinkedId = searchParams.get("unlinked_id");
+    if (deviceUserId) {
+      setPendingDeviceUserId(deviceUserId);
+      setPendingUnlinkedId(unlinkedId);
+      setEditing(null);
+      setDialogOpen(true);
+      // Clean up URL params without full navigation
+      const url = new URL(window.location.href);
+      url.searchParams.delete("register_device_user");
+      url.searchParams.delete("unlinked_id");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, [searchParams]);
+
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState("active");
   const [trainerFilter, setTrainerFilter] = useState<string>("all");
@@ -484,6 +507,8 @@ export function MembersClient({
 
   function openAdd() {
     setEditing(null);
+    setPendingDeviceUserId(null);
+    setPendingUnlinkedId(null);
     setDialogOpen(true);
   }
 
@@ -1349,7 +1374,7 @@ export function MembersClient({
       {/* Add / Edit Dialog — isolated component so typing doesn't re-render the table */}
       <MemberFormDialog
         open={dialogOpen}
-        onOpenChange={setDialogOpen}
+        onOpenChange={(o) => { setDialogOpen(o); if (!o) { setPendingDeviceUserId(null); setPendingUnlinkedId(null); } }}
         editing={editing}
         existingMembers={[...active, ...frozen, ...onHold, ...defaulters, ...expired]}
         plans={plans}
@@ -1357,6 +1382,8 @@ export function MembersClient({
         shifts={shifts}
         referrers={referrers}
         gymId={gymId}
+        initialDeviceUserId={pendingDeviceUserId}
+        unlinkedPunchId={pendingUnlinkedId}
         onSaved={reload}
         onOpenExisting={(m) => { setEditing(m); /* keeps dialog open, switches to edit */ }}
       />
@@ -1435,6 +1462,8 @@ interface MemberFormDialogProps {
   shifts: Record<string, TrainerShift[]>;
   referrers: Pick<Referrer, "id" | "full_name" | "commission_type" | "commission_value">[];
   gymId: string | null;
+  initialDeviceUserId?: string | null;
+  unlinkedPunchId?: string | null;
   onSaved: () => void | Promise<void>;
   onOpenExisting: (m: Member) => void;
 }
@@ -1448,7 +1477,7 @@ function normalizePhone(raw: string | null | undefined): string {
 }
 
 function MemberFormDialog({
-  open, onOpenChange, editing, existingMembers, plans, staff, shifts, referrers, gymId, onSaved, onOpenExisting,
+  open, onOpenChange, editing, existingMembers, plans, staff, shifts, referrers, gymId, initialDeviceUserId, unlinkedPunchId, onSaved, onOpenExisting,
 }: MemberFormDialogProps) {
   const { isDemo } = useGymContext();
   const [form, setForm] = useState(emptyForm);
@@ -1527,12 +1556,13 @@ function MemberFormDialog({
         emergency_phone: editing.emergency_phone ?? "",
         medical_notes: editing.medical_notes ?? "",
         notes: editing.notes ?? "",
+        device_user_id: editing.device_user_id ?? "",
         status: editing.status,
       });
     } else {
-      setForm(emptyForm);
+      setForm({ ...emptyForm, device_user_id: initialDeviceUserId ?? "" });
     }
-  }, [open, editing]);
+  }, [open, editing, initialDeviceUserId]);
 
   function handlePlanChange(planId: string) {
     const plan = planMap[planId];
@@ -1603,6 +1633,7 @@ function MemberFormDialog({
       emergency_phone: form.emergency_phone || null,
       medical_notes: form.medical_notes || null,
       notes: form.notes || null,
+      device_user_id: form.device_user_id || null,
       status: form.status,
     };
 
@@ -1672,7 +1703,13 @@ function MemberFormDialog({
       }
     }
 
-    toast({ title: editing ? "Member updated" : "Member added" });
+    // If this registration came from an unlinked punch, remove it from the queue
+    if (!editing && unlinkedPunchId) {
+      await createClient().from("pulse_unlinked_punches").delete().eq("id", unlinkedPunchId);
+      toast({ title: "Member registered", description: "Device linked — future scans will check in automatically." });
+    } else {
+      toast({ title: editing ? "Member updated" : "Member added" });
+    }
     setSaving(false);
     onOpenChange(false);
     await onSaved();
@@ -1993,6 +2030,15 @@ function MemberFormDialog({
               <div className="space-y-1.5 sm:col-span-2">
                 <Label>Notes</Label>
                 <Input placeholder="Additional notes" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Device ID <span className="text-muted-foreground font-normal">(ZKTeco)</span></Label>
+                <Input
+                  placeholder="e.g. 1"
+                  value={form.device_user_id}
+                  onChange={(e) => setForm((f) => ({ ...f, device_user_id: e.target.value }))}
+                />
+                <p className="text-[11px] text-muted-foreground">User ID shown on device after fingerprint enrolment.</p>
               </div>
             </div>
           </div>

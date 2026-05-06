@@ -26,6 +26,8 @@ export interface GymWithOwner {
   phone: string | null;
   email: string | null;
   total_capacity: number;
+  device_serial: string | null;
+  device_last_seen: string | null;
   created_at: string;
   updated_at: string;
   owner_name: string | null;

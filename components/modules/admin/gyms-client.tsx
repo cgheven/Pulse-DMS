@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition, useMemo } from "react";
 import {
   Building2, Plus, Trash2, Edit2, Search, RefreshCw,
-  Users, Dumbbell,
+  Users, Dumbbell, Wifi, WifiOff, MonitorOff,
 } from "lucide-react";
 import {
   listAllGyms,
@@ -26,6 +26,61 @@ import { toast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/utils";
 
 type DialogMode = "create" | "edit" | "delete" | null;
+
+function DeviceStatusBadge({ serial, lastSeen }: { serial: string | null; lastSeen: string | null }) {
+  if (!serial) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+        <MonitorOff className="w-3 h-3" /> No Device
+      </span>
+    );
+  }
+
+  if (!lastSeen) {
+    return (
+      <div className="space-y-0.5">
+        <p className="text-xs font-mono text-muted-foreground">{serial}</p>
+        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+          <WifiOff className="w-3 h-3" /> Never connected
+        </span>
+      </div>
+    );
+  }
+
+  const diffMs = Date.now() - new Date(lastSeen).getTime();
+  const diffMins = diffMs / 60_000;
+  const diffHours = diffMs / 3_600_000;
+  const diffDays = diffMs / 86_400_000;
+
+  let label: string;
+  let colorClass: string;
+  let Icon: typeof Wifi;
+
+  if (diffMins < 10) {
+    label = "Online";
+    colorClass = "text-emerald-600";
+    Icon = Wifi;
+  } else if (diffHours < 24) {
+    const h = Math.floor(diffHours);
+    label = `${h}h ago`;
+    colorClass = "text-amber-500";
+    Icon = WifiOff;
+  } else {
+    const d = Math.floor(diffDays);
+    label = `${d}d ago`;
+    colorClass = "text-rose-500";
+    Icon = WifiOff;
+  }
+
+  return (
+    <div className="space-y-0.5">
+      <p className="text-xs font-mono text-muted-foreground">{serial}</p>
+      <span className={`inline-flex items-center gap-1 text-xs ${colorClass}`}>
+        <Icon className="w-3 h-3" /> {label}
+      </span>
+    </div>
+  );
+}
 
 const emptyCreate = { owner_id: "", name: "", address: "", phone: "", total_capacity: "" };
 const emptyEdit = { name: "", address: "", phone: "", email: "", total_capacity: "" };
@@ -250,6 +305,7 @@ export function GymsClient({ data: initialData }: Props) {
                       <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3">Gym</th>
                       <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3 hidden sm:table-cell">Owner</th>
                       <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3 hidden md:table-cell">Address</th>
+                      <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3 hidden lg:table-cell">Device</th>
                       <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3 hidden lg:table-cell">Created</th>
                       <th className="text-right text-xs font-medium text-muted-foreground px-4 py-3">Actions</th>
                     </tr>
@@ -280,6 +336,9 @@ export function GymsClient({ data: initialData }: Props) {
                           <p className="text-sm text-muted-foreground truncate max-w-[200px]">
                             {g.address || "—"}
                           </p>
+                        </td>
+                        <td className="px-4 py-3 hidden lg:table-cell">
+                          <DeviceStatusBadge serial={g.device_serial ?? null} lastSeen={g.device_last_seen ?? null} />
                         </td>
                         <td className="px-4 py-3 text-xs text-muted-foreground hidden lg:table-cell">
                           {formatDate(g.created_at)}

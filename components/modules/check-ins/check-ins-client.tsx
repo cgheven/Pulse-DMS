@@ -1,11 +1,11 @@
 "use client";
 import { useState, useMemo } from "react";
-import { LogIn, Search, X, CheckCircle2, Users } from "lucide-react";
+import { LogIn, Search, X, CheckCircle2, Users, RefreshCw, Cpu, UserPlus, ChevronRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/hooks/use-toast";
-import { formatDateInput } from "@/lib/utils";
+import { cn, formatDateInput } from "@/lib/utils";
 import type { CheckIn, Member } from "@/types";
 
 type MemberLite = Pick<Member, "id" | "full_name" | "member_number" | "photo_url" | "status" | "plan_expiry_date"> & {
@@ -16,25 +16,39 @@ type MemberLite = Pick<Member, "id" | "full_name" | "member_number" | "photo_url
 type CheckInRow = CheckIn & {
   member?: (NonNullable<CheckIn["member"]> & {
     assigned_trainer_id?: string | null;
+    plan_expiry_date?: string | null;
+    outstanding_balance?: number | null;
     trainer?: { full_name: string } | null;
   }) | null;
 };
+
+function paymentDue(member: CheckInRow["member"]): { due: boolean; reason: string } {
+  if (!member) return { due: false, reason: "" };
+  if (member.status === "defaulter") return { due: true, reason: "Defaulter" };
+  if ((member.outstanding_balance ?? 0) > 0) return { due: true, reason: `Rs. ${member.outstanding_balance} due` };
+  if (member.plan_expiry_date && new Date(member.plan_expiry_date) < new Date()) return { due: true, reason: "Plan expired" };
+  return { due: false, reason: "" };
+}
+
+type UnlinkedPunch = { id: string; device_user_id: string; device_serial: string; punched_at: string };
 
 interface Props {
   gymId: string | null;
   checkIns: CheckInRow[];
   members: MemberLite[];
+  unlinked: UnlinkedPunch[];
 }
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
 }
 
-export function CheckInsClient({ gymId, checkIns: initial, members }: Props) {
+export function CheckInsClient({ gymId, checkIns: initial, members, unlinked: initialUnlinked }: Props) {
   const [checkIns, setCheckIns] = useState<CheckInRow[]>(initial);
+  const [unlinked, setUnlinked] = useState<UnlinkedPunch[]>(initialUnlinked);
   const [search, setSearch] = useState("");
   const [marking, setMarking] = useState<string | null>(null);
-
+  const [registeringId, setRegisteringId] = useState<string | null>(null);
   const checkedInIds = useMemo(() => new Set(checkIns.map((c) => c.member_id)), [checkIns]);
 
   const matches = useMemo(() => {
@@ -92,13 +106,64 @@ export function CheckInsClient({ gymId, checkIns: initial, members }: Props) {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-serif font-normal tracking-tight">Check-ins</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          {new Date(today).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
-          <span className="ml-2 text-xs text-muted-foreground/60">· PT clients only</span>
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-serif font-normal tracking-tight">Check-ins</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            {new Date(today).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+            <span className="ml-2 text-xs text-muted-foreground/60">· PT clients only</span>
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => window.location.reload()}
+          className="shrink-0 gap-2"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Refresh
+        </Button>
       </div>
+
+      {/* Unlinked punches — new member registration banner */}
+      {unlinked.length > 0 && (
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/[0.05] overflow-hidden">
+          <div className="px-5 py-3 border-b border-amber-500/20 flex items-center gap-2.5">
+            <UserPlus className="w-4 h-4 text-amber-400 shrink-0" />
+            <p className="text-sm font-semibold text-amber-400">
+              {unlinked.length} new person{unlinked.length !== 1 ? "s" : ""} scanned — complete their registration
+            </p>
+          </div>
+          <div className="divide-y divide-amber-500/10">
+            {unlinked.map((u) => (
+              <div key={u.id} className="px-5 py-3 flex items-center gap-4">
+                <div className="w-9 h-9 rounded-full bg-amber-500/15 border border-amber-500/25 flex items-center justify-center shrink-0">
+                  <Cpu className="w-4 h-4 text-amber-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground">Device User #{u.device_user_id}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Scanned at {new Date(u.punched_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })}
+                    {" · "}{u.device_serial}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  className="shrink-0 gap-1.5 bg-amber-500/15 border border-amber-500/30 text-amber-400 hover:bg-amber-500/25 hover:text-amber-300"
+                  variant="outline"
+                  disabled={registeringId === u.id}
+                  onClick={() => {
+                    setRegisteringId(u.id);
+                    window.location.href = `/members?register_device_user=${u.device_user_id}&unlinked_id=${u.id}`;
+                  }}
+                >
+                  Register Member <ChevronRight className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
@@ -159,9 +224,11 @@ export function CheckInsClient({ gymId, checkIns: initial, members }: Props) {
             <div className="rounded-lg border border-sidebar-border divide-y divide-sidebar-border/50 max-w-md">
               {matches.map((m) => {
                 const already = checkedInIds.has(m.id);
+                const hasDue = m.status === "defaulter" ||
+                  (m.plan_expiry_date != null && new Date(m.plan_expiry_date) < new Date());
                 return (
-                  <div key={m.id} className="flex items-center gap-3 px-3 py-2.5">
-                    <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center text-xs font-bold text-primary shrink-0">
+                  <div key={m.id} className={cn("flex items-center gap-3 px-3 py-2.5", hasDue && "bg-rose-500/[0.04]")}>
+                    <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0", hasDue ? "bg-rose-500/15 text-rose-400" : "bg-primary/15 text-primary")}>
                       {m.full_name[0]?.toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -170,6 +237,7 @@ export function CheckInsClient({ gymId, checkIns: initial, members }: Props) {
                         {m.member_number ? `#${m.member_number} · ` : ""}
                         {m.trainer?.full_name ?? "—"}
                       </p>
+                      {hasDue && <p className="text-[10px] font-semibold text-rose-400">⚠ Payment due</p>}
                     </div>
                     {already ? (
                       <span className="text-xs text-emerald-400 flex items-center gap-1">
@@ -214,14 +282,22 @@ export function CheckInsClient({ gymId, checkIns: initial, members }: Props) {
                 {checkIns.map((c) => {
                   const name = c.member?.full_name ?? "—";
                   const trainerName = c.member?.trainer?.full_name;
+                  const { due, reason } = paymentDue(c.member);
                   return (
-                    <tr key={c.id} className="hover:bg-white/[0.02] transition-colors">
+                    <tr key={c.id} className={cn("transition-colors", due ? "bg-rose-500/[0.04] hover:bg-rose-500/[0.07]" : "hover:bg-white/[0.02]")}>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center text-xs font-bold text-primary shrink-0">
+                          <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0", due ? "bg-rose-500/15 text-rose-400" : "bg-primary/15 text-primary")}>
                             {name[0]?.toUpperCase() ?? "?"}
                           </div>
-                          <p className="font-medium text-foreground">{name}</p>
+                          <div>
+                            <p className="font-medium text-foreground">{name}</p>
+                            {due && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-rose-400">
+                                ⚠ {reason}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td className="px-4 py-3 hidden sm:table-cell">
@@ -236,7 +312,13 @@ export function CheckInsClient({ gymId, checkIns: initial, members }: Props) {
                         <span className="text-sm font-medium text-foreground">{formatTime(c.checked_in_at)}</span>
                       </td>
                       <td className="px-4 py-3 text-right hidden md:table-cell">
-                        <span className="text-xs text-muted-foreground capitalize">{c.check_in_method}</span>
+                        {c.check_in_method === "device" ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-blue-400">
+                            <Cpu className="w-3 h-3" /> Device
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground capitalize">{c.check_in_method}</span>
+                        )}
                       </td>
                     </tr>
                   );
