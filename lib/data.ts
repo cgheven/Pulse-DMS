@@ -11,6 +11,8 @@ import type {
   MemberGoal, GoalProgressEntry, BodyMetric, MetricSkip, Lead, LeadActivity,
   Referrer, SocialManager, SocialLead, TrainerReportRow, TrainerFlowRow, MemberReportSummary,
   DefaulterRow, PlanDistributionRow,
+  InventoryItem, InventoryBatch, InventorySale, InventoryProfitSummary,
+  InventoryTopSeller, InventoryDeadStockItem, InventoryExpiringBatch,
 } from "@/types";
 
 export const getAuthContext = cache(async () => {
@@ -1421,5 +1423,207 @@ export async function getSmartEarnData() {
     plans:    (plansRes.data    ?? []) as { id: string; name: string; price: number }[],
     defaultTrainerCapacity: (gymRes.data?.default_trainer_capacity ?? 20) as number,
   };
+}
+
+// ── Inventory ────────────────────────────────────────────────────────────────
+
+async function _fetchInventory(gymId: string) {
+  const admin = createAdminClient();
+  const now = new Date();
+  const today = formatDateInput(now);
+  const in60Days = formatDateInput(new Date(now.getTime() + 60 * 86400000));
+  const startOfMonth = formatDateInput(new Date(now.getFullYear(), now.getMonth(), 1));
+  const startOfLastMonth = formatDateInput(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+  const endOfLastMonth = formatDateInput(new Date(now.getFullYear(), now.getMonth(), 0));
+  const startOfYear = formatDateInput(new Date(now.getFullYear(), 0, 1));
+
+  const [itemsRes, batchesRes, salesRes, expiringRes, members30Res] = await Promise.all([
+    admin.from("pulse_inventory_items")
+      .select("*")
+      .eq("gym_id", gymId)
+      .eq("archived", false)
+      .order("name"),
+    admin.from("pulse_inventory_batches")
+      .select("*")
+      .eq("gym_id", gymId)
+      .gt("quantity_remaining", 0)
+      .order("purchase_date", { ascending: true })
+      .limit(2000),
+    admin.from("pulse_inventory_sales")
+      .select("*, item:pulse_inventory_items(name, category), member:pulse_members(full_name), staff:pulse_staff(full_name)")
+      .eq("gym_id", gymId)
+      .gte("sold_at", startOfYear)
+      .order("sold_at", { ascending: false })
+      .limit(500),
+    admin.from("pulse_inventory_batches")
+      .select("id, item_id, quantity_remaining, expiry_date, item:pulse_inventory_items!inner(name, category)")
+      .eq("gym_id", gymId)
+      .gt("quantity_remaining", 0)
+      .not("expiry_date", "is", null)
+      .lte("expiry_date", in60Days)
+      .order("expiry_date", { ascending: true })
+      .limit(200),
+    admin.from("pulse_members")
+      .select("id, full_name, status")
+      .eq("gym_id", gymId)
+      .eq("status", "active")
+      .order("full_name")
+      .limit(500),
+  ]);
+
+  const items = (itemsRes.data ?? []) as InventoryItem[];
+  const batches = (batchesRes.data ?? []) as InventoryBatch[];
+  const sales = (salesRes.data ?? []) as InventorySale[];
+  // Supabase typing for joined "!inner" relations comes back as array; we know it's 1:1 here.
+  const expiringBatchesRaw = (expiringRes.data ?? []) as unknown as Array<{
+    id: string;
+    item_id: string;
+    quantity_remaining: number;
+    expiry_date: string;
+    item: { name: string; category: import("@/types").InventoryCategory } | { name: string; category: import("@/types").InventoryCategory }[] | null;
+  }>;
+
+  // Compute total_stock + earliest_expiry per item from batches
+  const stockByItem = new Map<string, number>();
+  const earliestExpiryByItem = new Map<string, string>();
+  for (const b of batches) {
+    stockByItem.set(b.item_id, (stockByItem.get(b.item_id) ?? 0) + b.quantity_remaining);
+    if (b.expiry_date) {
+      const cur = earliestExpiryByItem.get(b.item_id);
+      if (!cur || b.expiry_date < cur) earliestExpiryByItem.set(b.item_id, b.expiry_date);
+    }
+  }
+  const itemsWithStock = items.map((it) => ({
+    ...it,
+    total_stock: stockByItem.get(it.id) ?? 0,
+    earliest_expiry: earliestExpiryByItem.get(it.id) ?? null,
+  }));
+
+  // Low-stock items
+  const lowStockItems = itemsWithStock.filter((it) => (it.total_stock ?? 0) <= it.low_stock_threshold);
+
+  // Expiring batches with days until expiry
+  const expiringBatches: InventoryExpiringBatch[] = expiringBatchesRaw.map((b) => {
+    const itemRel = Array.isArray(b.item) ? b.item[0] : b.item;
+    const days = Math.round((new Date(b.expiry_date).getTime() - now.getTime()) / 86400000);
+    return {
+      batch_id: b.id,
+      item_id: b.item_id,
+      item_name: itemRel?.name ?? "Unknown",
+      category: itemRel?.category ?? "other",
+      quantity_remaining: b.quantity_remaining,
+      expiry_date: b.expiry_date,
+      days_until_expiry: days,
+    };
+  });
+
+  // Profit summary (this month / last month / YTD)
+  const summarize = (filtered: InventorySale[]) => {
+    const revenue = filtered.reduce((s, x) => s + Number(x.total_amount), 0);
+    const cost = filtered.reduce((s, x) => s + Number(x.total_cost), 0);
+    return { revenue, cost, profit: revenue - cost, sales_count: filtered.length };
+  };
+  const profitSummary: InventoryProfitSummary = {
+    thisMonth: summarize(sales.filter((s) => s.sold_at.slice(0, 10) >= startOfMonth)),
+    lastMonth: summarize(sales.filter((s) => s.sold_at.slice(0, 10) >= startOfLastMonth && s.sold_at.slice(0, 10) <= endOfLastMonth)),
+    ytd: summarize(sales),
+  };
+
+  // Top sellers (last 30 days)
+  const last30 = formatDateInput(new Date(now.getTime() - 30 * 86400000));
+  const recent = sales.filter((s) => s.sold_at.slice(0, 10) >= last30);
+  const sellerMap = new Map<string, InventoryTopSeller>();
+  for (const s of recent) {
+    const cur = sellerMap.get(s.item_id) ?? {
+      item_id: s.item_id,
+      name: s.item?.name ?? "Unknown",
+      category: s.item?.category ?? "other",
+      units_sold: 0,
+      total_revenue: 0,
+      total_profit: 0,
+    };
+    cur.units_sold += s.quantity;
+    cur.total_revenue += Number(s.total_amount);
+    cur.total_profit += Number(s.profit);
+    sellerMap.set(s.item_id, cur);
+  }
+  const topSellers = Array.from(sellerMap.values()).sort((a, b) => b.total_profit - a.total_profit).slice(0, 10);
+
+  // Dead stock — items with stock > 0 + no sale in 60 days
+  const lastSaleByItem = new Map<string, string>();
+  for (const s of sales) {
+    const cur = lastSaleByItem.get(s.item_id);
+    if (!cur || s.sold_at > cur) lastSaleByItem.set(s.item_id, s.sold_at);
+  }
+  const last60 = formatDateInput(new Date(now.getTime() - 60 * 86400000));
+  const stockCostByItem = new Map<string, number>();
+  for (const b of batches) {
+    stockCostByItem.set(b.item_id, (stockCostByItem.get(b.item_id) ?? 0) + b.quantity_remaining * Number(b.purchase_cost_per_unit));
+  }
+  const deadStock: InventoryDeadStockItem[] = itemsWithStock
+    .filter((it) => (it.total_stock ?? 0) > 0)
+    .map((it) => {
+      const lastSold = lastSaleByItem.get(it.id) ?? null;
+      const days = lastSold ? Math.round((now.getTime() - new Date(lastSold).getTime()) / 86400000) : null;
+      return {
+        item_id: it.id,
+        name: it.name,
+        category: it.category,
+        total_stock: it.total_stock ?? 0,
+        stock_value: stockCostByItem.get(it.id) ?? 0,
+        last_sold_at: lastSold,
+        days_since_sale: days,
+      };
+    })
+    .filter((d) => !d.last_sold_at || (d.last_sold_at && d.last_sold_at.slice(0, 10) < last60))
+    .sort((a, b) => b.stock_value - a.stock_value);
+
+  void today;
+
+  return {
+    items: itemsWithStock,
+    batches,
+    sales,
+    members: (members30Res.data ?? []) as { id: string; full_name: string; status: string }[],
+    lowStockItems,
+    expiringBatches,
+    deadStock,
+    topSellers,
+    profitSummary,
+  };
+}
+
+export async function getInventoryData() {
+  const ctx = await getAuthContext();
+  if (!ctx?.gymId) {
+    return {
+      gymId: null,
+      isOwner: false,
+      items: [], batches: [], sales: [], members: [],
+      lowStockItems: [], expiringBatches: [], deadStock: [], topSellers: [],
+      profitSummary: {
+        thisMonth: { revenue: 0, cost: 0, profit: 0, sales_count: 0 },
+        lastMonth: { revenue: 0, cost: 0, profit: 0, sales_count: 0 },
+        ytd: { revenue: 0, cost: 0, profit: 0, sales_count: 0 },
+      },
+    };
+  }
+
+  // Determine if current user is the gym owner (vs staff with access)
+  const admin = createAdminClient();
+  const { data: gymRow } = await admin
+    .from("pulse_gyms")
+    .select("owner_id")
+    .eq("id", ctx.gymId)
+    .single();
+  const isOwner = gymRow?.owner_id === ctx.user.id;
+
+  const data = await unstable_cache(
+    () => _fetchInventory(ctx.gymId as string),
+    ["inventory", ctx.gymId],
+    { revalidate: 60, tags: [`inventory-${ctx.gymId}`] }
+  )();
+
+  return { gymId: ctx.gymId, isOwner, ...data };
 }
 

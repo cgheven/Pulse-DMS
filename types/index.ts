@@ -790,3 +790,102 @@ export interface LeadActivity {
   created_by: string | null;
   created_at: string;
 }
+
+// ── Inventory ──────────────────────────────────────────────────────────────
+export type InventoryCategory = "supplements" | "beverages" | "snacks" | "gear" | "apparel" | "other";
+
+export interface InventoryItem {
+  id: string;
+  gym_id: string;
+  name: string;
+  category: InventoryCategory;
+  sale_price: number;
+  low_stock_threshold: number;
+  expiry_tracked: boolean;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
+  // computed (not in DB, derived in fetcher):
+  total_stock?: number;
+  earliest_expiry?: string | null;
+}
+
+export interface InventoryBatch {
+  id: string;
+  gym_id: string;
+  item_id: string;
+  purchase_cost_per_unit: number;
+  quantity_purchased: number;
+  quantity_remaining: number;
+  expiry_date: string | null;
+  purchase_date: string;
+  supplier_name: string | null;
+  notes: string | null;
+  created_at: string;
+  // join:
+  item?: { name: string; category: InventoryCategory; expiry_tracked: boolean } | null;
+}
+
+export interface InventoryBatchConsumption {
+  batch_id: string;
+  qty: number;
+  cost_per_unit: number;
+}
+
+export interface InventorySale {
+  id: string;
+  gym_id: string;
+  item_id: string;
+  member_id: string | null;
+  quantity: number;
+  sale_price_per_unit: number;
+  total_amount: number;
+  total_cost: number;
+  profit: number;
+  batch_consumption: InventoryBatchConsumption[];
+  payment_method: PaymentMethod;
+  sold_at: string;
+  sold_by_staff_id: string | null;
+  sold_by_user_id: string | null;
+  notes: string | null;
+  created_at: string;
+  // joins:
+  item?: { name: string; category: InventoryCategory } | null;
+  member?: { full_name: string } | null;
+  staff?: { full_name: string } | null;
+}
+
+export interface InventoryProfitSummary {
+  thisMonth: { revenue: number; cost: number; profit: number; sales_count: number };
+  lastMonth: { revenue: number; cost: number; profit: number; sales_count: number };
+  ytd: { revenue: number; cost: number; profit: number; sales_count: number };
+}
+
+export interface InventoryTopSeller {
+  item_id: string;
+  name: string;
+  category: InventoryCategory;
+  units_sold: number;
+  total_revenue: number;
+  total_profit: number;
+}
+
+export interface InventoryDeadStockItem {
+  item_id: string;
+  name: string;
+  category: InventoryCategory;
+  total_stock: number;
+  stock_value: number;       // cost basis on hand
+  last_sold_at: string | null;
+  days_since_sale: number | null;
+}
+
+export interface InventoryExpiringBatch {
+  batch_id: string;
+  item_id: string;
+  item_name: string;
+  category: InventoryCategory;
+  quantity_remaining: number;
+  expiry_date: string;
+  days_until_expiry: number;
+}

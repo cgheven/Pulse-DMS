@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Users, CreditCard, FileText, Settings, X,
   Shield, Building2, Globe, LogIn, Trophy, Target,
   BarChart3, UserCog, Dumbbell, CalendarDays,
-  Receipt, ClipboardList, Zap, HandCoins, Instagram, TrendingUp,
+  Receipt, ClipboardList, Zap, HandCoins, Instagram, TrendingUp, Package,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsAdmin } from "@/hooks/use-is-admin";
@@ -46,9 +46,10 @@ const navGroups = [
   {
     label: "Operations",
     items: [
-      { href: "/staff",    label: "Staff",    icon: UserCog  },
-      { href: "/expenses", label: "Expenses", icon: Receipt  },
-      { href: "/bills",    label: "Bills",    icon: FileText },
+      { href: "/staff",     label: "Staff",     icon: UserCog  },
+      { href: "/inventory", label: "Inventory", icon: Package  },
+      { href: "/expenses",  label: "Expenses",  icon: Receipt  },
+      { href: "/bills",     label: "Bills",     icon: FileText },
     ],
   },
   {
