@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidateTag } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { writeAuditLog } from "@/lib/audit";
@@ -98,6 +99,7 @@ export async function createGym(data: {
       .single();
 
     if (error) throw error;
+    revalidateTag(`gyms-owner-${data.owner_id}`);
 
     await writeAuditLog({
       actor_id: caller.id, actor_email: caller.email ?? "",
@@ -132,6 +134,11 @@ export async function updateGym(data: {
     const { error } = await admin.from("pulse_gyms").update(updates).eq("id", data.gymId);
     if (error) throw error;
 
+    // Invalidate the owner's cached gyms list so the next nav reflects the update.
+    const { data: gymRow } = await admin
+      .from("pulse_gyms").select("owner_id").eq("id", data.gymId).single();
+    if (gymRow?.owner_id) revalidateTag(`gyms-owner-${gymRow.owner_id}`);
+
     await writeAuditLog({
       actor_id: caller.id, actor_email: caller.email ?? "",
       action: "gym.update", entity: "gym", entity_id: data.gymId,
@@ -158,6 +165,7 @@ export async function deleteGym(gymId: string): Promise<{ error?: string }> {
 
     const { error } = await admin.from("pulse_gyms").delete().eq("id", gymId);
     if (error) throw error;
+    if (gym.owner_id) revalidateTag(`gyms-owner-${gym.owner_id}`);
 
     await writeAuditLog({
       actor_id: caller.id, actor_email: caller.email ?? "",

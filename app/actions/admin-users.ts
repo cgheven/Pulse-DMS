@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidateTag } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { writeAuditLog } from "@/lib/audit";
@@ -112,6 +113,7 @@ export async function createUserWithPassword(data: {
       },
       { onConflict: "id" }
     );
+    revalidateTag(`profile-${created.user.id}`);
 
     await writeAuditLog({
       actor_id: caller.id, actor_email: caller.email ?? "",
@@ -151,6 +153,7 @@ export async function inviteUser(data: {
         { id: invited.user.id, full_name: data.full_name || null, branch_limit: branchLimit },
         { onConflict: "id" }
       );
+      revalidateTag(`profile-${invited.user.id}`);
     }
 
     await writeAuditLog({
@@ -214,6 +217,7 @@ export async function updateAdminUser(data: {
         .update(profileUpdates)
         .eq("id", data.userId);
       if (error) throw error;
+      revalidateTag(`profile-${data.userId}`);
     }
 
     const changes: Record<string, unknown> = {};
@@ -245,6 +249,8 @@ export async function deleteAdminUser(userId: string): Promise<{ error?: string 
     const admin = createAdminClient();
     const { error } = await admin.auth.admin.deleteUser(userId);
     if (error) throw error;
+    revalidateTag(`profile-${userId}`);
+    revalidateTag(`gyms-owner-${userId}`);
 
     await writeAuditLog({
       actor_id: caller.id, actor_email: caller.email ?? "",

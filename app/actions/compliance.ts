@@ -1,5 +1,5 @@
 "use server";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAuthContext, getComplianceSettingsForGym } from "@/lib/data";
 import { writeAuditLog } from "@/lib/audit";
@@ -41,6 +41,11 @@ export async function saveComplianceSettings(input: SaveSettingsInput) {
     })
     .eq("id", ctx.gymId);
   if (error) return { error: error.message };
+
+  // Refresh owner's cached gyms list so updated settings show on next nav.
+  const { data: gymRow } = await admin
+    .from("pulse_gyms").select("owner_id").eq("id", ctx.gymId).single();
+  if (gymRow?.owner_id) revalidateTag(`gyms-owner-${gymRow.owner_id}`);
   return { success: true };
 }
 
@@ -111,6 +116,7 @@ export async function createComplianceLogin(
     await admin.auth.admin.deleteUser(newUser.id);
     return { error: profileError.message };
   }
+  revalidateTag(`profile-${newUser.id}`);
 
   const { error: complianceError } = await admin
     .from("pulse_compliance_users")
@@ -153,6 +159,7 @@ export async function removeComplianceLogin(
   if (deleteRowError) return { error: deleteRowError.message };
 
   await admin.from("pulse_profiles").delete().eq("id", userId);
+  revalidateTag(`profile-${userId}`);
 
   const { error: deleteAuthError } = await admin.auth.admin.deleteUser(userId);
   if (deleteAuthError) return { error: deleteAuthError.message };
@@ -180,6 +187,12 @@ export async function updateComplianceSettings(
     .eq("id", gymId);
 
   if (error) return { error: error.message };
+
+  // Refresh owner's cached gyms list so updated settings show on next nav.
+  const { data: gymRow } = await admin
+    .from("pulse_gyms").select("owner_id").eq("id", gymId).single();
+  if (gymRow?.owner_id) revalidateTag(`gyms-owner-${gymRow.owner_id}`);
+
   revalidatePath("/compliance-portal");
   return { error: null };
 }

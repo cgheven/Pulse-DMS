@@ -16,6 +16,7 @@ function revalidate(gymId: string) {
   revalidateTag(`members-${gymId}`);
   revalidateTag(`dashboard-${gymId}`);
   revalidateTag(`reports-${gymId}`);
+  revalidateTag(`smart-earn-${gymId}`);
 }
 
 // ── Freeze ────────────────────────────────────────────────────────────────────

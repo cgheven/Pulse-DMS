@@ -16,3 +16,14 @@ export async function revalidateMembers()   { await gymTag("members"); }
 export async function revalidatePlans()     { await gymTag("plans"); }
 export async function revalidateStaff()     { await gymTag("staff"); }
 export async function revalidateReports()   { await gymTag("reports"); }
+export async function revalidateSmartEarn() { await gymTag("smart-earn"); }
+
+// Per-user cache invalidators — call after mutating pulse_profiles or pulse_gyms ownership.
+// Match the tags used in lib/data.ts → getAuthContext.
+export async function revalidateProfile(userId: string) {
+  if (userId) revalidateTag(`profile-${userId}`);
+}
+
+export async function revalidateOwnerGyms(userId: string) {
+  if (userId) revalidateTag(`gyms-owner-${userId}`);
+}

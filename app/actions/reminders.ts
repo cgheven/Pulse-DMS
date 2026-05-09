@@ -1,5 +1,5 @@
 "use server";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAuthContext } from "@/lib/data";
 import type { PaymentMethodAccount } from "@/types";
@@ -24,6 +24,13 @@ export async function saveReminderSettings(input: SaveReminderInput) {
     .eq("id", ctx.gymId);
 
   if (error) return { error: error.message };
+
+  // Invalidate cached gyms list for the owner so reminder/payment-method changes
+  // are reflected on the next nav.
+  const { data: gymRow } = await admin
+    .from("pulse_gyms").select("owner_id").eq("id", ctx.gymId).single();
+  if (gymRow?.owner_id) revalidateTag(`gyms-owner-${gymRow.owner_id}`);
+
   revalidatePath("/", "layout");
   return { success: true };
 }

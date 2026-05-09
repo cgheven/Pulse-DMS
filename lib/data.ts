@@ -17,16 +17,28 @@ import type {
 
 export const getAuthContext = cache(async () => {
   const supabase = await createClient();
+  // NEVER cache auth.getUser() — JWT verification must always run.
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
   const cookieStore = await cookies();
   const activeGymId = cookieStore.get("pulse_active_gym")?.value;
 
-  const { data: profile } = await supabase
-    .from("pulse_profiles").select("*").eq("id", user.id).single();
+  // Per-user CACHED profile lookup — 5 min TTL, tagged per user for revalidation.
+  // Use admin client because unstable_cache callbacks run outside the request scope
+  // and don't have access to per-request cookies.
+  const profile = await unstable_cache(
+    async (uid: string) => {
+      const admin = createAdminClient();
+      const { data } = await admin
+        .from("pulse_profiles").select("*").eq("id", uid).single();
+      return data as (Profile & { is_demo?: boolean; demo_gym_id?: string }) | null;
+    },
+    ["auth-profile", user.id],
+    { revalidate: 300, tags: [`profile-${user.id}`] }
+  )(user.id);
 
-  const p = profile as (Profile & { is_demo?: boolean; demo_gym_id?: string }) | null;
+  const p = profile;
   const isDemo = !!p?.is_demo;
 
   let gyms: Gym[];
@@ -40,9 +52,17 @@ export const getAuthContext = cache(async () => {
     gym = (demoGym as Gym | null);
     gyms = gym ? [gym] : [];
   } else {
-    const { data: gymData } = await supabase
-      .from("pulse_gyms").select("*").eq("owner_id", user.id).order("created_at");
-    gyms = (gymData ?? []) as Gym[];
+    // Per-user CACHED owner-gyms lookup — 5 min TTL, tagged per owner.
+    gyms = await unstable_cache(
+      async (uid: string) => {
+        const admin = createAdminClient();
+        const { data } = await admin
+          .from("pulse_gyms").select("*").eq("owner_id", uid).order("created_at");
+        return (data ?? []) as Gym[];
+      },
+      ["auth-gyms", user.id],
+      { revalidate: 300, tags: [`gyms-owner-${user.id}`] }
+    )(user.id);
     gym = (activeGymId ? gyms.find((g) => g.id === activeGymId) : null) ?? gyms[0] ?? null;
   }
 
@@ -1392,37 +1412,45 @@ export async function getComplianceSettingsForGym(gymId: string) {
 
 // ── Smart Earn ────────────────────────────────────────────────────────────────
 
-export async function getSmartEarnData() {
-  const ctx = await getAuthContext();
-  if (!ctx?.gymId) return { gymId: null, trainers: [], members: [], plans: [], defaultTrainerCapacity: 20 };
+async function _fetchSmartEarn(gymId: string) {
   const admin = createAdminClient();
   const [trainersRes, membersRes, plansRes, gymRes] = await Promise.all([
     admin.from("pulse_staff")
       .select("id,full_name,commission_percentage,commission_floor,member_capacity")
-      .eq("gym_id", ctx.gymId)
+      .eq("gym_id", gymId)
       .eq("role", "trainer")
       .eq("status", "active")
       .order("full_name"),
     admin.from("pulse_members")
       .select("id,full_name,member_number,assigned_trainer_id,plan_id,monthly_fee,join_date,plan_expiry_date,status,updated_at")
-      .eq("gym_id", ctx.gymId),
+      .eq("gym_id", gymId),
     admin.from("pulse_membership_plans")
       .select("id,name,price")
-      .eq("gym_id", ctx.gymId)
+      .eq("gym_id", gymId)
       .eq("is_active", true)
       .order("price"),
     admin.from("pulse_gyms")
       .select("default_trainer_capacity")
-      .eq("id", ctx.gymId)
+      .eq("id", gymId)
       .single(),
   ]);
   return {
-    gymId: ctx.gymId,
     trainers: (trainersRes.data ?? []) as { id: string; full_name: string; commission_percentage: number | null; commission_floor: number | null; member_capacity: number }[],
     members:  (membersRes.data  ?? []) as { id: string; full_name: string; member_number: string | null; assigned_trainer_id: string | null; plan_id: string | null; monthly_fee: number; join_date: string; plan_expiry_date: string | null; status: string; updated_at: string }[],
     plans:    (plansRes.data    ?? []) as { id: string; name: string; price: number }[],
     defaultTrainerCapacity: (gymRes.data?.default_trainer_capacity ?? 20) as number,
   };
+}
+
+export async function getSmartEarnData() {
+  const ctx = await getAuthContext();
+  if (!ctx?.gymId) return { gymId: null, trainers: [], members: [], plans: [], defaultTrainerCapacity: 20 };
+  const data = await unstable_cache(
+    () => _fetchSmartEarn(ctx.gymId as string),
+    ["smart-earn", ctx.gymId],
+    { revalidate: 60, tags: [`smart-earn-${ctx.gymId}`] }
+  )();
+  return { gymId: ctx.gymId, ...data };
 }
 
 // ── Inventory ────────────────────────────────────────────────────────────────

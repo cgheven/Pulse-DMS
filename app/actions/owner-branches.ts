@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAuthContext } from "@/lib/data";
 
@@ -46,6 +46,7 @@ export async function createBranch(data: {
 
     if (error) return { error: error.message };
 
+    revalidateTag(`gyms-owner-${userId}`);
     revalidatePath("/", "layout");
     return { gymId: gym.id };
   } catch (err) {
