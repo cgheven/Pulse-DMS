@@ -4,11 +4,15 @@ import { useMemo, useState, useTransition } from "react";
 import {
   Flame, Gem, Target, Star, Ban, Phone,
   ChevronDown, ChevronUp, CheckCircle2, Clock, Eye, MapPin, XCircle,
+  MessageCircle,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { createClient } from "@/lib/supabase/client";
 import type { Prospect, ProspectStatus } from "@/types";
+import FollowupDialog from "./followup-dialog";
+import ActivityDialog from "./activity-dialog";
 
 type WaveKey = 1 | 2 | 3 | 4;
 type WaveFilter = "all" | WaveKey | "avoid";
@@ -63,6 +67,8 @@ export default function PriorityClient({ prospects, loading, onRefresh }: Props)
   const [waveFilter, setWaveFilter]   = useState<WaveFilter>("all");
   const [top5Open, setTop5Open]       = useState(true);
   const [isPending, startTransition]  = useTransition();
+  const [followupProspect, setFollowupProspect] = useState<Prospect | null>(null);
+  const [activityProspect, setActivityProspect] = useState<Prospect | null>(null);
 
   function cycleStatus(p: Prospect) {
     const next: Record<ProspectStatus, ProspectStatus> = {
@@ -166,7 +172,7 @@ export default function PriorityClient({ prospects, loading, onRefresh }: Props)
           <div className="px-5 pb-5 pt-1 grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 border-t border-border/50">
             {top5.length === 0 ? (
               <p className="text-sm text-muted-foreground col-span-full py-6 text-center">
-                All prioritized hostels contacted — great work! 🎉
+                All prioritized gyms contacted — great work! 🎉
               </p>
             ) : top5.map((p, i) => {
               const waveCfg = p.wave && p.wave in WAVE_CONFIG ? WAVE_CONFIG[p.wave as WaveKey] : null;
@@ -198,9 +204,20 @@ export default function PriorityClient({ prospects, loading, onRefresh }: Props)
                   ) : (
                     <span className="text-xs text-muted-foreground italic">No phone — visit in-person</span>
                   )}
-                  <p className="text-[11px] text-muted-foreground/70 leading-tight mt-auto pt-2.5 border-t border-border/50">
-                    Call & pitch free 60-day pilot
-                  </p>
+                  <div className="mt-auto pt-2.5 border-t border-border/50 flex items-center justify-between gap-2">
+                    <p className="text-[11px] text-muted-foreground/70 leading-tight">
+                      Call & pitch free 60-day pilot
+                    </p>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-green-500 hover:text-green-400 hover:bg-green-500/10 shrink-0"
+                      onClick={() => setFollowupProspect(p)}
+                      title="WhatsApp follow-up"
+                    >
+                      <MessageCircle className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
                 </div>
               );
             })}
@@ -239,7 +256,7 @@ export default function PriorityClient({ prospects, loading, onRefresh }: Props)
       ) : filtered.length === 0 ? (
         <Card>
           <CardContent className="flex items-center justify-center py-12 text-muted-foreground text-sm">
-            No hostels match this filter.
+            No gyms match this filter.
           </CardContent>
         </Card>
       ) : (
@@ -249,12 +266,13 @@ export default function PriorityClient({ prospects, loading, onRefresh }: Props)
               <thead>
                 <tr className="border-b bg-muted/40">
                   <th className="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground w-10">#</th>
-                  <th className="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Hostel</th>
+                  <th className="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Gym</th>
                   <th className="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Phone</th>
                   <th className="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hidden sm:table-cell">Location</th>
                   <th className="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Priority</th>
                   <th className="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hidden lg:table-cell">Reason</th>
                   <th className="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
+                  <th className="px-1 py-2.5 w-1"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/60">
@@ -319,6 +337,17 @@ export default function PriorityClient({ prospects, loading, onRefresh }: Props)
                           <SIcon className="w-3 h-3" /> {sCfg.label}
                         </button>
                       </td>
+                      <td className="px-1 py-2.5 w-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-green-500 hover:text-green-400 hover:bg-green-500/10"
+                          onClick={() => setFollowupProspect(p)}
+                          title="WhatsApp follow-up"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5" />
+                        </Button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -327,6 +356,28 @@ export default function PriorityClient({ prospects, loading, onRefresh }: Props)
           </div>
         </Card>
       )}
+
+      {/* ── WhatsApp Follow-up Dialog ──────────────────────────────────────── */}
+      <FollowupDialog
+        prospect={followupProspect}
+        open={followupProspect !== null}
+        onOpenChange={(o) => { if (!o) setFollowupProspect(null); }}
+        onSent={() => {
+          const p = followupProspect;
+          onRefresh();
+          setFollowupProspect(null);
+          if (p) setActivityProspect(p);
+        }}
+      />
+
+      {/* ── Activity Log Dialog ────────────────────────────────────────────── */}
+      <ActivityDialog
+        prospect={activityProspect}
+        open={activityProspect !== null}
+        onOpenChange={(o) => { if (!o) setActivityProspect(null); }}
+        onChanged={onRefresh}
+        showQuickOutcome
+      />
     </div>
   );
 }

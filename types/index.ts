@@ -36,6 +36,7 @@ export type PTSessionStatus = "scheduled" | "completed" | "cancelled" | "no_show
 export type CheckInMethod = "manual" | "qr" | "app" | "device";
 export type GymType = "general" | "ladies_only" | "mens_only" | "crossfit" | "martial_arts" | "yoga" | "mixed";
 export type ProspectStatus = "pending" | "visited" | "onboarded" | "rejected";
+export type AdminScope = "full" | "prospects";
 
 // ── Core Entities ──────────────────────────────────────────────────────────
 export interface Profile {
@@ -55,6 +56,7 @@ export interface AdminUser {
   full_name: string | null;
   phone: string | null;
   is_admin: boolean;
+  admin_scope: AdminScope;
   branch_limit: number;
   created_at: string;
   last_sign_in_at: string | null;
@@ -478,6 +480,41 @@ export interface Announcement {
   updated_at: string;
 }
 
+export type OnboardingTrialChoice = "1_month" | "2_months" | "skip";
+export type OnboardingPlanChoice = "starter" | "growth" | "pro";
+export type OnboardingBillingCycle = "monthly" | "annual";
+export type OnboardingBranchType = "single" | "multi";
+export type OnboardingSubmissionSource = "public-form" | "admin-created";
+
+export type ProspectActivityType =
+  | "whatsapp"
+  | "call"
+  | "visit"
+  | "note"
+  | "status_change";
+
+export type ProspectActivityOutcome =
+  | "no_response"
+  | "answered"
+  | "interested"
+  | "not_interested"
+  | "scheduled_visit"
+  | "onboarded"
+  | "rejected"
+  | "other";
+
+export interface ProspectActivity {
+  id: string;
+  prospect_id: string;
+  type: ProspectActivityType;
+  outcome: ProspectActivityOutcome | null;
+  content: string | null;
+  template_key: string | null;
+  created_by: string | null;
+  created_by_email: string | null;
+  created_at: string;
+}
+
 export interface Prospect {
   id: string;
   name: string;
@@ -497,6 +534,32 @@ export interface Prospect {
   estimated_members: number | null;
   created_at: string;
   updated_at: string;
+
+  // ── Public onboarding-form fields (nullable for legacy hostel rows) ──
+  email: string | null;
+  gym_name: string | null;
+  gym_type: GymType | null;
+  active_members_count: number | null;
+  trial_choice: OnboardingTrialChoice | null;
+  preferred_start_date: string | null;
+  heard_from: string | null;
+  plan_choice: OnboardingPlanChoice | null;
+  billing_cycle: OnboardingBillingCycle | null;
+  branch_type: OnboardingBranchType | null;
+  branch_count: number | null;
+  submission_source: OnboardingSubmissionSource | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  submitted_at: string | null;
+  admin_notes: string | null;
+
+  // Denormalized last response — kept in sync by logProspectActivity.
+  last_outcome: ProspectActivityOutcome | null;
+
+  // ── Follow-up tracking (added 2026-05-12) ──
+  followup_count: number;
+  last_followup_at: string | null;
+  last_followup_template: string | null;
 }
 
 export interface AuditLog {

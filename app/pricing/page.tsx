@@ -507,10 +507,10 @@ export default function PricingPage() {
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <Link
-              href="/login"
+              href="/onboarding"
               className="flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-all duration-200 shadow-lg shadow-primary/20 text-sm"
             >
-              Get Started
+              Apply for Trial
               <ArrowRight className="w-4 h-4" />
             </Link>
             <Link

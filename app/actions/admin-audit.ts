@@ -2,7 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import type { AuditLog, LoginLog } from "@/types";
+import type { AdminScope, AuditLog, LoginLog } from "@/types";
 
 async function requireAdmin() {
   const supabase = await createClient();
@@ -10,8 +10,10 @@ async function requireAdmin() {
   if (!user) throw new Error("Unauthorized");
   const admin = createAdminClient();
   const { data: profile } = await admin
-    .from("pulse_profiles").select("is_admin").eq("id", user.id).single();
+    .from("pulse_profiles").select("is_admin, admin_scope").eq("id", user.id).single();
   if (!profile?.is_admin) throw new Error("Forbidden");
+  const scope = (profile.admin_scope as AdminScope | null) ?? "full";
+  if (scope !== "full") throw new Error("Forbidden: full admin required");
   return user;
 }
 

@@ -5,6 +5,8 @@ import {
   Building2, Plus, MapPin, RefreshCw,
   Edit2, Trash2, Search,
   CheckCircle2, Clock, Eye, Map, ChevronDown, X, XCircle,
+  FileText, Inbox, Phone, Mail, Gift, Rocket, Calendar, Users, Hash,
+  MessageCircle, History,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,10 +15,34 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import { createClient } from "@/lib/supabase/client";
-import type { Prospect, ProspectStatus } from "@/types";
+import type { Prospect, ProspectActivityOutcome, ProspectStatus } from "@/types";
 import PriorityClient from "./priority-client";
+import FollowupDialog from "./followup-dialog";
+import ActivityDialog from "./activity-dialog";
 
-type DialogMode = "add" | "edit" | "delete" | null;
+type DialogMode = "add" | "edit" | "delete" | "details" | "followup" | "activity" | null;
+
+const OUTCOME_BADGE: Record<ProspectActivityOutcome, { label: string; bg: string; text: string; border: string }> = {
+  answered:        { label: "Answered",        bg: "bg-blue-500/15",    text: "text-blue-300",    border: "border-blue-500/40" },
+  interested:      { label: "Interested",      bg: "bg-emerald-500/15", text: "text-emerald-300", border: "border-emerald-500/40" },
+  scheduled_visit: { label: "Visit scheduled", bg: "bg-cyan-500/15",    text: "text-cyan-300",    border: "border-cyan-500/40" },
+  onboarded:       { label: "Onboarded",       bg: "bg-emerald-500/20", text: "text-emerald-300", border: "border-emerald-500/50" },
+  no_response:     { label: "No response",     bg: "bg-amber-500/15",   text: "text-amber-300",   border: "border-amber-500/40" },
+  not_interested:  { label: "Not interested",  bg: "bg-rose-500/15",    text: "text-rose-300",    border: "border-rose-500/40" },
+  rejected:        { label: "Rejected",        bg: "bg-red-500/15",     text: "text-red-300",     border: "border-red-500/40" },
+  other:           { label: "Other",           bg: "bg-muted",          text: "text-muted-foreground", border: "border-border" },
+};
+
+const TRIAL_LABEL: Record<string, string> = {
+  "1_month": "1 month free",
+  "2_months": "2 months free",
+  "skip": "Skip trial",
+};
+const PLAN_LABEL: Record<string, string> = {
+  starter: "Starter",
+  growth: "Growth",
+  pro: "Pro",
+};
 
 const STATUS_CONFIG: Record<ProspectStatus, { label: string; color: string; bg: string; border: string; icon: typeof Clock }> = {
   pending:   { label: "Pending",   color: "text-amber-400",   bg: "bg-amber-500/15",   border: "border-amber-500/40",   icon: Clock },
@@ -108,9 +134,19 @@ export default function ProspectsClient() {
     setDialogMode("delete");
   }
 
+  function openFollowup(p: Prospect) {
+    setSelected(p);
+    setDialogMode("followup");
+  }
+
+  function openActivity(p: Prospect) {
+    setSelected(p);
+    setDialogMode("activity");
+  }
+
   function handleSave() {
     if (!form.name.trim()) {
-      toast({ title: "Hostel name required", variant: "destructive" });
+      toast({ title: "Gym name required", variant: "destructive" });
       return;
     }
     startTransition(async () => {
@@ -134,7 +170,7 @@ export default function ProspectsClient() {
           toast({ title: "Failed to add", description: error.message, variant: "destructive" });
           return;
         }
-        toast({ title: "Hostel added to pipeline" });
+        toast({ title: "Gym added to pipeline" });
       } else if (dialogMode === "edit" && selected) {
         const { error } = await supabase.from("pulse_prospects").update(payload).eq("id", selected.id);
         if (error) {
@@ -232,7 +268,7 @@ export default function ProspectsClient() {
               <Building2 className="w-4 h-4 text-amber" />
             </div>
             <div>
-              <h1 className="text-base font-bold">Hostel Pipeline</h1>
+              <h1 className="text-base font-bold">Gym Pipeline</h1>
               <p className="text-xs text-muted-foreground">Sales prospects and outreach priority</p>
             </div>
           </div>
@@ -243,7 +279,7 @@ export default function ProspectsClient() {
             </Button>
             <Button size="sm" className="gap-2" onClick={openAdd}>
               <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">Add Hostel</span>
+              <span className="hidden sm:inline">Add Gym</span>
             </Button>
           </div>
         </div>
@@ -279,7 +315,7 @@ export default function ProspectsClient() {
         {/* Stat Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
-            { label: "Total Hostels", value: stats.total,     icon: Building2,    iconBg: "bg-blue-500/20",    iconColor: "text-blue-400",    border: "border-l-blue-500" },
+            { label: "Total Gyms",    value: stats.total,     icon: Building2,    iconBg: "bg-blue-500/20",    iconColor: "text-blue-400",    border: "border-l-blue-500" },
             { label: "Pending",       value: stats.pending,   icon: Clock,        iconBg: "bg-amber-500/20",   iconColor: "text-amber-400",   border: "border-l-amber-500" },
             { label: "Visited",       value: stats.visited,   icon: Eye,          iconBg: "bg-indigo-500/20",  iconColor: "text-indigo-400",  border: "border-l-indigo-500" },
             { label: "Onboarded",     value: stats.onboarded, icon: CheckCircle2, iconBg: "bg-emerald-500/20", iconColor: "text-emerald-400", border: "border-l-emerald-500" },
@@ -358,13 +394,13 @@ export default function ProspectsClient() {
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-16 text-muted-foreground">
               <Building2 className="w-10 h-10 mb-3 opacity-30" />
-              <p className="font-medium">No hostels found</p>
+              <p className="font-medium">No gyms found</p>
               <p className="text-sm mt-1">
-                {search || statusFilter !== "all" || areaFilter !== "all" || locationFilter !== "all" ? "Try adjusting your filters" : "Add a hostel to start tracking"}
+                {search || statusFilter !== "all" || areaFilter !== "all" || locationFilter !== "all" ? "Try adjusting your filters" : "Add a gym to start tracking"}
               </p>
               {!search && statusFilter === "all" && areaFilter === "all" && locationFilter === "all" && (
                 <Button size="sm" className="mt-4 gap-2" onClick={openAdd}>
-                  <Plus className="w-4 h-4" /> Add First Hostel
+                  <Plus className="w-4 h-4" /> Add First Gym
                 </Button>
               )}
             </CardContent>
@@ -376,7 +412,7 @@ export default function ProspectsClient() {
                 <thead>
                   <tr className="border-b bg-muted/40">
                     <th className="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground w-10">#</th>
-                    <th className="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Hostel</th>
+                    <th className="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Gym</th>
                     <th className="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Owner</th>
                     <th className="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Phone</th>
                     {/* Area filter column */}
@@ -449,6 +485,7 @@ export default function ProspectsClient() {
                     </th>
                     <th className="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Address</th>
                     <th className="text-center px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground w-14">Map</th>
+                    <th className="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Application</th>
                     {/* Status filter column */}
                     <th className="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                       <div className="relative">
@@ -513,7 +550,30 @@ export default function ProspectsClient() {
                               {initial}
                             </div>
                             <div className="min-w-0">
-                              <p className="font-semibold text-foreground leading-tight truncate max-w-[220px]">{p.name}</p>
+                              <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                                <p className="font-semibold text-foreground leading-tight truncate max-w-[220px]">{p.name}</p>
+                                {p.followup_count > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openActivity(p)}
+                                    className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground/70 hover:text-primary shrink-0 transition-colors"
+                                    title={`Last contacted ${p.last_followup_at ? new Date(p.last_followup_at).toLocaleString() : "—"} — click for timeline`}
+                                  >
+                                    <MessageCircle className="w-2.5 h-2.5" />
+                                    {p.followup_count} follow-up{p.followup_count === 1 ? "" : "s"}
+                                  </button>
+                                )}
+                                {p.last_outcome && OUTCOME_BADGE[p.last_outcome] && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openActivity(p)}
+                                    title="Last response — click to update"
+                                    className={`inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium border shrink-0 transition-opacity hover:opacity-80 ${OUTCOME_BADGE[p.last_outcome].bg} ${OUTCOME_BADGE[p.last_outcome].text} ${OUTCOME_BADGE[p.last_outcome].border}`}
+                                  >
+                                    {OUTCOME_BADGE[p.last_outcome].label}
+                                  </button>
+                                )}
+                              </div>
                               {p.notes && (
                                 <p className="text-[11px] text-muted-foreground truncate max-w-[220px] mt-0.5">{p.notes}</p>
                               )}
@@ -558,6 +618,27 @@ export default function ProspectsClient() {
                           ) : <span className="text-muted-foreground/30">—</span>}
                         </td>
                         <td className="px-3 py-2.5">
+                          {p.submission_source === "public-form" ? (
+                            <button
+                              type="button"
+                              onClick={() => { setSelected(p); setDialogMode("details"); }}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary border border-primary/30 hover:bg-primary/15 transition-colors whitespace-nowrap"
+                              title="View full application"
+                            >
+                              <Inbox className="w-3 h-3 shrink-0" />
+                              {p.plan_choice ? PLAN_LABEL[p.plan_choice] ?? "Inbound" : "Inbound"}
+                              {p.trial_choice && p.trial_choice !== "skip" && (
+                                <span className="text-[10px] opacity-80">· {p.trial_choice === "1_month" ? "1mo" : "2mo"}</span>
+                              )}
+                              {p.branch_type === "multi" && p.branch_count && p.branch_count > 1 && (
+                                <span className="text-[10px] opacity-80">· {p.branch_count}br</span>
+                              )}
+                            </button>
+                          ) : (
+                            <span className="text-muted-foreground/30 text-xs">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5">
                           <button
                             onClick={() => cycleStatus(p)}
                             disabled={isPending}
@@ -570,6 +651,24 @@ export default function ProspectsClient() {
                         </td>
                         <td className="px-1 py-2.5 w-1">
                           <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-green-500 hover:text-green-400 hover:bg-green-500/10"
+                              onClick={() => openFollowup(p)}
+                              title="WhatsApp follow-up"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-primary/80 hover:text-primary hover:bg-primary/10"
+                              onClick={() => openActivity(p)}
+                              title="Activity log"
+                            >
+                              <History className="w-3.5 h-3.5" />
+                            </Button>
                             <Button
                               variant="ghost"
                               size="icon"
@@ -605,19 +704,19 @@ export default function ProspectsClient() {
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              {dialogMode === "add" ? <><Plus className="w-4 h-4" /> Add Hostel</> : <><Edit2 className="w-4 h-4" /> Edit Hostel</>}
+              {dialogMode === "add" ? <><Plus className="w-4 h-4" /> Add Gym</> : <><Edit2 className="w-4 h-4" /> Edit Gym</>}
             </DialogTitle>
             <DialogDescription>
-              {dialogMode === "add" ? "Add a new hostel to the pipeline." : "Update hostel details or status."}
+              {dialogMode === "add" ? "Add a new gym to the pipeline." : "Update gym details or status."}
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-4 py-2">
             <div className="grid sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label>Hostel Name *</Label>
+                <Label>Gym Name *</Label>
                 <Input
-                  placeholder="Al-Noor Hostel"
+                  placeholder="Al-Noor Fitness"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                 />
@@ -710,7 +809,7 @@ export default function ProspectsClient() {
             <div className="space-y-1.5">
               <Label>Notes</Label>
               <Input
-                placeholder="Any details about this hostel..."
+                placeholder="Any details about this gym..."
                 value={form.notes}
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
               />
@@ -745,6 +844,119 @@ export default function ProspectsClient() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Inbound Application Details Dialog ─────────────────────────────── */}
+      <Dialog open={dialogMode === "details"} onOpenChange={(o) => !o && setDialogMode(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-primary" /> Inbound Application
+            </DialogTitle>
+            <DialogDescription>
+              Submitted via public onboarding form
+              {selected?.submitted_at && ` · ${new Date(selected.submitted_at).toLocaleString("en-PK", { dateStyle: "medium", timeStyle: "short" })}`}
+            </DialogDescription>
+          </DialogHeader>
+          {selected && (
+            <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+              <DetailRow icon={<Building2 className="w-3.5 h-3.5" />} label="Gym">
+                {selected.gym_name || selected.name}
+                {selected.city && <span className="text-muted-foreground"> · {selected.city}</span>}
+                {selected.area && <span className="text-muted-foreground"> ({selected.area})</span>}
+              </DetailRow>
+              <DetailRow icon={<Phone className="w-3.5 h-3.5" />} label="Phone">
+                {selected.phone ? (
+                  <a href={`https://wa.me/${selected.phone.replace(/[^\d]/g, "")}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                    {selected.phone}
+                  </a>
+                ) : "—"}
+              </DetailRow>
+              {selected.email && (
+                <DetailRow icon={<Mail className="w-3.5 h-3.5" />} label="Email">
+                  <a href={`mailto:${selected.email}`} className="text-primary hover:underline break-all">{selected.email}</a>
+                </DetailRow>
+              )}
+              {selected.owner_name && (
+                <DetailRow icon={<Users className="w-3.5 h-3.5" />} label="Owner">{selected.owner_name}</DetailRow>
+              )}
+              {selected.gym_type && (
+                <DetailRow icon={<Building2 className="w-3.5 h-3.5" />} label="Gym type">{selected.gym_type.replace(/_/g, " ")}</DetailRow>
+              )}
+              {selected.active_members_count != null && (
+                <DetailRow icon={<Users className="w-3.5 h-3.5" />} label="Active members">~{selected.active_members_count}</DetailRow>
+              )}
+              {selected.trial_choice && (
+                <DetailRow icon={selected.trial_choice === "skip" ? <Rocket className="w-3.5 h-3.5" /> : <Gift className="w-3.5 h-3.5" />} label="Trial">
+                  {TRIAL_LABEL[selected.trial_choice] ?? selected.trial_choice}
+                </DetailRow>
+              )}
+              {selected.preferred_start_date && (
+                <DetailRow icon={<Calendar className="w-3.5 h-3.5" />} label="Preferred start">{selected.preferred_start_date}</DetailRow>
+              )}
+              {selected.plan_choice && (
+                <DetailRow icon={<Hash className="w-3.5 h-3.5" />} label="Plan">
+                  {PLAN_LABEL[selected.plan_choice] ?? selected.plan_choice}
+                  {selected.billing_cycle && <span className="text-muted-foreground"> · {selected.billing_cycle}</span>}
+                </DetailRow>
+              )}
+              {selected.branch_type && (
+                <DetailRow icon={<Building2 className="w-3.5 h-3.5" />} label="Branches">
+                  {selected.branch_type === "single" ? "Single branch" : `${selected.branch_count ?? 2} branches`}
+                </DetailRow>
+              )}
+              {selected.heard_from && (
+                <DetailRow icon={<Inbox className="w-3.5 h-3.5" />} label="Heard from">{selected.heard_from}</DetailRow>
+              )}
+              {selected.ip_address && (
+                <DetailRow icon={<Hash className="w-3.5 h-3.5" />} label="IP">
+                  <span className="text-muted-foreground tabular-nums text-xs">{selected.ip_address}</span>
+                </DetailRow>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogMode(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── WhatsApp Follow-up Dialog ──────────────────────────────────────── */}
+      <FollowupDialog
+        prospect={dialogMode === "followup" ? selected : null}
+        open={dialogMode === "followup"}
+        onOpenChange={(o) => { if (!o) setDialogMode(null); }}
+        onSent={() => {
+          // Chain into the activity dialog so the operator can record an outcome
+          // when they hear back. Reload prospects so counts refresh.
+          load();
+          setDialogMode("activity");
+        }}
+      />
+
+      {/* ── Activity Log Dialog (timeline + outcome chips + log form) ──────── */}
+      <ActivityDialog
+        prospect={dialogMode === "activity" ? selected : null}
+        open={dialogMode === "activity"}
+        onOpenChange={(o) => { if (!o) setDialogMode(null); }}
+        onChanged={load}
+        showQuickOutcome
+      />
+    </div>
+  );
+}
+
+function DetailRow({
+  icon, label, children,
+}: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3 rounded-xl border border-sidebar-border bg-card/50 px-3 py-2.5">
+      <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
+        {icon}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{label}</p>
+        <p className="text-sm text-foreground leading-snug mt-0.5 break-words">{children}</p>
+      </div>
     </div>
   );
 }

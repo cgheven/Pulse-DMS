@@ -51,6 +51,55 @@ function revalidate(gymId: string) {
   revalidateTag(`smart-earn-${gymId}`);
 }
 
+// ── Mass-assignment whitelist ──────────────────────────────────────────────────
+//
+// Defense-in-depth: server actions accept Record<string, unknown> from the
+// client. Without an explicit allow-list, a staff member with `members.edit`
+// could mass-assign protected columns (e.g. `gym_id` to move members across
+// tenants, `device_user_id` to claim someone else's biometric identity,
+// `status`/`freeze_*`/`hold_since`/`defaulter_since` to bypass the dedicated
+// state-transition actions that write audit log entries).
+//
+// `MEMBER_UPDATE_ALLOWED` = fields editable via the general edit modal.
+// `MEMBER_CREATE_ALLOWED` = same set (status defaults handled in UI).
+// `MEMBER_BULK_ALLOWED`   = typical bulk-edit fields (plan / fees / trainer).
+//
+// EXCLUDED: `gym_id`, `id`, `created_at`, `updated_at`,
+// `freeze_start_date`, `freeze_end_date`, `hold_since`, `defaulter_since`
+// (those go through dedicated freeze/hold/defaulter actions with audit trail).
+const MEMBER_UPDATE_ALLOWED = [
+  "full_name", "phone", "email", "cnic", "gender", "date_of_birth",
+  "emergency_contact", "emergency_phone", "address", "notes", "medical_notes",
+  "photo_url",
+  "plan_id", "monthly_fee", "admission_fee", "outstanding_balance",
+  "assigned_trainer_id", "assigned_shift_id", "referrer_id",
+  "member_number", "join_date", "plan_start_date", "plan_expiry_date",
+  "status", "device_user_id",
+] as const;
+type MemberUpdateKey = (typeof MEMBER_UPDATE_ALLOWED)[number];
+
+const MEMBER_CREATE_ALLOWED = [
+  ...MEMBER_UPDATE_ALLOWED,
+] as const;
+type MemberCreateKey = (typeof MEMBER_CREATE_ALLOWED)[number];
+
+const MEMBER_BULK_ALLOWED = [
+  "plan_id", "monthly_fee", "admission_fee",
+  "assigned_trainer_id", "assigned_shift_id", "referrer_id",
+] as const;
+type MemberBulkKey = (typeof MEMBER_BULK_ALLOWED)[number];
+
+function pickAllowed<K extends string>(
+  payload: Record<string, unknown>,
+  allowed: readonly K[],
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of allowed) {
+    if (key in payload) out[key] = payload[key];
+  }
+  return out;
+}
+
 // ── Freeze ────────────────────────────────────────────────────────────────────
 
 export async function freezeMember(memberId: string) {
@@ -296,9 +345,16 @@ export async function updateMember(memberId: string, payload: Record<string, unk
     .eq("gym_id", ctx.gymId)
     .single();
 
+  // Whitelist allowed fields — see MEMBER_UPDATE_ALLOWED rationale above.
+  const update = pickAllowed(payload, MEMBER_UPDATE_ALLOWED) as Partial<Record<MemberUpdateKey, unknown>> & { updated_at?: string };
+  if (Object.keys(update).length === 0) {
+    return { success: true };
+  }
+  update.updated_at = new Date().toISOString();
+
   const { error } = await admin
     .from("pulse_members")
-    .update(payload)
+    .update(update)
     .eq("id", memberId)
     .eq("gym_id", ctx.gymId);
 
@@ -307,8 +363,8 @@ export async function updateMember(memberId: string, payload: Record<string, unk
   // Recalculate pending salary for affected trainer(s) when the trainer field
   // was part of the payload. Fire-and-forget — errors are swallowed inside
   // recalcPendingSalary so they never block the response.
-  if (typeof payload.assigned_trainer_id !== "undefined") {
-    const newTrainerId = payload.assigned_trainer_id as string | null;
+  if ("assigned_trainer_id" in update) {
+    const newTrainerId = update.assigned_trainer_id as string | null;
     const oldTrainerId = existing?.assigned_trainer_id as string | null | undefined;
     const recalcTasks: Promise<void>[] = [];
     if (newTrainerId) recalcTasks.push(recalcPendingSalary(newTrainerId, ctx.gymId));
@@ -412,8 +468,16 @@ export async function createMember(payload: Record<string, unknown>) {
   if (!ctx) return { error: "Unauthorized" };
   const admin = createAdminClient();
 
-  // Force tenant scoping — never trust client-provided gym_id.
-  const insertPayload = { ...payload, gym_id: ctx.gymId };
+  // Whitelist client-supplied columns (defense-in-depth against mass-assignment:
+  // attacker MUST NOT be able to set gym_id, device_user_id, freeze_*, etc.).
+  // Then force tenant scoping + sensible defaults server-side.
+  const picked = pickAllowed(payload, MEMBER_CREATE_ALLOWED) as Partial<Record<MemberCreateKey, unknown>>;
+  const insertPayload: Record<string, unknown> = {
+    ...picked,
+    gym_id: ctx.gymId, // force — never trust client
+    status: picked.status ?? "active",
+    join_date: picked.join_date ?? new Date().toISOString().slice(0, 10),
+  };
 
   const { data, error } = await admin
     .from("pulse_members")
@@ -461,15 +525,23 @@ export async function bulkUpdateMembers(
     if (m.assigned_trainer_id) oldTrainerIds.add(m.assigned_trainer_id);
   }
 
+  // Whitelist — even though bulk edit is owner+permission gated, prevent any
+  // client from setting protected columns (gym_id, status, freeze_*, etc.).
+  const update = pickAllowed(payload, MEMBER_BULK_ALLOWED) as Partial<Record<MemberBulkKey, unknown>> & { updated_at?: string };
+  if (Object.keys(update).length === 0) {
+    return { error: "No editable fields supplied" };
+  }
+  update.updated_at = new Date().toISOString();
+
   const { error } = await admin
     .from("pulse_members")
-    .update(payload)
+    .update(update)
     .in("id", memberIds)
     .eq("gym_id", ctx.gymId);
   if (error) return { error: error.message };
 
-  if (typeof payload.assigned_trainer_id !== "undefined") {
-    const newTrainerId = payload.assigned_trainer_id as string | null;
+  if ("assigned_trainer_id" in update) {
+    const newTrainerId = update.assigned_trainer_id as string | null;
     const recalcTasks: Promise<void>[] = [];
     if (newTrainerId) recalcTasks.push(recalcPendingSalary(newTrainerId, ctx.gymId));
     for (const oldId of oldTrainerIds) {
@@ -487,7 +559,7 @@ export async function bulkUpdateMembers(
     action: "member.bulk_update", entity: "member",
     meta: {
       member_ids: memberIds,
-      changes: payload,
+      changes: update,
       by_role: ctx.isOwner ? "owner" : "staff",
     },
   });

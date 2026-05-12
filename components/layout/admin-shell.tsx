@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import type { AdminScope } from "@/types";
 
 const adminNav = [
   { href: "/admin/users",     label: "User Management", icon: Users },
@@ -17,8 +18,22 @@ const adminNav = [
   { href: "/admin/audit",     label: "Audit Log",       icon: ClipboardList },
 ];
 
-function AdminSidebar({ open, onClose, email }: { open: boolean; onClose: () => void; email: string }) {
+function AdminSidebar({
+  open,
+  onClose,
+  email,
+  scope,
+}: {
+  open: boolean;
+  onClose: () => void;
+  email: string;
+  scope: AdminScope;
+}) {
   const pathname = usePathname();
+  // Prospects-scoped admins only see the Gym Pipeline link in the nav.
+  const visibleNav = scope === "prospects"
+    ? adminNav.filter((n) => n.href === "/admin/prospects")
+    : adminNav;
 
   async function handleSignOut() {
     const supabase = createClient();
@@ -54,7 +69,7 @@ function AdminSidebar({ open, onClose, email }: { open: boolean; onClose: () => 
         <nav className="flex-1 py-3 px-2.5 overflow-y-auto">
           <p className="text-[10px] font-semibold text-muted-foreground/40 uppercase tracking-widest px-3 mb-1.5">Management</p>
           <div className="space-y-0.5">
-            {adminNav.map(({ href, label, icon: Icon }) => {
+            {visibleNav.map(({ href, label, icon: Icon }) => {
               const active = pathname === href || pathname.startsWith(href);
               return (
                 <Link key={href} href={href} onClick={onClose}
@@ -98,12 +113,20 @@ function AdminSidebar({ open, onClose, email }: { open: boolean; onClose: () => 
   );
 }
 
-export function AdminShell({ children, email }: { children: React.ReactNode; email: string }) {
+export function AdminShell({
+  children,
+  email,
+  scope,
+}: {
+  children: React.ReactNode;
+  email: string;
+  scope: AdminScope;
+}) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
-      <AdminSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} email={email} />
+      <AdminSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} email={email} scope={scope} />
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         <div className="lg:hidden flex items-center gap-3 px-4 h-14 border-b border-sidebar-border bg-sidebar/80 backdrop-blur-md shrink-0">
           <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors">

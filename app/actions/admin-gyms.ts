@@ -4,6 +4,7 @@ import { revalidateTag } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { writeAuditLog } from "@/lib/audit";
+import type { AdminScope } from "@/types";
 
 async function requireAdmin() {
   const supabase = await createClient();
@@ -12,10 +13,12 @@ async function requireAdmin() {
   const admin = createAdminClient();
   const { data: profile } = await admin
     .from("pulse_profiles")
-    .select("is_admin")
+    .select("is_admin, admin_scope")
     .eq("id", user.id)
     .single();
   if (!profile?.is_admin) throw new Error("Forbidden: admin access required");
+  const scope = (profile.admin_scope as AdminScope | null) ?? "full";
+  if (scope !== "full") throw new Error("Forbidden: full admin required");
   return user;
 }
 

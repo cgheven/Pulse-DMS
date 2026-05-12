@@ -80,14 +80,37 @@ export async function createLead(payload: LeadInput) {
   return { success: true, leadId: lead.id };
 }
 
+// Fields editable through the general lead-edit modal. Status, lost_reason,
+// lost_note, converted_member_id are routed through dedicated actions
+// (setLeadStatus / markLeadLost / convertLeadToMember) that also write
+// activity-log rows — clients MUST NOT bypass them via mass-assignment.
+const LEAD_UPDATE_ALLOWED = [
+  "full_name", "phone", "email", "source", "source_detail",
+  "interested_plan_id", "fitness_goals", "next_followup_at",
+  "assigned_to", "notes",
+] as const;
+type LeadUpdateKey = (typeof LEAD_UPDATE_ALLOWED)[number];
+
 export async function updateLead(leadId: string, payload: Partial<LeadInput>) {
   const ctx = await requireOwnerOrPermission("leads.update");
   if (!ctx) return { error: "Unauthorized" };
 
   const admin = createAdminClient();
+
+  // Whitelist allowed fields — see LEAD_UPDATE_ALLOWED rationale above.
+  const update: Partial<Record<LeadUpdateKey, unknown>> & { updated_at?: string } = {};
+  const src = payload as Record<string, unknown>;
+  for (const key of LEAD_UPDATE_ALLOWED) {
+    if (key in src) update[key] = src[key];
+  }
+  if (Object.keys(update).length === 0) {
+    return { success: true };
+  }
+  update.updated_at = new Date().toISOString();
+
   const { error } = await admin
     .from("pulse_leads")
-    .update({ ...payload, updated_at: new Date().toISOString() })
+    .update(update)
     .eq("id", leadId)
     .eq("gym_id", ctx.gymId);
   if (error) return { error: error.message };
