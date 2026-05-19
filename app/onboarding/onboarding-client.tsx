@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Zap, ArrowRight, ArrowLeft, Check, Gift, Rocket, Calendar,
+  Zap, ArrowRight, ArrowLeft, Check, Calendar,
   Building2, User, Phone, Mail, MapPin, Users, Loader2, AlertCircle,
 } from "lucide-react";
 import { submitOnboarding, type OnboardingPayload } from "@/app/actions/onboarding";
@@ -42,10 +42,10 @@ const HEARD_FROM: { value: NonNullable<OnboardingPayload["heard_from"]>; label: 
   { value: "other",     label: "Other" },
 ];
 
-type Step = 1 | 2 | 3 | 4;
+type Step = 1 | 2 | 3;
 
 const initialState = {
-  // Step 1
+  // Step 1 — basic gym info + optional context
   owner_name: "",
   phone: "",
   email: "",
@@ -54,11 +54,9 @@ const initialState = {
   area: "",
   gym_type: "" as "" | NonNullable<OnboardingPayload["gym_type"]>,
   active_members_count: "" as string,
-  // Step 2
-  trial_choice: "1_month" as OnboardingPayload["trial_choice"],
   preferred_start_date: "",
   heard_from: "" as "" | NonNullable<OnboardingPayload["heard_from"]>,
-  // Step 3
+  // Step 2 — plan
   plan_choice: "growth" as OnboardingPayload["plan_choice"],
   billing_cycle: "monthly" as OnboardingPayload["billing_cycle"],
   branch_type: "single" as OnboardingPayload["branch_type"],
@@ -111,11 +109,6 @@ export default function OnboardingClient() {
       }
     }
     if (s === 2) {
-      if (!["1_month", "2_months", "skip"].includes(form.trial_choice)) {
-        return "Pick a trial option";
-      }
-    }
-    if (s === 3) {
       if (!["starter", "growth", "pro"].includes(form.plan_choice)) {
         return "Pick a plan";
       }
@@ -135,7 +128,7 @@ export default function OnboardingClient() {
       return;
     }
     setError(null);
-    setStep((s) => (Math.min(4, s + 1) as Step));
+    setStep((s) => (Math.min(3, s + 1) as Step));
   }
   function back() {
     setError(null);
@@ -144,7 +137,7 @@ export default function OnboardingClient() {
 
   function submit() {
     // Re-validate all steps before submit
-    for (const s of [1, 2, 3] as Step[]) {
+    for (const s of [1, 2] as Step[]) {
       const err = validateStep(s);
       if (err) {
         setError(err);
@@ -166,7 +159,6 @@ export default function OnboardingClient() {
         active_members_count: form.active_members_count
           ? Number(form.active_members_count)
           : null,
-        trial_choice: form.trial_choice,
         preferred_start_date: form.preferred_start_date || null,
         heard_from: form.heard_from || null,
         plan_choice: form.plan_choice,
@@ -181,7 +173,12 @@ export default function OnboardingClient() {
         return;
       }
       const phoneClean = form.phone.replace(/[\s\-]/g, "");
-      router.push(`/onboarding/thank-you?phone=${encodeURIComponent(phoneClean)}`);
+      const qs = new URLSearchParams({
+        phone: phoneClean,
+        name: form.owner_name.trim().slice(0, 60),
+        gym: form.gym_name.trim().slice(0, 80),
+      });
+      router.push(`/onboarding/thank-you?${qs.toString()}`);
     });
   }
 
@@ -203,14 +200,14 @@ export default function OnboardingClient() {
             <span className="font-serif text-xl tracking-tight">Pulse</span>
           </Link>
           <p className="text-xs sm:text-sm text-muted-foreground tabular-nums">
-            Step <span className="text-foreground font-semibold">{step}</span> of 4
+            Step <span className="text-foreground font-semibold">{step}</span> of 3
           </p>
         </div>
         {/* Progress bar */}
         <div className="h-1 bg-sidebar-border/40">
           <div
             className="h-full bg-primary transition-all duration-300 ease-out"
-            style={{ width: `${(step / 4) * 100}%` }}
+            style={{ width: `${(step / 3) * 100}%` }}
           />
         </div>
       </header>
@@ -219,21 +216,18 @@ export default function OnboardingClient() {
       <main className="relative z-10 max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-10 pb-32 sm:pb-10">
         <h1 className="text-2xl sm:text-3xl font-serif tracking-tight mb-2">
           {step === 1 && "Tell us about your gym"}
-          {step === 2 && "Pick your trial"}
-          {step === 3 && "Pick your plan"}
-          {step === 4 && "Confirm your details"}
+          {step === 2 && "Pick your plan"}
+          {step === 3 && "Confirm your details"}
         </h1>
         <p className="text-sm text-muted-foreground mb-6 sm:mb-8">
-          {step === 1 && "We'll use this to get back to you within 24 hours."}
-          {step === 2 && "All trials are free — no card required up front."}
-          {step === 3 && "Pick what fits today. You can change later."}
-          {step === 4 && "Make sure everything looks right before submitting."}
+          {step === 1 && "Your dashboard will be provisioned with these details."}
+          {step === 2 && "Pick what fits today. You can change later."}
+          {step === 3 && "Make sure everything looks right before submitting."}
         </p>
 
         {step === 1 && <Step1 form={form} setForm={setForm} />}
-        {step === 2 && <Step2 form={form} setForm={setForm} />}
-        {step === 3 && <Step3 form={form} setForm={setForm} estimate={estimate} />}
-        {step === 4 && <Step4 form={form} estimate={estimate} />}
+        {step === 2 && <Step2 form={form} setForm={setForm} estimate={estimate} />}
+        {step === 3 && <Step3 form={form} estimate={estimate} />}
 
         {error && (
           <div className="mt-5 flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -256,7 +250,7 @@ export default function OnboardingClient() {
             Back
           </button>
 
-          {step < 4 ? (
+          {step < 3 ? (
             <button
               type="button"
               onClick={next}
@@ -442,76 +436,8 @@ function Step1({
           />
         </Field>
       </div>
-    </div>
-  );
-}
 
-// ── STEP 2 ───────────────────────────────────────────────────────────────────
-function Step2({
-  form, setForm,
-}: { form: typeof initialState; setForm: React.Dispatch<React.SetStateAction<typeof initialState>> }) {
-  const options = [
-    {
-      value: "1_month" as const,
-      icon: Gift,
-      title: "1 Month Free Trial",
-      desc: "Try Pulse for 30 days. No commitment.",
-    },
-    {
-      value: "2_months" as const,
-      icon: Gift,
-      title: "2 Months Free Trial",
-      desc: "Extended trial. Best for getting your team onboarded.",
-    },
-    {
-      value: "skip" as const,
-      icon: Rocket,
-      title: "Skip Trial",
-      desc: "Jump straight to a paid plan and get started today.",
-    },
-  ];
-
-  return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-1 gap-3">
-        {options.map(({ value, icon: Icon, title, desc }) => {
-          const selected = form.trial_choice === value;
-          return (
-            <button
-              type="button"
-              key={value}
-              onClick={() => setForm({ ...form, trial_choice: value })}
-              className={[
-                "text-left rounded-2xl border p-4 sm:p-5 flex items-start gap-4 transition-all",
-                selected
-                  ? "border-primary/50 bg-primary/[0.06] shadow-[0_0_40px_-15px] shadow-primary/30"
-                  : "border-sidebar-border bg-card hover:border-primary/30 hover:bg-primary/[0.02]",
-              ].join(" ")}
-            >
-              <div className={[
-                "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border",
-                selected
-                  ? "bg-primary/15 border-primary/30 text-primary"
-                  : "bg-card border-sidebar-border text-muted-foreground",
-              ].join(" ")}>
-                <Icon className="w-5 h-5" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-foreground">{title}</p>
-                <p className="text-sm text-muted-foreground leading-relaxed mt-0.5">{desc}</p>
-              </div>
-              <div className={[
-                "w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors",
-                selected ? "border-primary bg-primary" : "border-sidebar-border",
-              ].join(" ")}>
-                {selected && <Check className="w-3 h-3 text-primary-foreground" />}
-              </div>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Field label="Preferred start date" hint="optional">
           <TextInput
             icon={<Calendar className="w-4 h-4" />}
@@ -536,8 +462,8 @@ function Step2({
   );
 }
 
-// ── STEP 3 ───────────────────────────────────────────────────────────────────
-function Step3({
+// ── STEP 2 — plan picker ────────────────────────────────────────────────────
+function Step2({
   form, setForm, estimate,
 }: {
   form: typeof initialState;
@@ -730,18 +656,13 @@ function Step3({
   );
 }
 
-// ── STEP 4 ───────────────────────────────────────────────────────────────────
-function Step4({
+// ── STEP 3 — confirm ────────────────────────────────────────────────────────
+function Step3({
   form, estimate,
 }: {
   form: typeof initialState;
   estimate: { monthly: number; perBranch: number | null; annualTotal: number | null };
 }) {
-  const trialLabel: Record<string, string> = {
-    "1_month": "1 month free trial",
-    "2_months": "2 months free trial",
-    "skip": "Skip trial — straight to paid",
-  };
   const planLabel: Record<string, string> = {
     starter: "Starter",
     growth: "Growth",
@@ -753,7 +674,6 @@ function Step4({
     { label: "Owner",     value: `${form.owner_name} · ${form.phone}${form.email ? ` · ${form.email}` : ""}` },
     ...(form.gym_type ? [{ label: "Type", value: GYM_TYPES.find((g) => g.value === form.gym_type)?.label ?? form.gym_type }] : []),
     ...(form.active_members_count ? [{ label: "Active members today", value: form.active_members_count }] : []),
-    { label: "Trial",     value: trialLabel[form.trial_choice] },
     ...(form.preferred_start_date ? [{ label: "Preferred start", value: form.preferred_start_date }] : []),
     { label: "Plan",      value: `${planLabel[form.plan_choice]} · ${form.billing_cycle === "annual" ? "Annual" : "Monthly"}` },
     { label: "Branches",  value: form.branch_type === "single" ? "Single branch" : `${form.branch_count} branches` },
@@ -781,9 +701,9 @@ function Step4({
       </div>
 
       <p className="text-xs text-muted-foreground leading-relaxed px-1">
-        By submitting, you confirm this is your gym&apos;s information and that you&apos;d like Pulse to
-        contact you about onboarding. We&apos;ll review your details and reach out within 24 hours via
-        WhatsApp.
+        By submitting, you confirm this is your gym&apos;s information and that you&apos;ve agreed to
+        onboard with Pulse. We&apos;ll set up your admin dashboard and share your login credentials on
+        WhatsApp shortly.
       </p>
     </div>
   );

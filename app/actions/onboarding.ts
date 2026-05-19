@@ -26,7 +26,7 @@ export type OnboardingPayload = {
   area?: string | null;
   gym_type?: typeof GYM_TYPES[number] | null;
   active_members_count?: number | null;
-  trial_choice: typeof TRIAL_CHOICES[number];
+  trial_choice?: typeof TRIAL_CHOICES[number] | null;
   preferred_start_date?: string | null;
   heard_from?: typeof HEARD_FROM[number] | null;
   plan_choice: typeof PLAN_CHOICES[number];
@@ -78,7 +78,9 @@ export async function submitOnboarding(
   }
 
   // ── Enum allowlists ────────────────────────────────────────────────────────
-  if (!isOneOf(payload.trial_choice, TRIAL_CHOICES)) {
+  // Trial is now offered verbally by sales — form doesn't ask. If a legacy
+  // client still sends it, validate; otherwise allow null.
+  if (payload.trial_choice && !isOneOf(payload.trial_choice, TRIAL_CHOICES)) {
     return { error: "Invalid trial choice" };
   }
   if (!isOneOf(payload.plan_choice, PLAN_CHOICES)) {
@@ -143,7 +145,7 @@ export async function submitOnboarding(
       gym_name: payload.gym_name.trim(),
       gym_type: payload.gym_type || null,
       active_members_count: activeMembers,
-      trial_choice: payload.trial_choice,
+      trial_choice: payload.trial_choice ?? null,
       preferred_start_date: preferredStart,
       heard_from: payload.heard_from || null,
       plan_choice: payload.plan_choice,
