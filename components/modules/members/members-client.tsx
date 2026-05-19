@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
 import { useGymContext } from "@/contexts/gym-context";
-import { formatCurrency, formatDate, formatDateInput, cn } from "@/lib/utils";
+import { formatCurrency, formatDate, formatDateInput, cn, netMonthlyFee } from "@/lib/utils";
 import { validateFullName, validateCNIC, validatePakPhone, validateDOB, validateMoney, runValidators, type ValidationResult } from "@/lib/validation";
 import type { Member, MembershipPlan, MemberStatus, MemberGender, Staff, Payment, PaymentMethod, PaymentStatus, Referrer, SocialManager, SocialLead, TrainerShift } from "@/types";
 import { matchSocialLead } from "@/app/actions/social";
@@ -89,6 +89,7 @@ const emptyForm = {
   admission_fee: "",
   admission_fee_paid: false,
   monthly_fee: "",
+  monthly_discount: "0",
   outstanding_balance: "0",
   emergency_contact: "",
   emergency_phone: "",
@@ -222,7 +223,8 @@ const MemberTable = memo(function MemberTable({ list, showExpired, planMap, onEd
                   </span>
                 </td>
                 <td className="px-3 sm:px-4 py-3 text-right">
-                  <p className="font-semibold text-foreground whitespace-nowrap">{formatCurrency(m.monthly_fee)}<span className="text-muted-foreground">/mo</span></p>
+                  <p className="font-semibold text-foreground whitespace-nowrap">{formatCurrency(netMonthlyFee(m))}<span className="text-muted-foreground">/mo</span></p>
+                  {m.monthly_discount > 0 && <p className="text-[10px] sm:text-xs text-emerald-400 whitespace-nowrap">−{formatCurrency(m.monthly_discount)} discount</p>}
                   {m.admission_fee > 0 && <p className="text-[10px] sm:text-xs text-muted-foreground whitespace-nowrap">+{formatCurrency(m.admission_fee)} <span className="hidden sm:inline">admission</span><span className="sm:hidden">adm</span></p>}
                   {m.outstanding_balance > 0 && <p className="text-[10px] sm:text-xs text-rose-400 whitespace-nowrap">Due: {formatCurrency(m.outstanding_balance)}</p>}
                 </td>
@@ -370,7 +372,7 @@ export function MembersClient({
   function openPay(member: Member, payment: Payment | null) {
     setPayDialog({ member, payment });
     setPayForm({
-      amount: String(payment ? Number(payment.total_amount) : member.monthly_fee),
+      amount: String(payment ? Number(payment.total_amount) : netMonthlyFee(member)),
       discount: payment ? String(payment.discount ?? 0) : "0",
       late_fee: payment ? String(payment.late_fee ?? 0) : "0",
       method: payment?.payment_method ?? "cash",
@@ -385,7 +387,7 @@ export function MembersClient({
     if (!payDialog || !gymId) return;
     setPaySaving(true);
     const { member, payment } = payDialog;
-    const amount = parseFloat(payForm.amount) || member.monthly_fee;
+    const amount = parseFloat(payForm.amount) || netMonthlyFee(member);
     const discount = parseFloat(payForm.discount) || 0;
     const lateFee = parseFloat(payForm.late_fee) || 0;
     const total = Math.max(0, amount - discount + lateFee);
@@ -955,7 +957,7 @@ export function MembersClient({
                             <span className="text-sm text-muted-foreground">{m.hold_since ? formatDate(m.hold_since) : "—"}</span>
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <p className="font-semibold text-foreground whitespace-nowrap">{formatCurrency(m.monthly_fee)}<span className="text-muted-foreground">/mo</span></p>
+                            <p className="font-semibold text-foreground whitespace-nowrap">{formatCurrency(netMonthlyFee(m))}<span className="text-muted-foreground">/mo</span></p>
                           </td>
                           <td className="px-4 py-3 text-right">
                             <div className="flex items-center justify-end gap-1">
@@ -1042,7 +1044,7 @@ export function MembersClient({
                             </div>
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <p className="font-semibold text-foreground whitespace-nowrap">{formatCurrency(m.monthly_fee)}<span className="text-muted-foreground">/mo</span></p>
+                            <p className="font-semibold text-foreground whitespace-nowrap">{formatCurrency(netMonthlyFee(m))}<span className="text-muted-foreground">/mo</span></p>
                             {m.outstanding_balance > 0 && <p className="text-[10px] text-rose-400">Due: {formatCurrency(m.outstanding_balance)}</p>}
                           </td>
                           <td className="px-4 py-3 text-right">
@@ -1175,7 +1177,7 @@ export function MembersClient({
                             </span>
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <span className="font-medium text-foreground">{formatCurrency(member.monthly_fee)}</span>
+                            <span className="font-medium text-foreground">{formatCurrency(netMonthlyFee(member))}</span>
                           </td>
                           <td className="px-4 py-3 text-center">
                             {payment ? (
@@ -1553,6 +1555,7 @@ function MemberFormDialog({
         admission_fee: editing.admission_fee > 0 ? editing.admission_fee.toString() : "",
         admission_fee_paid: false,
         monthly_fee: editing.monthly_fee.toString(),
+        monthly_discount: (editing.monthly_discount ?? 0).toString(),
         outstanding_balance: editing.outstanding_balance.toString(),
         emergency_contact: editing.emergency_contact ?? "",
         emergency_phone: editing.emergency_phone ?? "",
@@ -1629,6 +1632,7 @@ function MemberFormDialog({
       plan_expiry_date: form.plan_expiry_date || null,
       admission_fee: admissionFee,
       monthly_fee: parseFloat(form.monthly_fee) || 0,
+      monthly_discount: Math.max(0, parseFloat(form.monthly_discount) || 0),
       outstanding_balance: (parseFloat(form.outstanding_balance) || 0) + (admissionUnpaid ? admissionFee : 0),
       emergency_contact: form.emergency_contact || null,
       emergency_phone: form.emergency_phone || null,
@@ -1955,6 +1959,30 @@ function MemberFormDialog({
                     validator={(v) => validateMoney(v, "Monthly fee")}
                     required
                   />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Monthly Discount (PKR)</Label>
+                  <Input
+                    type="number"
+                    placeholder="0"
+                    min="0"
+                    value={form.monthly_discount}
+                    onChange={(e) => setForm((f) => ({ ...f, monthly_discount: e.target.value }))}
+                  />
+                  {(() => {
+                    const fee = parseFloat(form.monthly_fee) || 0;
+                    const disc = Math.max(0, parseFloat(form.monthly_discount) || 0);
+                    const net = Math.max(0, fee - disc);
+                    return disc > 0 && fee > 0 ? (
+                      <p className="text-[11px] text-muted-foreground leading-snug">
+                        Net payable: <span className="text-foreground font-medium">{formatCurrency(net)}</span>/mo
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-muted-foreground leading-snug">
+                        Recurring monthly discount. Splits equally between gym and trainer commission base.
+                      </p>
+                    );
+                  })()}
                 </div>
                 <div className="space-y-1.5">
                   <Label>Admission Fee (PKR)</Label>

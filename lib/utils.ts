@@ -12,6 +12,18 @@ export function formatCurrency(amount: number) {
   }).format(amount)}`;
 }
 
+/**
+ * Net monthly fee a member actually pays = sticker (`monthly_fee`) minus the
+ * recurring discount (`monthly_discount`). Use this anywhere the gym displays
+ * "what the member is charged this month" or pre-fills a payment row.
+ *
+ * Trainer commission base uses a separate `discount / 2` split — see
+ * lib/data.ts and app/actions/trainer.ts.
+ */
+export function netMonthlyFee(m: { monthly_fee: number | null | undefined; monthly_discount: number | null | undefined }): number {
+  return Math.max(0, Number(m.monthly_fee ?? 0) - Number(m.monthly_discount ?? 0));
+}
+
 export function formatLakh(amount: number): string {
   if (amount >= 10_000_000) return `Rs. ${(amount / 10_000_000).toFixed(1)} Cr`;
   if (amount >= 100_000)    return `Rs. ${(amount / 100_000).toFixed(1)} Lakh`;

@@ -346,17 +346,21 @@ export async function createUserWithPassword(data: {
 
     if (error) throw error;
 
-    // Upsert profile — auth trigger may not fire for admin-created users
+    // Upsert profile — auth trigger may not fire for admin-created users.
+    // `email` is NOT NULL on pulse_profiles; omitting it silently aborts the
+    // upsert and leaves the user without a profile (gym FK then fails).
     const branchLimit = data.branch_limit && data.branch_limit >= 1 ? data.branch_limit : 1;
-    await admin.from("pulse_profiles").upsert(
+    const { error: profileError } = await admin.from("pulse_profiles").upsert(
       {
         id: created.user.id,
+        email: data.email.trim().toLowerCase(),
         full_name: data.full_name || null,
         phone: data.phone?.trim() || null,
         branch_limit: branchLimit,
       },
       { onConflict: "id" }
     );
+    if (profileError) throw profileError;
     revalidateTag(`profile-${created.user.id}`);
 
     await writeAuditLog({
@@ -390,13 +394,20 @@ export async function inviteUser(data: {
 
     if (error) throw error;
 
-    // Upsert profile so the user appears in the admin panel immediately
+    // Upsert profile so the user appears in the admin panel immediately.
+    // `email` is NOT NULL on pulse_profiles — must be included.
     if (invited.user) {
       const branchLimit = data.branch_limit && data.branch_limit >= 1 ? data.branch_limit : 1;
-      await admin.from("pulse_profiles").upsert(
-        { id: invited.user.id, full_name: data.full_name || null, branch_limit: branchLimit },
+      const { error: profileError } = await admin.from("pulse_profiles").upsert(
+        {
+          id: invited.user.id,
+          email: data.email.trim().toLowerCase(),
+          full_name: data.full_name || null,
+          branch_limit: branchLimit,
+        },
         { onConflict: "id" }
       );
+      if (profileError) throw profileError;
       revalidateTag(`profile-${invited.user.id}`);
     }
 

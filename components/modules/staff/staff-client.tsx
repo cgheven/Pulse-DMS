@@ -445,7 +445,7 @@ export function StaffClient({ gymId, gymName, staff: initialStaff, salaryPayment
 
     const [{ data: existing }, { data: activeMembers }, { data: allShifts }] = await Promise.all([
       supabase.from("pulse_salary_payments").select("staff_id").eq("gym_id", gymId).eq("for_month", month),
-      supabase.from("pulse_members").select("assigned_trainer_id,monthly_fee,assigned_shift_id").eq("gym_id", gymId).eq("status", "active"),
+      supabase.from("pulse_members").select("assigned_trainer_id,monthly_fee,monthly_discount,assigned_shift_id").eq("gym_id", gymId).eq("status", "active"),
       supabase.from("pulse_trainer_shifts").select("*").eq("gym_id", gymId),
     ]);
 
@@ -461,7 +461,9 @@ export function StaffClient({ gymId, gymName, staff: initialStaff, salaryPayment
           const myMembers = members.filter((m) => m.assigned_trainer_id === s.id);
           commissionAmount = myMembers.reduce((sum, m) => {
             const fee = Number(m.monthly_fee);
-            const netFee = Math.max(0, fee - s.commission_floor);
+            const discount = Number((m as { monthly_discount?: number }).monthly_discount ?? 0);
+            // Discount split equally between gym floor and trainer base.
+            const netFee = Math.max(0, fee - s.commission_floor - discount / 2);
             const shift = m.assigned_shift_id ? shiftMap[m.assigned_shift_id] : null;
             if (shift) {
               return sum + (shift.commission_type === "flat" ? shift.commission_value : Math.round(netFee * shift.commission_value / 100));
@@ -903,9 +905,9 @@ export function StaffClient({ gymId, gymName, staff: initialStaff, salaryPayment
                 <Input type="number" placeholder="0" value={form.commission_percentage} onChange={(e) => setForm({ ...form, commission_percentage: e.target.value })} />
               </div>
               <div className="space-y-1.5">
-                <Label>Gym Cost Floor (PKR)</Label>
+                <Label>Gym Fee (PKR)</Label>
                 <Input type="number" placeholder="0" value={form.commission_floor} onChange={(e) => setForm({ ...form, commission_floor: e.target.value })} />
-                <p className="text-[11px] text-muted-foreground leading-snug">Deducted from each member's fee before commission applies.</p>
+                <p className="text-[11px] text-muted-foreground leading-snug">Gym&apos;s share kept off the top. Commission % applies to whatever remains of the member fee.</p>
               </div>
             </div>
             {form.role === "trainer" && (

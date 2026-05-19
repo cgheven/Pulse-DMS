@@ -223,6 +223,7 @@ export async function logLeadActivity(leadId: string, type: LeadActivityType, co
 type ConvertPayload = {
   plan_id: string | null;
   monthly_fee: number;
+  monthly_discount?: number;
   admission_fee: number;
   admission_paid: boolean;
   join_date: string;
@@ -255,6 +256,7 @@ export async function convertLeadToMember(leadId: string, payload: ConvertPayloa
       email: lead.email,
       plan_id: payload.plan_id,
       monthly_fee: payload.monthly_fee,
+      monthly_discount: Math.max(0, Number(payload.monthly_discount ?? 0)),
       admission_fee: payload.admission_fee,
       join_date: payload.join_date,
       plan_expiry_date: payload.plan_expiry_date,

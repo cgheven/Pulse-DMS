@@ -16,14 +16,14 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
-import { formatCurrency, formatDate, formatDateInput } from "@/lib/utils";
+import { formatCurrency, formatDate, formatDateInput, netMonthlyFee } from "@/lib/utils";
 import { buildReminderMessage, whatsappUrl } from "@/lib/whatsapp-reminder";
 import type { Payment, PaymentMethod, PaymentStatus, Member, MembershipPlan, Staff, MemberGoal, BodyMetric, MetricSkip, TrainerShift, PaymentMethodAccount } from "@/types";
 
 type MemberRow = Pick<Member,
   "id" | "full_name" | "member_number" | "phone" | "email" | "cnic" |
   "gender" | "date_of_birth" | "emergency_contact" | "address" |
-  "monthly_fee" | "admission_fee" | "plan_id" | "assigned_trainer_id" | "assigned_shift_id" |
+  "monthly_fee" | "monthly_discount" | "admission_fee" | "plan_id" | "assigned_trainer_id" | "assigned_shift_id" |
   "status" | "plan_expiry_date" | "outstanding_balance" | "join_date" | "notes"
 > & { plan?: { name: string } | null };
 
@@ -140,7 +140,7 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
   const NO_TRAINER = "__none__";
   const emptyMemberForm = {
     full_name: "", phone: "", email: "", cnic: "",
-    plan_id: "", monthly_fee: "", admission_fee: "0", admission_fee_paid: true,
+    plan_id: "", monthly_fee: "", monthly_discount: "0", admission_fee: "0", admission_fee_paid: true,
     join_date: formatDateInput(new Date()),
     notes: "",
     assigned_trainer_id: staff.id,
@@ -163,6 +163,7 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
       cnic: member.cnic ?? "",
       plan_id: member.plan_id ?? "",
       monthly_fee: String(member.monthly_fee ?? ""),
+      monthly_discount: String(member.monthly_discount ?? "0"),
       admission_fee: String(member.admission_fee ?? "0"),
       join_date: member.join_date ?? f.join_date,
       notes: member.notes ?? "",
@@ -178,6 +179,7 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
       cnic: m.cnic ?? "",
       plan_id: m.plan_id ?? "",
       monthly_fee: String(m.monthly_fee ?? ""),
+      monthly_discount: String(m.monthly_discount ?? "0"),
       admission_fee: String(m.admission_fee ?? "0"),
       admission_fee_paid: true,
       join_date: m.join_date ?? formatDateInput(new Date()),
@@ -218,6 +220,7 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
       cnic: memberForm.cnic || null,
       plan_id: memberForm.plan_id,
       monthly_fee: parseFloat(memberForm.monthly_fee) || 0,
+      monthly_discount: Math.max(0, parseFloat(memberForm.monthly_discount) || 0),
       admission_fee: parseFloat(memberForm.admission_fee) || 0,
       join_date: memberForm.join_date,
       plan_expiry_date: expiry,
@@ -280,7 +283,9 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
 
     const cutForMember = (m: MemberRow) => {
       const fee = Number(m.monthly_fee);
-      const netFee = Math.max(0, fee - floor);
+      const discount = Number(m.monthly_discount ?? 0);
+      // Discount split equally between gym floor and trainer base.
+      const netFee = Math.max(0, fee - floor - discount / 2);
       const shift = m.assigned_shift_id ? shiftMap[m.assigned_shift_id] : null;
       if (shift) return shift.commission_type === "flat" ? shift.commission_value : netFee * (shift.commission_value / 100);
       return netFee * defaultPct;
@@ -326,7 +331,7 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
     const msg = buildReminderMessage({
       template: reminderTemplate,
       memberName: member.full_name,
-      amount: member.monthly_fee,
+      amount: netMonthlyFee(member),
       month: monthLabel(selectedMonth),
       gymName,
       accounts: paymentMethods,
@@ -338,7 +343,7 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
   function openPay(member: MemberRow, payment: Payment | null) {
     setPayDialog({ member, payment });
     setPayForm({
-      amount: String(payment ? Number(payment.total_amount) : member.monthly_fee),
+      amount: String(payment ? Number(payment.total_amount) : netMonthlyFee(member)),
       discount: payment ? String(payment.discount ?? 0) : "0",
       late_fee: payment ? String(payment.late_fee ?? 0) : "0",
       method: payment?.payment_method ?? "cash",
@@ -352,7 +357,7 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
     if (!payDialog) return;
     setSaving(true);
     const { member, payment } = payDialog;
-    const amount = parseFloat(payForm.amount) || member.monthly_fee;
+    const amount = parseFloat(payForm.amount) || netMonthlyFee(member);
     const discount = parseFloat(payForm.discount) || 0;
     const lateFee = parseFloat(payForm.late_fee) || 0;
     const total = Math.max(0, amount - discount + lateFee);
@@ -594,7 +599,7 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
                         <span className="text-sm text-muted-foreground">{member.plan?.name ?? "—"}</span>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <span className="font-medium text-foreground">{formatCurrency(member.monthly_fee)}</span>
+                        <span className="font-medium text-foreground">{formatCurrency(netMonthlyFee(member))}</span>
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex flex-col items-end gap-0.5">
@@ -728,7 +733,7 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
                             <span className="text-sm text-muted-foreground">{member.plan?.name ?? "—"}</span>
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <span className="font-medium text-foreground">{formatCurrency(member.monthly_fee)}</span>
+                            <span className="font-medium text-foreground">{formatCurrency(netMonthlyFee(member))}</span>
                           </td>
                           <td className="px-4 py-3 text-center">
                             {(() => { const { label, cls } = paymentBadge(payment, selectedMonth); return (
@@ -943,6 +948,10 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
               <div className="space-y-1.5">
                 <Label>Monthly Fee (PKR)</Label>
                 <Input type="number" value={memberForm.monthly_fee} onChange={(e) => setMemberForm({ ...memberForm, monthly_fee: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Monthly Discount (PKR)</Label>
+                <Input type="number" min="0" value={memberForm.monthly_discount} onChange={(e) => setMemberForm({ ...memberForm, monthly_discount: e.target.value })} />
               </div>
               <div className="space-y-1.5">
                 <Label>Join Date</Label>

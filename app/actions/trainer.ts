@@ -30,7 +30,7 @@ export async function recalcPendingSalary(trainerId: string, gymId: string): Pro
     // 2. Fetch all active members assigned to this trainer.
     const { data: members } = await admin
       .from("pulse_members")
-      .select("monthly_fee, assigned_shift_id")
+      .select("monthly_fee, monthly_discount, assigned_shift_id")
       .eq("gym_id", gymId)
       .eq("assigned_trainer_id", trainerId)
       .eq("status", "active");
@@ -59,9 +59,14 @@ export async function recalcPendingSalary(trainerId: string, gymId: string): Pro
     const trainerCommissionFloor = Number(trainerStaff.commission_floor ?? 0);
 
     // 5. Recalculate commission using the exact same algorithm as ensureSalariesExist.
+    //    Discount split (per Pulse pricing policy): when a recurring discount
+    //    is applied to a member, half comes off the gym's floor and half off
+    //    the trainer's commission base.
+    //    netFee = max(0, monthly_fee - commission_floor - monthly_discount/2)
     const commissionAmount = (members ?? []).reduce((sum, m) => {
       const fee = Number(m.monthly_fee);
-      const netFee = Math.max(0, fee - trainerCommissionFloor);
+      const discount = Number(m.monthly_discount ?? 0);
+      const netFee = Math.max(0, fee - trainerCommissionFloor - discount / 2);
       const shift = m.assigned_shift_id ? shiftMap[m.assigned_shift_id] : null;
       if (shift) {
         return sum + (shift.commission_type === "flat"
@@ -164,7 +169,7 @@ export async function checkMemberByPhone(phone: string) {
   const normalized = phone.replace(/\s/g, "");
   const { data } = await admin
     .from("pulse_members")
-    .select("id, full_name, phone, email, cnic, plan_id, monthly_fee, admission_fee, join_date, plan_expiry_date, notes, assigned_trainer_id, status")
+    .select("id, full_name, phone, email, cnic, plan_id, monthly_fee, monthly_discount, admission_fee, join_date, plan_expiry_date, notes, assigned_trainer_id, status")
     .eq("gym_id", ctx.gymId)
     .eq("phone", normalized)
     .maybeSingle();
@@ -182,6 +187,7 @@ type MemberPayload = {
   address?: string | null;
   plan_id: string | null;
   monthly_fee: number;
+  monthly_discount?: number;
   admission_fee: number;
   admission_fee_paid: boolean;
   join_date: string;
@@ -230,6 +236,7 @@ export async function createMemberAsTrainer(payload: MemberPayload) {
       address: payload.address ?? null,
       plan_id: payload.plan_id,
       monthly_fee: payload.monthly_fee,
+      monthly_discount: Math.max(0, Number(payload.monthly_discount ?? 0)),
       admission_fee: payload.admission_fee,
       join_date: payload.join_date,
       plan_expiry_date: payload.plan_expiry_date,
@@ -272,6 +279,7 @@ type UpdatePayload = {
   cnic?: string | null;
   plan_id: string | null;
   monthly_fee: number;
+  monthly_discount?: number;
   admission_fee: number;
   join_date: string;
   plan_expiry_date: string | null;
@@ -313,6 +321,7 @@ export async function updateMemberAsTrainer(memberId: string, payload: UpdatePay
       cnic: payload.cnic ?? null,
       plan_id: payload.plan_id,
       monthly_fee: payload.monthly_fee,
+      monthly_discount: Math.max(0, Number(payload.monthly_discount ?? 0)),
       admission_fee: payload.admission_fee,
       join_date: payload.join_date,
       plan_expiry_date: payload.plan_expiry_date,

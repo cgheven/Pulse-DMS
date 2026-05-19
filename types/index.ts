@@ -266,6 +266,13 @@ export interface Member {
   defaulter_since: string | null;
   admission_fee: number;
   monthly_fee: number;
+  /**
+   * Recurring monthly discount applied off the sticker (`monthly_fee`).
+   * Net cash collected = `monthly_fee - monthly_discount`.
+   * Trainer commission base subtracts `monthly_discount / 2` from the floor
+   * (gym + trainer split the discount equally).
+   */
+  monthly_discount: number;
   outstanding_balance: number;
   notes: string | null;
   created_at: string;

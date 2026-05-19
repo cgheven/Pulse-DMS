@@ -71,7 +71,7 @@ const MEMBER_UPDATE_ALLOWED = [
   "full_name", "phone", "email", "cnic", "gender", "date_of_birth",
   "emergency_contact", "emergency_phone", "address", "notes", "medical_notes",
   "photo_url",
-  "plan_id", "monthly_fee", "admission_fee", "outstanding_balance",
+  "plan_id", "monthly_fee", "monthly_discount", "admission_fee", "outstanding_balance",
   "assigned_trainer_id", "assigned_shift_id", "referrer_id",
   "member_number", "join_date", "plan_start_date", "plan_expiry_date",
   "status", "device_user_id",
@@ -84,7 +84,7 @@ const MEMBER_CREATE_ALLOWED = [
 type MemberCreateKey = (typeof MEMBER_CREATE_ALLOWED)[number];
 
 const MEMBER_BULK_ALLOWED = [
-  "plan_id", "monthly_fee", "admission_fee",
+  "plan_id", "monthly_fee", "monthly_discount", "admission_fee",
   "assigned_trainer_id", "assigned_shift_id", "referrer_id",
 ] as const;
 type MemberBulkKey = (typeof MEMBER_BULK_ALLOWED)[number];

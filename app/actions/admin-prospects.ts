@@ -257,16 +257,21 @@ export async function createPartnerProspectsUser(data: {
     });
     if (error) return { error: error.message };
 
-    await admin.from("pulse_profiles").upsert(
+    // `email` is NOT NULL on pulse_profiles. Setting role='manager' avoids the
+    // phantom-gym trigger (role='owner' or NULL → auto-creates a gym).
+    const { error: profileError } = await admin.from("pulse_profiles").upsert(
       {
         id: created.user.id,
+        email,
         full_name: data.full_name || null,
         is_admin: true,
         admin_scope: "prospects",
+        role: "manager",
         branch_limit: 1,
       },
       { onConflict: "id" },
     );
+    if (profileError) return { error: profileError.message };
 
     await writeAuditLog({
       actor_id: caller.id,

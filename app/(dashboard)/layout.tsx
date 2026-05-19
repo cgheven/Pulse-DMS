@@ -70,15 +70,25 @@ export default async function DashboardLayout({ children }: { children: React.Re
           <p className="text-xl font-bold">Set up your gym</p>
           <p className="text-sm text-muted-foreground leading-relaxed">
             We couldn&apos;t find a gym tied to your account. This usually happens
-            if signup didn&apos;t finish. Please contact support@bazaartech.com
-            to finish setup, or sign in with a different account.
+            if onboarding didn&apos;t finish. Message us on WhatsApp to complete
+            setup, or sign in with a different account.
           </p>
-          <a
-            href="/login"
-            className="inline-flex items-center justify-center min-h-[40px] px-5 py-2 rounded-lg border border-sidebar-border bg-card text-sm font-medium hover:bg-white/5 transition-colors"
-          >
-            Back to login
-          </a>
+          <div className="flex flex-col sm:flex-row gap-2 justify-center">
+            <a
+              href={`https://wa.me/923336673553?text=${encodeURIComponent("Hi, my Pulse account has no gym attached. Please help finish my setup.")}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center min-h-[40px] px-5 py-2 rounded-lg bg-[#25D366]/10 border border-[#25D366]/30 text-[#25D366] text-sm font-medium hover:bg-[#25D366]/20 transition-colors"
+            >
+              Message us on WhatsApp
+            </a>
+            <a
+              href="/login"
+              className="inline-flex items-center justify-center min-h-[40px] px-5 py-2 rounded-lg border border-sidebar-border bg-card text-sm font-medium hover:bg-white/5 transition-colors"
+            >
+              Back to login
+            </a>
+          </div>
         </div>
       </div>
     );
