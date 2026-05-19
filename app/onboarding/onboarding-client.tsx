@@ -701,9 +701,8 @@ function Step3({
       </div>
 
       <p className="text-xs text-muted-foreground leading-relaxed px-1">
-        By submitting, you confirm this is your gym&apos;s information and that you&apos;ve agreed to
-        onboard with Pulse. We&apos;ll set up your admin dashboard and share your login credentials on
-        WhatsApp shortly.
+        By submitting, you confirm this is your gym&apos;s information. We&apos;ll set up your admin
+        dashboard and share your login credentials on WhatsApp shortly.
       </p>
     </div>
   );
