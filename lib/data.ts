@@ -124,7 +124,10 @@ async function _fetchDashboard(gymId: string, gym: Gym | null) {
     supabase.from("pulse_payments").select("for_period,total_amount,status,payment_date").eq("gym_id", gymId).gte("payment_date", ranges[0].start).lte("payment_date", ranges[5].end),
     supabase.from("pulse_expenses").select("amount,date").eq("gym_id", gymId).gte("date", ranges[0].start).lte("date", ranges[5].end),
     supabase.from("pulse_staff").select("id,full_name").eq("gym_id", gymId).eq("status", "active").eq("role", "trainer"),
-    supabase.from("pulse_members").select("id,assigned_trainer_id,monthly_fee").eq("gym_id", gymId).eq("status", "active"),
+    // Collection-eligible roster: members who should/may owe fees this month.
+    // Active = currently paying, defaulter = owes back fees. Excludes frozen
+    // (paused, no fee owed), on_hold (paused), expired/cancelled (gone).
+    supabase.from("pulse_members").select("id,assigned_trainer_id,monthly_fee,status").eq("gym_id", gymId).in("status", ["active", "defaulter"]),
     supabase.from("pulse_payments").select("member_id,total_amount,status").eq("gym_id", gymId).eq("for_period", currentMonthKey),
     supabase.from("pulse_member_goals")
       .select("id,member_id,trainer_id,title,category,unit,start_value,target_value,current_value,direction,status,start_date,target_date,updated_at,member:pulse_members(full_name,assigned_trainer_id),trainer:pulse_staff(full_name)")
