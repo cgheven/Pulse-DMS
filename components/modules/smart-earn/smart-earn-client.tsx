@@ -10,12 +10,14 @@ interface Trainer {
   commission_percentage: number | null;
   commission_floor: number | null;
   member_capacity: number;
+  default_shift_name: string;
 }
 interface Member {
   id: string;
   full_name: string;
   member_number: string | null;
   assigned_trainer_id: string | null;
+  assigned_shift_id: string | null;
   plan_id: string | null;
   monthly_fee: number;
   join_date: string;
@@ -24,15 +26,24 @@ interface Member {
   updated_at: string;
 }
 interface Plan { id: string; name: string; price: number; }
+interface Shift {
+  id: string;
+  staff_id: string;
+  commission_type: string;
+  commission_value: number;
+  commission_floor: number;
+}
 interface Props {
   gymId: string | null;
   trainers: Trainer[];
   members: Member[];
   plans: Plan[];
+  shifts: Shift[];
   defaultTrainerCapacity: number;
 }
 
 // ── Commission formula ────────────────────────────────────────────────────────
+// Generic (no shift): keeps = fee minus (fee-floor) * pct.
 function keeps(fee: number, floor: number, pct: number): number {
   if (fee <= 0) return 0;
   return Math.max(0, fee - (pct > 0 ? Math.round(Math.max(0, fee - floor) * pct / 100) : 0));
@@ -40,6 +51,35 @@ function keeps(fee: number, floor: number, pct: number): number {
 function trainerGets(fee: number, floor: number, pct: number): number {
   if (fee <= 0 || pct <= 0) return 0;
   return Math.round(Math.max(0, fee - floor) * pct / 100);
+}
+
+// Shift-aware variant — mirrors lib/data.ts + actions/trainer.ts.
+// Shift = standalone rule: when assigned, shift.commission_floor is the only
+// floor that applies (trainer floor is ignored). No shift → trainer floor + pct.
+function trainerGetsForMember(
+  fee: number,
+  trainerFloor: number,
+  trainerPct: number,
+  shift: Shift | null,
+): number {
+  if (fee <= 0) return 0;
+  const effectiveFloor = shift ? Number(shift.commission_floor) : trainerFloor;
+  const netFee = Math.max(0, fee - effectiveFloor);
+  if (shift) {
+    return shift.commission_type === "flat"
+      ? Number(shift.commission_value)
+      : Math.round(netFee * Number(shift.commission_value) / 100);
+  }
+  if (trainerPct <= 0) return 0;
+  return Math.round(netFee * trainerPct / 100);
+}
+function keepsForMember(
+  fee: number,
+  trainerFloor: number,
+  trainerPct: number,
+  shift: Shift | null,
+): number {
+  return Math.max(0, fee - trainerGetsForMember(fee, trainerFloor, trainerPct, shift));
 }
 
 // ── Retention helpers ─────────────────────────────────────────────────────────
@@ -100,14 +140,20 @@ function getDaysRemaining(m: Member): number | null {
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-export function SmartEarnClient({ trainers, members, plans, defaultTrainerCapacity }: Props) {
+export function SmartEarnClient({ trainers, members, plans, shifts, defaultTrainerCapacity }: Props) {
   const [simFee, setSimFee]         = useState(6000);
   const [simInput, setSimInput]     = useState("6000");
   const [oppTab, setOppTab]         = useState<"easy" | "mid">("easy");
 
   const activeMembers = useMemo(() => members.filter((m) => m.status === "active"), [members]);
+  // shifts keyed by id for fast per-member lookup
+  const shiftById = useMemo(() => {
+    const map: Record<string, Shift> = {};
+    for (const s of shifts) map[s.id] = s;
+    return map;
+  }, [shifts]);
 
-  // Per-trainer profiles
+  // Per-trainer profiles — monthlyKeeps now respects per-member shift override.
   const profiles = useMemo(() => trainers.map((t) => {
     const pct   = Number(t.commission_percentage ?? 0);
     const floor = Number(t.commission_floor ?? 0);
@@ -115,9 +161,12 @@ export function SmartEarnClient({ trainers, members, plans, defaultTrainerCapaci
     const activeMine  = activeMembers.filter((m) => m.assigned_trainer_id === t.id);
     const churnedMine = allMine.filter((m) => CHURNED.has(m.status));
     const ret         = avgRetention(churnedMine.length > 0 ? churnedMine : allMine);
-    const monthlyKeeps = activeMine.reduce((s, m) => s + keeps(Number(m.monthly_fee), floor, pct), 0);
+    const monthlyKeeps = activeMine.reduce((s, m) => {
+      const shift = m.assigned_shift_id ? shiftById[m.assigned_shift_id] ?? null : null;
+      return s + keepsForMember(Number(m.monthly_fee), floor, pct, shift);
+    }, 0);
     return { ...t, pct, floor, allCount: allMine.length, activeCount: activeMine.length, monthlyKeeps, ret };
-  }), [trainers, members, activeMembers]);
+  }), [trainers, members, activeMembers, shiftById]);
 
   // Simulator ranking
   const simRanked = useMemo(() => [...profiles].sort((a, b) => {
@@ -145,15 +194,29 @@ export function SmartEarnClient({ trainers, members, plans, defaultTrainerCapaci
       const currentTrainer = trainers.find((t) => t.id === m.assigned_trainer_id);
       if (!currentTrainer) continue;
 
-      const fee     = Number(m.monthly_fee);
-      const current = keeps(fee, Number(currentTrainer.commission_floor ?? 0), Number(currentTrainer.commission_percentage ?? 0));
+      const fee      = Number(m.monthly_fee);
+      // Current "keeps" uses the member's actual shift (if any). Alternative
+      // trainers compare against trainer-default rates only (no shift hypothesis).
+      const currentShift = m.assigned_shift_id ? shiftById[m.assigned_shift_id] ?? null : null;
+      const current = keepsForMember(
+        fee,
+        Number(currentTrainer.commission_floor ?? 0),
+        Number(currentTrainer.commission_percentage ?? 0),
+        currentShift,
+      );
 
-      // Find the best trainer for this member's exact fee
+      // Find the best alternative trainer for this member's exact fee.
       let bestGain    = 0;
       let bestTrainer = currentTrainer;
       for (const tr of trainers) {
         if (tr.id === currentTrainer.id) continue;
-        const gain = keeps(fee, Number(tr.commission_floor ?? 0), Number(tr.commission_percentage ?? 0)) - current;
+        const altKeeps = keepsForMember(
+          fee,
+          Number(tr.commission_floor ?? 0),
+          Number(tr.commission_percentage ?? 0),
+          null, // hypothetical move — no shift assumed yet
+        );
+        const gain = altKeeps - current;
         if (gain > bestGain) { bestGain = gain; bestTrainer = tr; }
       }
       if (bestGain <= 0) continue;
@@ -629,6 +692,7 @@ export function SmartEarnClient({ trainers, members, plans, defaultTrainerCapaci
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium">{t.full_name}</p>
                     <p className="text-xs text-muted-foreground">{t.pct}% commission</p>
+                    <p className="text-[10px] text-muted-foreground/70">Default: {t.default_shift_name}</p>
                   </div>
                   <div className="flex items-center gap-4 text-right shrink-0">
                     {t.ret !== null && <div className="hidden sm:block"><p className="text-xs text-blue-400">{t.ret} mo avg stay</p></div>}

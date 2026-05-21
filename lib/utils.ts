@@ -12,18 +12,6 @@ export function formatCurrency(amount: number) {
   }).format(amount)}`;
 }
 
-/**
- * Net monthly fee a member actually pays = sticker (`monthly_fee`) minus the
- * recurring discount (`monthly_discount`). Use this anywhere the gym displays
- * "what the member is charged this month" or pre-fills a payment row.
- *
- * Trainer commission base uses a separate `discount / 2` split — see
- * lib/data.ts and app/actions/trainer.ts.
- */
-export function netMonthlyFee(m: { monthly_fee: number | null | undefined; monthly_discount: number | null | undefined }): number {
-  return Math.max(0, Number(m.monthly_fee ?? 0) - Number(m.monthly_discount ?? 0));
-}
-
 export function formatLakh(amount: number): string {
   if (amount >= 10_000_000) return `Rs. ${(amount / 10_000_000).toFixed(1)} Cr`;
   if (amount >= 100_000)    return `Rs. ${(amount / 100_000).toFixed(1)} Lakh`;
@@ -40,6 +28,22 @@ export function formatDate(date: string | Date) {
 
 export function formatDateInput(date: Date) {
   return date.toISOString().split("T")[0];
+}
+
+/**
+ * Convert "HH:MM" or "HH:MM:SS" 24h string to "h:MM AM/PM".
+ * "16:00" → "4:00 PM". "00:30" → "12:30 AM". Invalid input returned as-is.
+ */
+export function formatTime12h(time: string | null | undefined): string {
+  if (!time) return "";
+  const m = time.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return time;
+  const h = Number(m[1]);
+  const mins = m[2];
+  if (Number.isNaN(h) || h < 0 || h > 23) return time;
+  const period = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${mins} ${period}`;
 }
 
 export function formatPhone(phone: string): string {

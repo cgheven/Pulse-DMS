@@ -218,6 +218,12 @@ export interface TrainerShift {
   end_time: string;
   commission_type: CommissionType;
   commission_value: number;
+  /**
+   * Per-shift Gym Fee. Shift is a standalone rule: when a member is assigned
+   * to a shift, only this floor applies (trainer.commission_floor is ignored).
+   * Set to 0 for "direct commission % on full fee" (e.g. evening direct 50%).
+   */
+  commission_floor: number;
   created_at: string;
   updated_at: string;
 }
@@ -266,14 +272,15 @@ export interface Member {
   defaulter_since: string | null;
   admission_fee: number;
   monthly_fee: number;
-  /**
-   * Recurring monthly discount applied off the sticker (`monthly_fee`).
-   * Net cash collected = `monthly_fee - monthly_discount`.
-   * Trainer commission base subtracts `monthly_discount / 2` from the floor
-   * (gym + trainer split the discount equally).
-   */
-  monthly_discount: number;
   outstanding_balance: number;
+  /**
+   * Discount intent captured at signup when admission is unpaid. Surfaces
+   * in the Discounts report as "Promised" — the value the owner pledged
+   * to honor when the member eventually pays admission. Cleared back to 0
+   * when the admission payment is recorded (the discount then lives on
+   * the realized pulse_payments.discount row to avoid double-counting).
+   */
+  pending_signup_discount: number;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -332,6 +339,12 @@ export interface Staff {
   pt_rate: number;
   commission_percentage: number;
   commission_floor: number;
+  /**
+   * Display label for the trainer's default commission rule (used when a
+   * member has no assigned_shift_id). Owners pick from "Full Time" /
+   * "Morning" / "Evening" or a custom name. Does not affect salary math.
+   */
+  default_shift_name: string;
   status: StaffStatus;
   notes: string | null;
   user_id: string | null;
@@ -708,6 +721,47 @@ export interface MemberReportSummary {
   expiringIn16To30Days: ExpiringMember[];
   defaulterList: DefaulterRow[];
   planDistribution: PlanDistributionRow[];
+}
+
+export interface DiscountRow {
+  memberId: string;
+  memberName: string;
+  memberNumber: string | null;
+  /** Total discount = realized (from paid rows) + promised (pending_signup_discount). */
+  totalDiscount: number;
+  /** Discount that already lives on a pulse_payments row. */
+  realizedDiscount: number;
+  /** Discount the owner pledged but hasn't yet collected (admission unpaid). */
+  pendingDiscount: number;
+  discountCount: number;
+  totalPayments: number;
+  avgDiscount: number;
+  lastDiscountDate: string | null;
+}
+
+export interface DiscountMonthRow {
+  month: string;
+  monthKey: string;
+  totalDiscount: number;
+  discountCount: number;
+  uniqueMembers: number;
+}
+
+export interface DiscountReport {
+  summary: {
+    /** Realized + Promised — the headline figure. */
+    totalDiscountAmount: number;
+    /** Sum of pulse_payments.discount across all payment rows for the gym. */
+    realizedDiscountAmount: number;
+    /** Sum of pulse_members.pending_signup_discount — unpaid admission pledges. */
+    promisedDiscountAmount: number;
+    paymentsWithDiscount: number;
+    uniqueMembersDiscounted: number;
+    /** Members with an unpaid-admission pledge sitting on their record. */
+    uniqueMembersPromised: number;
+  };
+  rows: DiscountRow[];
+  byMonth: DiscountMonthRow[];
 }
 
 export interface GoalWin {

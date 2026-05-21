@@ -223,9 +223,9 @@ export async function logLeadActivity(leadId: string, type: LeadActivityType, co
 type ConvertPayload = {
   plan_id: string | null;
   monthly_fee: number;
-  monthly_discount?: number;
   admission_fee: number;
   admission_paid: boolean;
+  discount?: number;
   join_date: string;
   plan_expiry_date: string | null;
   assigned_trainer_id?: string | null;
@@ -245,7 +245,21 @@ export async function convertLeadToMember(leadId: string, payload: ConvertPayloa
     .single();
   if (!lead) return { error: "Lead not found" };
 
-  const outstanding = payload.admission_paid ? 0 : payload.admission_fee;
+  // Clamp signup discount to [0, admission_fee]. Applied whether paid now
+  // (payment row) or later (reduces outstanding_balance).
+  const rawDiscount = Number(payload.discount ?? 0);
+  const signupDiscount = payload.admission_fee > 0
+    ? Math.min(Math.max(0, rawDiscount), payload.admission_fee)
+    : 0;
+  const outstanding = payload.admission_paid
+    ? 0
+    : Math.max(0, payload.admission_fee - signupDiscount);
+  // When admission is unpaid + a signup discount was promised, stash the
+  // discount value on the member so the Discounts report can surface it as
+  // "Promised". Cleared on admission payment by payments.createPayment.
+  const pendingSignupDiscount = !payload.admission_paid && signupDiscount > 0
+    ? signupDiscount
+    : 0;
   const { data: member, error } = await admin
     .from("pulse_members")
     .insert({
@@ -256,12 +270,12 @@ export async function convertLeadToMember(leadId: string, payload: ConvertPayloa
       email: lead.email,
       plan_id: payload.plan_id,
       monthly_fee: payload.monthly_fee,
-      monthly_discount: Math.max(0, Number(payload.monthly_discount ?? 0)),
       admission_fee: payload.admission_fee,
       join_date: payload.join_date,
       plan_expiry_date: payload.plan_expiry_date,
       status: "active",
       outstanding_balance: outstanding,
+      pending_signup_discount: pendingSignupDiscount,
       notes: lead.fitness_goals ? `Goal: ${lead.fitness_goals}` : null,
     })
     .select("id")
@@ -274,7 +288,8 @@ export async function convertLeadToMember(leadId: string, payload: ConvertPayloa
       member_id: member.id,
       plan_id: payload.plan_id,
       amount: payload.admission_fee,
-      total_amount: payload.admission_fee,
+      discount: signupDiscount,
+      total_amount: Math.max(0, payload.admission_fee - signupDiscount),
       payment_method: "cash",
       payment_date: payload.join_date,
       for_period: "admission",
@@ -297,7 +312,11 @@ export async function convertLeadToMember(leadId: string, payload: ConvertPayloa
     content: "Converted to member 🎉",
   });
 
-  if (ctx.gymId) revalidateTag(`members-${ctx.gymId}`);
+  if (ctx.gymId) {
+    revalidateTag(`members-${ctx.gymId}`);
+    revalidateTag(`reports-${ctx.gymId}`);
+    revalidateTag(`discounts-${ctx.gymId}`);
+  }
   bumpDashboard(ctx.gymId);
   return { success: true, memberId: member.id };
 }

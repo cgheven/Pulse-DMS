@@ -22,7 +22,6 @@ type Member = {
   email: string | null;
   cnic: string | null;
   monthly_fee: number;
-  monthly_discount: number | null;
   plan_id: string | null;
   assigned_trainer_id: string | null;
   status: string;

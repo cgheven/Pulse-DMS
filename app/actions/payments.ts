@@ -40,6 +40,7 @@ function revalidateAll(gymId: string) {
   revalidateTag(`dashboard-${gymId}`);
   revalidateTag(`reports-${gymId}`);
   revalidateTag(`members-${gymId}`);
+  revalidateTag(`discounts-${gymId}`);
 }
 
 export async function revalidatePayments() {
@@ -69,10 +70,11 @@ export async function createPayment(payload: CreatePaymentPayload) {
   if (!ctx) return { error: "Unauthorized" };
   const admin = createAdminClient();
 
-  // Verify member belongs to this gym
+  // Verify member belongs to this gym. Also pull pending_signup_discount so
+  // we know whether to clear it after recording an admission payment.
   const { data: member } = await admin
     .from("pulse_members")
-    .select("id, gym_id, full_name")
+    .select("id, gym_id, full_name, pending_signup_discount")
     .eq("id", payload.member_id)
     .eq("gym_id", ctx.gymId)
     .single();
@@ -98,6 +100,24 @@ export async function createPayment(payload: CreatePaymentPayload) {
     .select("*, member:pulse_members(full_name,plan_id)")
     .single();
   if (error) return { error: error.message };
+
+  // Clear-on-paid: when the owner actually records the admission payment
+  // (status=paid, for_period=admission), the previously promised discount
+  // moves from "pulse_members.pending_signup_discount" (Promised) to the
+  // freshly inserted "pulse_payments.discount" row (Realized). Zero out the
+  // member column so the report doesn't double-count.
+  const pendingPromised = Number(member.pending_signup_discount ?? 0);
+  if (
+    pendingPromised > 0 &&
+    payload.for_period === "admission" &&
+    payload.status === "paid"
+  ) {
+    await admin
+      .from("pulse_members")
+      .update({ pending_signup_discount: 0, updated_at: new Date().toISOString() })
+      .eq("id", payload.member_id)
+      .eq("gym_id", ctx.gymId);
+  }
 
   await writeAuditLog({
     actor_id: ctx.user.id, actor_email: ctx.user.email ?? "",

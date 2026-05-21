@@ -1444,6 +1444,7 @@ function ConvertDialog({ lead, plans, trainers, onClose, onSaved }: {
     monthly_fee: "",
     admission_fee: "0",
     admission_paid: true,
+    discount: "0",
     join_date: today,
     plan_expiry_date: formatDateInput(targetDate),
     assigned_trainer_id: lead.assigned_to ?? NO_TRAINER,
@@ -1457,11 +1458,18 @@ function ConvertDialog({ lead, plans, trainers, onClose, onSaved }: {
 
   async function save() {
     setSaving(true);
+    const admissionFee = parseFloat(form.admission_fee) || 0;
+    const rawDiscount = parseFloat(form.discount) || 0;
+    // Discount honored whether admission paid now or later.
+    const signupDiscount = admissionFee > 0
+      ? Math.min(Math.max(0, rawDiscount), admissionFee)
+      : 0;
     const res = await convertLeadToMember(lead.id, {
       plan_id: form.plan_id || null,
       monthly_fee: parseFloat(form.monthly_fee) || 0,
-      admission_fee: parseFloat(form.admission_fee) || 0,
+      admission_fee: admissionFee,
       admission_paid: form.admission_paid,
+      discount: signupDiscount,
       join_date: form.join_date,
       plan_expiry_date: form.plan_expiry_date,
       assigned_trainer_id: form.assigned_trainer_id === NO_TRAINER ? null : form.assigned_trainer_id,
@@ -1542,6 +1550,29 @@ function ConvertDialog({ lead, plans, trainers, onClose, onSaved }: {
                     ? "bg-rose-500/15 text-rose-400 border-rose-500/30"
                     : "bg-white/5 text-muted-foreground border-white/10 hover:text-foreground"
                 }`}>Admission Pending</button>
+            </div>
+          )}
+          {parseFloat(form.admission_fee) > 0 && (
+            <div className="space-y-1.5">
+              <Label>Discount (PKR)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={parseFloat(form.admission_fee) || 0}
+                value={form.discount}
+                onChange={(e) => setForm({ ...form, discount: e.target.value })}
+              />
+              {(() => {
+                const d = parseFloat(form.discount) || 0;
+                const fee = parseFloat(form.admission_fee) || 0;
+                if (d > fee) {
+                  return <p className="text-xs text-rose-400">Discount cannot exceed admission fee. It will be clamped to {formatCurrency(fee)}.</p>;
+                }
+                if (d < 0) {
+                  return <p className="text-xs text-rose-400">Discount cannot be negative. It will be clamped to 0.</p>;
+                }
+                return <p className="text-xs text-muted-foreground">One-time discount on admission fee. {form.admission_paid ? "Applied to the admission payment." : "Reduces the outstanding balance."}</p>;
+              })()}
             </div>
           )}
         </div>

@@ -11,15 +11,16 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
-import { formatCurrency, formatDate, formatDateInput, netMonthlyFee } from "@/lib/utils";
+import { formatCurrency, formatDate, formatDateInput } from "@/lib/utils";
 import { useGymContext } from "@/contexts/gym-context";
 import { buildReminderMessage, whatsappUrl } from "@/lib/whatsapp-reminder";
 import { validateMoney } from "@/lib/validation";
 import type { Payment, PaymentMethod, PaymentStatus, Member, MembershipPlan } from "@/types";
 
 type MemberRow = Pick<Member,
-  "id" | "full_name" | "member_number" | "phone" | "monthly_fee" | "monthly_discount" | "plan_id" |
-  "assigned_trainer_id" | "status" | "plan_expiry_date" | "outstanding_balance"
+  "id" | "full_name" | "member_number" | "phone" | "monthly_fee" | "plan_id" |
+  "assigned_trainer_id" | "status" | "plan_expiry_date" | "outstanding_balance" |
+  "pending_signup_discount"
 > & { plan?: { name: string } | null; trainer?: { full_name: string } | null };
 
 type PlanRow = Pick<MembershipPlan, "id" | "name" | "price" | "duration_type">;
@@ -159,7 +160,7 @@ function MemberPicker({ members, value, onChange }: {
                   {m.full_name}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {formatCurrency(netMonthlyFee(m))} · {m.plan?.name ?? "No plan"}
+                  {formatCurrency(Number(m.monthly_fee))} · {m.plan?.name ?? "No plan"}
                   {m.trainer?.full_name && <span className="ml-1 text-muted-foreground/60">· {m.trainer.full_name}</span>}
                 </p>
               </div>
@@ -260,7 +261,18 @@ export function PaymentsClient({ gymId, payments: initialPayments, members }: Pr
   }
 
   function recordPayment(m: MemberRow) {
-    setAddForm({ ...emptyForm, member_id: m.id, total_amount: String(netMonthlyFee(m)) });
+    // Pre-fill the promised signup discount (admission unpaid pledge) when
+    // present. The owner can still edit before submit. The discount only
+    // clears the member's pending column when for_period === "admission" and
+    // status === "paid" server-side, so callers can safely tweak.
+    const promised = Number(m.pending_signup_discount ?? 0);
+    const next = {
+      ...emptyForm,
+      member_id: m.id,
+      total_amount: String(Number(m.monthly_fee)),
+      discount: promised > 0 ? String(promised) : "0",
+    };
+    setAddForm(next);
     setAddDialog(true);
   }
 
@@ -269,7 +281,7 @@ export function PaymentsClient({ gymId, payments: initialPayments, members }: Pr
       toast({ title: "No phone number on file for this member", variant: "destructive" });
       return;
     }
-    const due = m.outstanding_balance && m.outstanding_balance > 0 ? Number(m.outstanding_balance) : netMonthlyFee(m);
+    const due = m.outstanding_balance && m.outstanding_balance > 0 ? Number(m.outstanding_balance) : Number(m.monthly_fee);
     const message = buildReminderMessage({
       template: gym?.reminder_template,
       memberName: m.full_name,
@@ -366,7 +378,7 @@ export function PaymentsClient({ gymId, payments: initialPayments, members }: Pr
       const g = groups.get(key)!;
       g.total += 1;
       const p = currentMonthPayments.get(m.id);
-      const fee = netMonthlyFee(m);
+      const fee = Number(m.monthly_fee);
       const paidAmt = p?.status === "paid" ? Number(p.total_amount) : 0;
       if (p?.status === "paid") {
         g.paid += 1;
@@ -536,7 +548,7 @@ export function PaymentsClient({ gymId, payments: initialPayments, members }: Pr
                             <span className="text-sm text-muted-foreground">{m.plan?.name ?? "—"}</span>
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <span className="font-medium text-foreground">{formatCurrency(netMonthlyFee(m))}</span>
+                            <span className="font-medium text-foreground">{formatCurrency(Number(m.monthly_fee))}</span>
                           </td>
                           <td className="px-4 py-3 text-center">
                             {payment ? (
@@ -707,7 +719,7 @@ export function PaymentsClient({ gymId, payments: initialPayments, members }: Pr
             <div className="space-y-1.5">
               <Label>Member *</Label>
               <MemberPicker members={members} value={addForm.member_id}
-                onChange={(id, m) => setAddForm({ ...addForm, member_id: id, total_amount: m ? String(netMonthlyFee(m)) : "" })} />
+                onChange={(id, m) => setAddForm({ ...addForm, member_id: id, total_amount: m ? String(Number(m.monthly_fee)) : "" })} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">

@@ -30,7 +30,7 @@ export async function recalcPendingSalary(trainerId: string, gymId: string): Pro
     // 2. Fetch all active members assigned to this trainer.
     const { data: members } = await admin
       .from("pulse_members")
-      .select("monthly_fee, monthly_discount, assigned_shift_id")
+      .select("monthly_fee, assigned_shift_id")
       .eq("gym_id", gymId)
       .eq("assigned_trainer_id", trainerId)
       .eq("status", "active");
@@ -38,7 +38,7 @@ export async function recalcPendingSalary(trainerId: string, gymId: string): Pro
     // 3. Fetch all shifts for this gym.
     const { data: shifts } = await admin
       .from("pulse_trainer_shifts")
-      .select("id, commission_type, commission_value")
+      .select("id, commission_type, commission_value, commission_floor")
       .eq("gym_id", gymId);
 
     // 4. Fetch the trainer's commission settings.
@@ -52,22 +52,21 @@ export async function recalcPendingSalary(trainerId: string, gymId: string): Pro
     if (!trainerStaff) return;
 
     const shiftMap = Object.fromEntries(
-      (shifts ?? []).map((s) => [s.id, s] as [string, { id: string; commission_type: string; commission_value: number }])
+      (shifts ?? []).map((s) => [s.id, s] as [string, { id: string; commission_type: string; commission_value: number; commission_floor: number }])
     );
 
     const trainerCommissionPercentage = Number(trainerStaff.commission_percentage ?? 0);
     const trainerCommissionFloor = Number(trainerStaff.commission_floor ?? 0);
 
-    // 5. Recalculate commission using the exact same algorithm as ensureSalariesExist.
-    //    Discount split (per Pulse pricing policy): when a recurring discount
-    //    is applied to a member, half comes off the gym's floor and half off
-    //    the trainer's commission base.
-    //    netFee = max(0, monthly_fee - commission_floor - monthly_discount/2)
+    // 5. Recalculate commission.
+    //    Floor resolution: shift = standalone rule. When a shift is assigned,
+    //    its commission_floor is the ONLY floor — trainer floor doesn't apply.
+    //    No shift assigned = use trainer floor + trainer pct.
     const commissionAmount = (members ?? []).reduce((sum, m) => {
       const fee = Number(m.monthly_fee);
-      const discount = Number(m.monthly_discount ?? 0);
-      const netFee = Math.max(0, fee - trainerCommissionFloor - discount / 2);
       const shift = m.assigned_shift_id ? shiftMap[m.assigned_shift_id] : null;
+      const effectiveFloor = shift ? Number(shift.commission_floor) : trainerCommissionFloor;
+      const netFee = Math.max(0, fee - effectiveFloor);
       if (shift) {
         return sum + (shift.commission_type === "flat"
           ? shift.commission_value
@@ -169,7 +168,7 @@ export async function checkMemberByPhone(phone: string) {
   const normalized = phone.replace(/\s/g, "");
   const { data } = await admin
     .from("pulse_members")
-    .select("id, full_name, phone, email, cnic, plan_id, monthly_fee, monthly_discount, admission_fee, join_date, plan_expiry_date, notes, assigned_trainer_id, status")
+    .select("id, full_name, phone, email, cnic, plan_id, monthly_fee, admission_fee, join_date, plan_expiry_date, notes, assigned_trainer_id, assigned_shift_id, status")
     .eq("gym_id", ctx.gymId)
     .eq("phone", normalized)
     .maybeSingle();
@@ -187,13 +186,14 @@ type MemberPayload = {
   address?: string | null;
   plan_id: string | null;
   monthly_fee: number;
-  monthly_discount?: number;
   admission_fee: number;
   admission_fee_paid: boolean;
+  discount?: number;
   join_date: string;
   plan_expiry_date: string | null;
   notes?: string | null;
   assigned_trainer_id?: string | null;
+  assigned_shift_id?: string | null;
 };
 
 async function resolveTrainerAssignment(gymId: string, fallbackId: string, requested?: string | null) {
@@ -211,6 +211,22 @@ async function resolveTrainerAssignment(gymId: string, fallbackId: string, reque
   return data?.id ?? fallbackId;
 }
 
+// Validates that a requested shift belongs to the resolved trainer.
+// If the shift's staff_id doesn't match (stale ID after trainer transfer),
+// returns null so salary calc falls back to the trainer's default rate.
+async function resolveShiftAssignment(gymId: string, trainerId: string | null, requested?: string | null): Promise<string | null> {
+  if (!requested || !trainerId) return null;
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("pulse_trainer_shifts")
+    .select("id")
+    .eq("id", requested)
+    .eq("gym_id", gymId)
+    .eq("staff_id", trainerId)
+    .maybeSingle();
+  return data?.id ?? null;
+}
+
 export async function createMemberAsTrainer(payload: MemberPayload) {
   const ctx = await getTrainerContext();
   if (!ctx) return { error: "Unauthorized" };
@@ -218,14 +234,35 @@ export async function createMemberAsTrainer(payload: MemberPayload) {
   if (!ctx.staff.can_add_members) return { error: "Permission denied" };
 
   const admin = createAdminClient();
-  const outstanding = payload.admission_fee_paid ? 0 : payload.admission_fee;
+  // Clamp signup discount to [0, admission_fee]. Applied whether admission is
+  // paid now (writes to payment row) or later (reduces outstanding_balance).
+  const rawDiscount = Number(payload.discount ?? 0);
+  const signupDiscount = payload.admission_fee > 0
+    ? Math.min(Math.max(0, rawDiscount), payload.admission_fee)
+    : 0;
+  const outstanding = payload.admission_fee_paid
+    ? 0
+    : Math.max(0, payload.admission_fee - signupDiscount);
   const trainerId = await resolveTrainerAssignment(ctx.gymId, ctx.staff.id, payload.assigned_trainer_id);
+
+  // Validate shift belongs to the resolved trainer (defense against
+  // stale shift IDs from a previous trainer assignment).
+  const validatedShiftId = await resolveShiftAssignment(ctx.gymId, trainerId, payload.assigned_shift_id);
+
+  // When admission is unpaid + a signup discount was promised, stash the
+  // discount value on the member so the Discounts report can surface it as
+  // "Promised". On admission payment, payments.createPayment clears this back
+  // to 0 and the discount moves to the payment row → "Realized".
+  const pendingSignupDiscount = !payload.admission_fee_paid && signupDiscount > 0
+    ? signupDiscount
+    : 0;
 
   const { data: member, error } = await admin
     .from("pulse_members")
     .insert({
       gym_id: ctx.gymId,
       assigned_trainer_id: trainerId,
+      assigned_shift_id: validatedShiftId,
       full_name: payload.full_name,
       phone: payload.phone,
       cnic: payload.cnic ?? null,
@@ -236,12 +273,12 @@ export async function createMemberAsTrainer(payload: MemberPayload) {
       address: payload.address ?? null,
       plan_id: payload.plan_id,
       monthly_fee: payload.monthly_fee,
-      monthly_discount: Math.max(0, Number(payload.monthly_discount ?? 0)),
       admission_fee: payload.admission_fee,
       join_date: payload.join_date,
       plan_expiry_date: payload.plan_expiry_date,
       status: "active",
       outstanding_balance: outstanding,
+      pending_signup_discount: pendingSignupDiscount,
       notes: payload.notes ?? null,
     })
     .select("id")
@@ -249,14 +286,16 @@ export async function createMemberAsTrainer(payload: MemberPayload) {
 
   if (error || !member) return { error: error?.message ?? "Failed to create member" };
 
-  // Auto-record admission payment if marked paid at onboarding
+  // Auto-record admission payment if marked paid at onboarding.
+  // Discount already clamped above; same value used here.
   if (payload.admission_fee_paid && payload.admission_fee > 0) {
     await admin.from("pulse_payments").insert({
       gym_id: ctx.gymId,
       member_id: member.id,
       plan_id: payload.plan_id,
       amount: payload.admission_fee,
-      total_amount: payload.admission_fee,
+      discount: signupDiscount,
+      total_amount: Math.max(0, payload.admission_fee - signupDiscount),
       payment_method: "cash",
       payment_date: payload.join_date,
       for_period: "admission",
@@ -267,6 +306,7 @@ export async function createMemberAsTrainer(payload: MemberPayload) {
   revalidateTag(`members-${ctx.gymId}`);
   revalidateTag(`dashboard-${ctx.gymId}`);
   revalidateTag(`reports-${ctx.gymId}`);
+  revalidateTag(`discounts-${ctx.gymId}`);
   // Recalc commission on the trainer's pending salary record for this month.
   if (trainerId) await recalcPendingSalary(trainerId, ctx.gymId);
   return { success: true, memberId: member.id };
@@ -279,12 +319,12 @@ type UpdatePayload = {
   cnic?: string | null;
   plan_id: string | null;
   monthly_fee: number;
-  monthly_discount?: number;
   admission_fee: number;
   join_date: string;
   plan_expiry_date: string | null;
   notes?: string | null;
   assigned_trainer_id?: string | null;
+  assigned_shift_id?: string | null;
 };
 
 export async function updateMemberAsTrainer(memberId: string, payload: UpdatePayload) {
@@ -312,6 +352,12 @@ export async function updateMemberAsTrainer(memberId: string, payload: UpdatePay
     ? existing.assigned_trainer_id
     : await resolveTrainerAssignment(ctx.gymId, ctx.staff.id, payload.assigned_trainer_id);
 
+  // Resolve shift: validate it belongs to the resolved trainer. Stale shift IDs
+  // (from a prior trainer assignment) get cleared to null so salary calc falls
+  // back to the trainer's default rate instead of applying the wrong shift's rule.
+  const requestedShiftId = payload.assigned_shift_id;
+  const validatedShiftId = await resolveShiftAssignment(ctx.gymId, trainerId, requestedShiftId);
+
   const { error } = await admin
     .from("pulse_members")
     .update({
@@ -321,12 +367,12 @@ export async function updateMemberAsTrainer(memberId: string, payload: UpdatePay
       cnic: payload.cnic ?? null,
       plan_id: payload.plan_id,
       monthly_fee: payload.monthly_fee,
-      monthly_discount: Math.max(0, Number(payload.monthly_discount ?? 0)),
       admission_fee: payload.admission_fee,
       join_date: payload.join_date,
       plan_expiry_date: payload.plan_expiry_date,
       notes: payload.notes ?? null,
       assigned_trainer_id: trainerId,
+      assigned_shift_id: validatedShiftId,
     })
     .eq("id", memberId);
 
@@ -683,10 +729,13 @@ export async function transferTrainerClients(
   if (!dest || !src) return { error: "Trainers not found" };
   if (dest.status !== "active") return { error: "Destination trainer must be active" };
 
-  // Transfer active members.
+  // Transfer active members. Clear assigned_shift_id alongside trainer change —
+  // the source trainer's shift IDs are not valid for the destination trainer,
+  // and a stale shift_id would cause salary calc to apply an unrelated shift's
+  // commission rule to the new trainer's salary.
   const { data: updatedMembers, error: memErr } = await admin
     .from("pulse_members")
-    .update({ assigned_trainer_id: toTrainerId })
+    .update({ assigned_trainer_id: toTrainerId, assigned_shift_id: null })
     .eq("gym_id", gymId)
     .eq("assigned_trainer_id", fromTrainerId)
     .eq("status", "active")

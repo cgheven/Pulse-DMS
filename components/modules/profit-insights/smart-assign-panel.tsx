@@ -1,11 +1,11 @@
 "use client";
 import { TrendingUp, Check } from "lucide-react";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency, formatTime12h } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import type { Staff, TrainerShift } from "@/types";
 
-type TrainerOption = Pick<Staff, "id" | "full_name" | "commission_percentage" | "commission_floor">;
+type TrainerOption = Pick<Staff, "id" | "full_name" | "commission_percentage" | "commission_floor" | "default_shift_name">;
 
 interface SmartAssignPanelProps {
   trainers: TrainerOption[];
@@ -161,7 +161,7 @@ export function SmartAssignPanel({
         </button>
       )}
 
-      {/* Shift selector — shown only when a trainer with shifts is selected */}
+      {/* Shift selector — only when trainer has at least one shift defined. */}
       {selectedTrainer && trainerShifts.length > 0 && (
         <div className="space-y-1.5">
           <Label className="text-xs">
@@ -176,10 +176,10 @@ export function SmartAssignPanel({
               <SelectValue placeholder="No shift (use trainer default)" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="none">No shift — use trainer default ({selectedTrainer.commission_percentage ?? 0}%)</SelectItem>
+              <SelectItem value="none">{selectedTrainer.default_shift_name} (default — {selectedTrainer.commission_percentage ?? 0}%)</SelectItem>
               {trainerShifts.map((sh) => (
                 <SelectItem key={sh.id} value={sh.id}>
-                  {sh.name} · {sh.start_time.slice(0, 5)}–{sh.end_time.slice(0, 5)} ·{" "}
+                  {sh.name} · {formatTime12h(sh.start_time)}–{formatTime12h(sh.end_time)} ·{" "}
                   {sh.commission_type === "flat" ? `PKR ${sh.commission_value} flat` : `${sh.commission_value}%`}
                 </SelectItem>
               ))}
@@ -187,6 +187,7 @@ export function SmartAssignPanel({
           </Select>
         </div>
       )}
+
     </div>
   );
 }

@@ -11,6 +11,7 @@ import type {
   MemberGoal, GoalProgressEntry, BodyMetric, MetricSkip, Lead, LeadActivity,
   Referrer, SocialManager, SocialLead, TrainerReportRow, TrainerFlowRow, MemberReportSummary,
   DefaulterRow, PlanDistributionRow,
+  DiscountReport, DiscountRow, DiscountMonthRow,
   InventoryItem, InventoryBatch, InventorySale, InventoryProfitSummary,
   InventoryTopSeller, InventoryDeadStockItem, InventoryExpiringBatch,
 } from "@/types";
@@ -114,7 +115,7 @@ async function _fetchDashboard(gymId: string, gym: Gym | null) {
     paidSocialRes,
     paidBillsRes,
   ] = await Promise.all([
-    supabase.from("pulse_members").select("id, full_name, status, monthly_fee, monthly_discount, plan_expiry_date").eq("gym_id", gymId),
+    supabase.from("pulse_members").select("id, full_name, status, monthly_fee, plan_expiry_date").eq("gym_id", gymId),
     supabase.from("pulse_check_ins").select("id").eq("gym_id", gymId).gte("checked_in_at", `${todayStr}T00:00:00`).lte("checked_in_at", `${todayStr}T23:59:59`),
     supabase.from("pulse_expenses").select("amount").eq("gym_id", gymId).gte("date", start).lte("date", end),
     supabase.from("pulse_salary_payments").select("total_amount").eq("gym_id", gymId).eq("for_month", currentMonthKey).eq("status", "paid"),
@@ -123,7 +124,7 @@ async function _fetchDashboard(gymId: string, gym: Gym | null) {
     supabase.from("pulse_payments").select("for_period,total_amount,status,payment_date").eq("gym_id", gymId).gte("payment_date", ranges[0].start).lte("payment_date", ranges[5].end),
     supabase.from("pulse_expenses").select("amount,date").eq("gym_id", gymId).gte("date", ranges[0].start).lte("date", ranges[5].end),
     supabase.from("pulse_staff").select("id,full_name").eq("gym_id", gymId).eq("status", "active").eq("role", "trainer"),
-    supabase.from("pulse_members").select("id,assigned_trainer_id,monthly_fee,monthly_discount").eq("gym_id", gymId).eq("status", "active"),
+    supabase.from("pulse_members").select("id,assigned_trainer_id,monthly_fee").eq("gym_id", gymId).eq("status", "active"),
     supabase.from("pulse_payments").select("member_id,total_amount,status").eq("gym_id", gymId).eq("for_period", currentMonthKey),
     supabase.from("pulse_member_goals")
       .select("id,member_id,trainer_id,title,category,unit,start_value,target_value,current_value,direction,status,start_date,target_date,updated_at,member:pulse_members(full_name,assigned_trainer_id),trainer:pulse_staff(full_name)")
@@ -155,13 +156,13 @@ async function _fetchDashboard(gymId: string, gym: Gym | null) {
   const monthlyPaidBills = (paidBillsRes.data ?? []).reduce((s, b) => s + Number(b.amount) + Number(b.late_fee), 0);
 
   const unpaidBills = unpaidBillsRes.data ?? [];
-  // Realized revenue = sticker fee minus recurring discount per member.
+  // Realized revenue = sticker fee per active member.
   const monthlyRevenue = activeMembers.reduce(
-    (s, m) => s + Math.max(0, Number(m.monthly_fee) - Number((m as { monthly_discount?: number }).monthly_discount ?? 0)),
+    (s, m) => s + Number(m.monthly_fee),
     0,
   );
 
-  // Outstanding = net expected (sticker − discount) − paid for the current period.
+  // Outstanding = expected (sticker) − paid for the current period.
   // Uses currentMonthPayments (filtered by for_period = currentMonthKey) so admission payments don't count.
   const currentMonthPayments = currentMonthPaymentsRes.data ?? [];
   const paidByMemberThisMonth = new Map<string, number>();
@@ -172,9 +173,7 @@ async function _fetchDashboard(gymId: string, gym: Gym | null) {
   }
   const overdueMembers: DashboardMember[] = activeMembers
     .map((m) => {
-      const fee = Number(m.monthly_fee);
-      const discount = Number((m as { monthly_discount?: number }).monthly_discount ?? 0);
-      const expected = Math.max(0, fee - discount);
+      const expected = Number(m.monthly_fee);
       const paid = paidByMemberThisMonth.get(m.id) ?? 0;
       const owed = Math.max(0, expected - paid);
       return { id: m.id, name: m.full_name as string, amount: owed, status: "overdue" };
@@ -228,7 +227,7 @@ async function _fetchDashboard(gymId: string, gym: Gym | null) {
     const paidIds = new Set(myPayments.filter((p) => p.status === "paid").map((p) => p.member_id));
     const collected = myPayments.filter((p) => p.status === "paid").reduce((s, p) => s + Number(p.total_amount), 0);
     const totalDue = myMembers.reduce(
-      (s, m) => s + Math.max(0, Number(m.monthly_fee) - Number((m as { monthly_discount?: number }).monthly_discount ?? 0)),
+      (s, m) => s + Number(m.monthly_fee),
       0,
     );
     return {
@@ -255,7 +254,7 @@ async function _fetchDashboard(gymId: string, gym: Gym | null) {
     unpaid: selfMembers.length - selfPaidIds.size,
     collected: selfPayments.filter((p) => p.status === "paid").reduce((s, p) => s + Number(p.total_amount), 0),
     totalDue: selfMembers.reduce(
-      (s, m) => s + Math.max(0, Number(m.monthly_fee) - Number((m as { monthly_discount?: number }).monthly_discount ?? 0)),
+      (s, m) => s + Number(m.monthly_fee),
       0,
     ),
     rate: Math.round((selfPaidIds.size / selfMembers.length) * 100),
@@ -388,7 +387,7 @@ async function _fetchMembers(gymId: string) {
       .eq("gym_id", gymId)
       .order("created_at", { ascending: false }),
     supabase.from("pulse_membership_plans").select("*").eq("gym_id", gymId).eq("is_active", true).order("name"),
-    supabase.from("pulse_staff").select("id,full_name,role,commission_percentage,commission_floor").eq("gym_id", gymId).eq("status", "active").eq("role", "trainer"),
+    supabase.from("pulse_staff").select("id,full_name,role,commission_percentage,commission_floor,default_shift_name").eq("gym_id", gymId).eq("status", "active").eq("role", "trainer"),
     supabase.from("pulse_referrers").select("id,full_name,commission_type,commission_value").eq("gym_id", gymId).eq("status", "active").order("full_name"),
     supabase.from("pulse_gyms").select("compliance_settings").eq("id", gymId).single(),
   ]);
@@ -418,7 +417,7 @@ async function _fetchMembers(gymId: string) {
     expired:   all.filter((m) => m.status === "expired" || m.status === "cancelled"),
     defaulterThreshold: threshold,
     plans:     (plans ?? []) as MembershipPlan[],
-    staff:     (staff ?? []) as Pick<Staff, "id" | "full_name" | "role" | "commission_percentage" | "commission_floor">[],
+    staff:     (staff ?? []) as Pick<Staff, "id" | "full_name" | "role" | "commission_percentage" | "commission_floor" | "default_shift_name">[],
     referrers: (referrers ?? []) as Pick<Referrer, "id" | "full_name" | "commission_type" | "commission_value">[],
   };
 }
@@ -456,7 +455,7 @@ async function _fetchPayments(gymId: string) {
       .order("created_at", { ascending: false })
       .limit(200),
     supabase.from("pulse_members")
-      .select("id,full_name,member_number,phone,monthly_fee,monthly_discount,plan_id,assigned_trainer_id,status,plan_expiry_date,outstanding_balance,plan:pulse_membership_plans(name),trainer:pulse_staff(full_name)")
+      .select("id,full_name,member_number,phone,monthly_fee,plan_id,assigned_trainer_id,status,plan_expiry_date,outstanding_balance,pending_signup_discount,plan:pulse_membership_plans(name),trainer:pulse_staff(full_name)")
       .eq("gym_id", gymId)
       .eq("status", "active")
       .order("full_name"),
@@ -467,7 +466,7 @@ async function _fetchPayments(gymId: string) {
   ]);
   return {
     payments: (payments ?? []) as Payment[],
-    members: (members ?? []) as unknown as (Pick<Member, "id" | "full_name" | "member_number" | "phone" | "monthly_fee" | "monthly_discount" | "plan_id" | "assigned_trainer_id" | "status" | "plan_expiry_date" | "outstanding_balance"> & { plan?: { name: string } | null; trainer?: { full_name: string } | null })[],
+    members: (members ?? []) as unknown as (Pick<Member, "id" | "full_name" | "member_number" | "phone" | "monthly_fee" | "plan_id" | "assigned_trainer_id" | "status" | "plan_expiry_date" | "outstanding_balance" | "pending_signup_discount"> & { plan?: { name: string } | null; trainer?: { full_name: string } | null })[],
     plans: (plans ?? []) as Pick<MembershipPlan, "id" | "name" | "price" | "duration_type">[],
   };
 }
@@ -576,7 +575,7 @@ export async function getTrainerPageData() {
   const [{ data: members }, { data: plans }, { data: trainers }] = await Promise.all([
     supabase
       .from("pulse_members")
-      .select("id,full_name,member_number,phone,email,cnic,gender,date_of_birth,emergency_contact,address,monthly_fee,monthly_discount,admission_fee,plan_id,assigned_trainer_id,assigned_shift_id,status,plan_expiry_date,outstanding_balance,join_date,notes,plan:pulse_membership_plans(name)")
+      .select("id,full_name,member_number,phone,email,cnic,gender,date_of_birth,emergency_contact,address,monthly_fee,admission_fee,plan_id,assigned_trainer_id,assigned_shift_id,status,plan_expiry_date,outstanding_balance,join_date,notes,plan:pulse_membership_plans(name)")
       .eq("assigned_trainer_id", staff.id)
       .eq("status", "active")
       .order("full_name"),
@@ -601,7 +600,7 @@ export async function getTrainerPageData() {
   const selfRes = staff.can_add_members
     ? await createAdminClient()
         .from("pulse_members")
-        .select("id,full_name,member_number,phone,email,cnic,gender,date_of_birth,emergency_contact,address,monthly_fee,monthly_discount,admission_fee,plan_id,assigned_trainer_id,assigned_shift_id,status,plan_expiry_date,outstanding_balance,join_date,notes,plan:pulse_membership_plans(name)")
+        .select("id,full_name,member_number,phone,email,cnic,gender,date_of_birth,emergency_contact,address,monthly_fee,admission_fee,plan_id,assigned_trainer_id,assigned_shift_id,status,plan_expiry_date,outstanding_balance,join_date,notes,plan:pulse_membership_plans(name)")
         .eq("gym_id", gymId)
         .eq("status", "active")
         .is("assigned_trainer_id", null)
@@ -685,8 +684,8 @@ export async function getTrainerPageData() {
     gymName: gymData?.name ?? "",
     reminderTemplate: gymData?.reminder_template ?? null,
     paymentMethods: (gymData?.payment_methods ?? []) as import("@/types").PaymentMethodAccount[],
-    members: (members ?? []) as unknown as (Pick<Member, "id" | "full_name" | "member_number" | "phone" | "email" | "cnic" | "gender" | "date_of_birth" | "emergency_contact" | "address" | "monthly_fee" | "monthly_discount" | "admission_fee" | "plan_id" | "assigned_trainer_id" | "assigned_shift_id" | "status" | "plan_expiry_date" | "outstanding_balance" | "join_date" | "notes"> & { plan?: { name: string } | null })[],
-    selfMembers: (selfRes.data ?? []) as unknown as (Pick<Member, "id" | "full_name" | "member_number" | "phone" | "email" | "cnic" | "gender" | "date_of_birth" | "emergency_contact" | "address" | "monthly_fee" | "monthly_discount" | "admission_fee" | "plan_id" | "assigned_trainer_id" | "assigned_shift_id" | "status" | "plan_expiry_date" | "outstanding_balance" | "join_date" | "notes"> & { plan?: { name: string } | null })[],
+    members: (members ?? []) as unknown as (Pick<Member, "id" | "full_name" | "member_number" | "phone" | "email" | "cnic" | "gender" | "date_of_birth" | "emergency_contact" | "address" | "monthly_fee" | "admission_fee" | "plan_id" | "assigned_trainer_id" | "assigned_shift_id" | "status" | "plan_expiry_date" | "outstanding_balance" | "join_date" | "notes"> & { plan?: { name: string } | null })[],
+    selfMembers: (selfRes.data ?? []) as unknown as (Pick<Member, "id" | "full_name" | "member_number" | "phone" | "email" | "cnic" | "gender" | "date_of_birth" | "emergency_contact" | "address" | "monthly_fee" | "admission_fee" | "plan_id" | "assigned_trainer_id" | "assigned_shift_id" | "status" | "plan_expiry_date" | "outstanding_balance" | "join_date" | "notes"> & { plan?: { name: string } | null })[],
     payments: (paymentsRes.data ?? []) as Payment[],
     plans: (plans ?? []) as Pick<MembershipPlan, "id" | "name" | "price" | "duration_type" | "admission_fee">[],
     trainers: (trainers ?? []) as Pick<Staff, "id" | "full_name">[],
@@ -983,14 +982,14 @@ async function _fetchReports(gymId: string) {
       .gte("date", windowStart)
       .lte("date", windowEnd),
     supabase.from("pulse_members")
-      .select("id,full_name,phone,status,monthly_fee,monthly_discount,assigned_trainer_id,assigned_shift_id,join_date,plan_expiry_date,plan_id,defaulter_since")
+      .select("id,full_name,phone,status,monthly_fee,assigned_trainer_id,assigned_shift_id,join_date,plan_expiry_date,plan_id,defaulter_since")
       .eq("gym_id", gymId),
     supabase.from("pulse_salary_payments").select("for_month,total_amount,status")
       .eq("gym_id", gymId)
       .gte("for_month", ranges[0].monthKey)
       .lte("for_month", ranges[11].monthKey),
     supabase.from("pulse_staff")
-      .select("id,full_name,monthly_salary,commission_percentage,commission_floor")
+      .select("id,full_name,monthly_salary,commission_percentage,commission_floor,default_shift_name")
       .eq("gym_id", gymId)
       .eq("role", "trainer")
       .eq("status", "active"),
@@ -999,7 +998,7 @@ async function _fetchReports(gymId: string) {
       .eq("gym_id", gymId)
       .eq("for_month", currentMonthKey),
     supabase.from("pulse_trainer_shifts")
-      .select("id,staff_id,commission_type,commission_value")
+      .select("id,staff_id,commission_type,commission_value,commission_floor")
       .eq("gym_id", gymId),
     supabase.from("pulse_membership_plans")
       .select("id,name")
@@ -1013,7 +1012,7 @@ async function _fetchReports(gymId: string) {
   const trainers = trainersRes.data ?? [];
   const currentSalaries = currentSalariesRes.data ?? [];
   const shiftMap = Object.fromEntries(
-    (shiftsRes.data ?? []).map((s) => [s.id, s as { id: string; staff_id: string; commission_type: string; commission_value: number }])
+    (shiftsRes.data ?? []).map((s) => [s.id, s as { id: string; staff_id: string; commission_type: string; commission_value: number; commission_floor: number }])
   );
 
   const revenueByMonth: RevenueMonth[] = ranges.map(({ month, monthKey, start, end }) => {
@@ -1058,28 +1057,29 @@ async function _fetchReports(gymId: string) {
   // ── Trainer report rows ────────────────────────────────
   const trainerRows: TrainerReportRow[] = trainers.map((t) => {
     const activeM = members.filter((m) => m.assigned_trainer_id === t.id && m.status === "active");
-    // monthlyFeeGenerated = realized revenue this trainer drives (net of discount).
+    // monthlyFeeGenerated = realized revenue this trainer drives.
     const monthlyFeeGenerated = activeM.reduce(
-      (s, m) => s + Math.max(0, Number(m.monthly_fee) - Number((m as { monthly_discount?: number }).monthly_discount ?? 0)),
+      (s, m) => s + Number(m.monthly_fee),
       0,
     );
     const salaryRecord = currentSalaries.find((s) => s.staff_id === t.id);
     const baseSalary = salaryRecord ? Number(salaryRecord.base_salary) : Number(t.monthly_salary);
     // If salary has been generated use the stored commission_amount (exact).
     // Otherwise compute an estimate using the same algorithm as salary generation:
-    // commission floor → discount split → shift override → default commission %.
+    // commission floor → shift override → default commission %.
     const commissionEarned = salaryRecord
       ? Number(salaryRecord.commission_amount)
       : activeM.reduce((sum, m) => {
           const fee = Number(m.monthly_fee);
-          const discount = Number((m as { monthly_discount?: number }).monthly_discount ?? 0);
           const commissionFloor = Number(t.commission_floor ?? 0);
           const commissionPct = Number(t.commission_percentage ?? 0);
-          // Discount split equally between gym floor and trainer base.
-          const netFee = Math.max(0, fee - commissionFloor - discount / 2);
           const shift = (m as { assigned_shift_id?: string | null }).assigned_shift_id
             ? shiftMap[(m as { assigned_shift_id?: string }).assigned_shift_id!]
             : null;
+          // Shift = standalone rule. Its commission_floor is the only floor
+          // when a shift is assigned; trainer floor only applies for no-shift.
+          const effectiveFloor = shift ? Number(shift.commission_floor) : commissionFloor;
+          const netFee = Math.max(0, fee - effectiveFloor);
           if (shift) {
             return sum + (shift.commission_type === "flat"
               ? shift.commission_value
@@ -1144,14 +1144,13 @@ async function _fetchReports(gymId: string) {
   });
 
   // Plan distribution (active members only, sorted by member count desc).
-  // Revenue is net of recurring discount.
   const planBuckets: Record<string, { name: string; count: number; revenue: number }> = {};
   activeM.forEach((m) => {
     const key  = m.plan_id ?? "__none__";
     const name = m.plan_id ? (planNameMap[m.plan_id] ?? "Unknown Plan") : "No Plan";
     if (!planBuckets[key]) planBuckets[key] = { name, count: 0, revenue: 0 };
     planBuckets[key].count   += 1;
-    planBuckets[key].revenue += Math.max(0, Number(m.monthly_fee) - Number((m as { monthly_discount?: number }).monthly_discount ?? 0));
+    planBuckets[key].revenue += Number(m.monthly_fee);
   });
   const planDistribution: PlanDistributionRow[] = Object.entries(planBuckets)
     .map(([planId, { name, count, revenue }]) => ({
@@ -1171,7 +1170,7 @@ async function _fetchReports(gymId: string) {
       name: m.full_name,
       phone: m.phone ?? null,
       defaulterSince: (m as { defaulter_since?: string | null }).defaulter_since ?? null,
-      monthlyFee: Math.max(0, Number(m.monthly_fee) - Number((m as { monthly_discount?: number }).monthly_discount ?? 0)),
+      monthlyFee: Number(m.monthly_fee),
     }))
     .sort((a, b) => (a.defaulterSince ?? "").localeCompare(b.defaulterSince ?? ""));
 
@@ -1185,7 +1184,7 @@ async function _fetchReports(gymId: string) {
     newLastMonth: members.filter((m) => m.join_date >= lastMonthStart && m.join_date <= lastMonthEnd).length,
     avgMonthlyFee: activeM.length > 0
       ? Math.round(activeM.reduce(
-          (s, m) => s + Math.max(0, Number(m.monthly_fee) - Number((m as { monthly_discount?: number }).monthly_discount ?? 0)),
+          (s, m) => s + Number(m.monthly_fee),
           0,
         ) / activeM.length)
       : 0,
@@ -1211,10 +1210,262 @@ async function _fetchReports(gymId: string) {
 export async function getReportsData() {
   const gymId = await resolveActiveGymId();
   if (!gymId) return null;
+  const [reports, discounts] = await Promise.all([
+    unstable_cache(
+      () => _fetchReports(gymId),
+      ["reports", gymId],
+      { revalidate: 60, tags: [`reports-${gymId}`] }
+    )(),
+    unstable_cache(
+      () => _fetchDiscounts(gymId, "all"),
+      ["discounts", gymId, "all"],
+      { revalidate: 60, tags: [`discounts-${gymId}`, `reports-${gymId}`] }
+    )(),
+  ]);
+  return { gymId, ...reports, discounts };
+}
+
+// ── Discounts report ───────────────────────────────────────────────────────
+//
+// Two data sources, unioned per-member:
+//   1. Realized — pulse_payments.discount > 0 (the money already collected
+//      at the lower price). Bounded by date when monthKey is a month.
+//   2. Promised — pulse_members.pending_signup_discount > 0 (admission was
+//      unpaid at signup, owner pledged the discount but hasn't collected
+//      yet). NOT date-bounded — a promise sits on the member row until
+//      paid, so single-month view always shows the full open pledge book.
+//
+// Implementation: two parallel queries instead of a CTE/UNION — Supabase REST
+// doesn't surface GROUP BY/UNION, and PostgREST RPCs would force a server
+// function for a 200-line read. The 5k row cap is well above typical gym
+// sizes (median ~349 members today).
+async function _fetchDiscounts(gymId: string, monthKey: string): Promise<DiscountReport> {
+  const admin = createAdminClient();
+
+  // Parse monthKey. "all" → no date filter. Otherwise YYYY-MM → bound to that month.
+  let startDate: string | null = null;
+  let endDate: string | null = null;
+  if (monthKey && monthKey !== "all" && /^\d{4}-\d{2}$/.test(monthKey)) {
+    const [yStr, mStr] = monthKey.split("-");
+    const y = Number(yStr);
+    const m = Number(mStr);
+    const start = new Date(y, m - 1, 1);
+    const end = new Date(y, m, 0);
+    startDate = formatDateInput(start);
+    endDate = formatDateInput(end);
+  }
+
+  // Source 1 — realized discount rows on pulse_payments. Bounded by date when
+  // monthKey targets a specific month. Filtered by gym_id (tenant isolation).
+  let paymentsQuery = admin
+    .from("pulse_payments")
+    .select("member_id,discount,payment_date,member:pulse_members(full_name,member_number)")
+    .eq("gym_id", gymId)
+    .gt("discount", 0)
+    .order("payment_date", { ascending: false })
+    .limit(5000);
+
+  if (startDate && endDate) {
+    paymentsQuery = paymentsQuery.gte("payment_date", startDate).lte("payment_date", endDate);
+  }
+
+  // Source 2 — promised discount sitting on pulse_members. No date filter:
+  // a pledge is "open" until cleared on admission payment.
+  const promisedQuery = admin
+    .from("pulse_members")
+    .select("id,full_name,member_number,pending_signup_discount")
+    .eq("gym_id", gymId)
+    .gt("pending_signup_discount", 0)
+    .limit(5000);
+
+  const [{ data: paymentsData }, { data: promisedData }] = await Promise.all([
+    paymentsQuery,
+    promisedQuery,
+  ]);
+
+  type Raw = {
+    member_id: string;
+    discount: number;
+    payment_date: string | null;
+    member: { full_name: string; member_number: string | null } | null;
+  };
+  type PromisedRaw = {
+    id: string;
+    full_name: string;
+    member_number: string | null;
+    pending_signup_discount: number;
+  };
+  const rows = ((paymentsData ?? []) as unknown as Raw[]).filter((r) => r.member_id);
+  const promisedRows = (promisedData ?? []) as PromisedRaw[];
+
+  // Per-member aggregation. realizedDiscount = sum of payment-row discounts;
+  // pendingDiscount = the member-row pledge value; totalDiscount = sum of both.
+  type Bucket = {
+    memberId: string;
+    memberName: string;
+    memberNumber: string | null;
+    realizedDiscount: number;
+    pendingDiscount: number;
+    discountCount: number;
+    lastDiscountDate: string | null;
+  };
+  const buckets = new Map<string, Bucket>();
+  let realizedDiscountAmount = 0;
+  let promisedDiscountAmount = 0;
+
+  for (const r of rows) {
+    const amt = Number(r.discount) || 0;
+    realizedDiscountAmount += amt;
+    const existing = buckets.get(r.member_id);
+    if (existing) {
+      existing.realizedDiscount += amt;
+      existing.discountCount += 1;
+      if (r.payment_date && (!existing.lastDiscountDate || r.payment_date > existing.lastDiscountDate)) {
+        existing.lastDiscountDate = r.payment_date;
+      }
+    } else {
+      buckets.set(r.member_id, {
+        memberId: r.member_id,
+        memberName: r.member?.full_name ?? "Unknown member",
+        memberNumber: r.member?.member_number ?? null,
+        realizedDiscount: amt,
+        pendingDiscount: 0,
+        discountCount: 1,
+        lastDiscountDate: r.payment_date ?? null,
+      });
+    }
+  }
+
+  // Layer the promised pledges in. A member can show up in both sources
+  // (e.g. paid the monthly fee with a discount, but admission still unpaid).
+  for (const p of promisedRows) {
+    const amt = Number(p.pending_signup_discount) || 0;
+    if (amt <= 0) continue;
+    promisedDiscountAmount += amt;
+    const existing = buckets.get(p.id);
+    if (existing) {
+      existing.pendingDiscount += amt;
+    } else {
+      buckets.set(p.id, {
+        memberId: p.id,
+        memberName: p.full_name ?? "Unknown member",
+        memberNumber: p.member_number ?? null,
+        realizedDiscount: 0,
+        pendingDiscount: amt,
+        discountCount: 0,
+        lastDiscountDate: null,
+      });
+    }
+  }
+
+  // Per-member payment count (total, not just discounted) — for ratio context.
+  // Bounded to same date window when filter applied.
+  const memberIds = Array.from(buckets.keys());
+  const paymentCounts = new Map<string, number>();
+  if (memberIds.length > 0) {
+    let cntQuery = admin
+      .from("pulse_payments")
+      .select("member_id")
+      .eq("gym_id", gymId)
+      .in("member_id", memberIds);
+    if (startDate && endDate) {
+      cntQuery = cntQuery.gte("payment_date", startDate).lte("payment_date", endDate);
+    }
+    const { data: cntData } = await cntQuery;
+    for (const c of (cntData ?? []) as Array<{ member_id: string }>) {
+      paymentCounts.set(c.member_id, (paymentCounts.get(c.member_id) ?? 0) + 1);
+    }
+  }
+
+  const memberRows: DiscountRow[] = Array.from(buckets.values())
+    .map((b) => {
+      const totalDiscount = b.realizedDiscount + b.pendingDiscount;
+      return {
+        memberId: b.memberId,
+        memberName: b.memberName,
+        memberNumber: b.memberNumber,
+        totalDiscount,
+        realizedDiscount: b.realizedDiscount,
+        pendingDiscount: b.pendingDiscount,
+        discountCount: b.discountCount,
+        totalPayments: paymentCounts.get(b.memberId) ?? b.discountCount,
+        avgDiscount: b.discountCount > 0 ? Math.round(b.realizedDiscount / b.discountCount) : 0,
+        lastDiscountDate: b.lastDiscountDate,
+      };
+    })
+    .sort((a, b) => b.totalDiscount - a.totalDiscount)
+    .slice(0, 500);
+
+  const uniqueMembersPromised = promisedRows.filter((p) => Number(p.pending_signup_discount) > 0).length;
+
+  // 12-month trend (always computed, ignores monthKey filter).
+  const now = new Date();
+  const monthRanges = Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    return {
+      month: d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+      monthKey: key,
+      start: formatDateInput(new Date(d.getFullYear(), d.getMonth(), 1)),
+      end: formatDateInput(new Date(d.getFullYear(), d.getMonth() + 1, 0)),
+    };
+  });
+
+  // For the trend we need a 12-month window regardless of monthKey filter.
+  // Reuse rows when monthKey is "all" (window already covers everything),
+  // otherwise pull a separate slim query.
+  let trendRows: Raw[] = rows;
+  if (startDate && endDate) {
+    const { data: trendData } = await admin
+      .from("pulse_payments")
+      .select("member_id,discount,payment_date")
+      .eq("gym_id", gymId)
+      .gt("discount", 0)
+      .gte("payment_date", monthRanges[0].start)
+      .lte("payment_date", monthRanges[11].end)
+      .limit(5000);
+    trendRows = ((trendData ?? []) as unknown as Raw[]);
+  }
+
+  const byMonth: DiscountMonthRow[] = monthRanges.map(({ month, monthKey: mk, start, end }) => {
+    const inMonth = trendRows.filter((r) => r.payment_date && r.payment_date >= start && r.payment_date <= end);
+    const total = inMonth.reduce((s, r) => s + (Number(r.discount) || 0), 0);
+    const uniq = new Set(inMonth.map((r) => r.member_id)).size;
+    return {
+      month,
+      monthKey: mk,
+      totalDiscount: total,
+      discountCount: inMonth.length,
+      uniqueMembers: uniq,
+    };
+  });
+
+  // uniqueMembersDiscounted counts realized-side members only (legacy
+  // semantics). Promised-only members are tracked separately below.
+  const uniqueMembersDiscounted = Array.from(buckets.values())
+    .filter((b) => b.realizedDiscount > 0).length;
+
+  return {
+    summary: {
+      totalDiscountAmount: realizedDiscountAmount + promisedDiscountAmount,
+      realizedDiscountAmount,
+      promisedDiscountAmount,
+      paymentsWithDiscount: rows.length,
+      uniqueMembersDiscounted,
+      uniqueMembersPromised,
+    },
+    rows: memberRows,
+    byMonth,
+  };
+}
+
+export async function getDiscountsReport(monthKey: string = "all") {
+  const gymId = await resolveActiveGymId();
+  if (!gymId) return null;
   const data = await unstable_cache(
-    () => _fetchReports(gymId),
-    ["reports", gymId],
-    { revalidate: 60, tags: [`reports-${gymId}`] }
+    () => _fetchDiscounts(gymId, monthKey),
+    ["discounts", gymId, monthKey],
+    { revalidate: 60, tags: [`discounts-${gymId}`] }
   )();
   return { gymId, ...data };
 }
@@ -1331,7 +1582,7 @@ export async function getComplianceReportData() {
 
   const [{ data: members }, { data: payments }, { data: trainers }] = await Promise.all([
     admin.from("pulse_members")
-      .select("id, full_name, member_number, phone, email, cnic, monthly_fee, monthly_discount, plan_id, assigned_trainer_id, status, join_date, plan_expiry_date, plan:pulse_membership_plans(name), trainer:pulse_staff(full_name)")
+      .select("id, full_name, member_number, phone, email, cnic, monthly_fee, plan_id, assigned_trainer_id, status, join_date, plan_expiry_date, plan:pulse_membership_plans(name), trainer:pulse_staff(full_name)")
       .eq("gym_id", gymId)
       .order("full_name"),
     admin.from("pulse_payments")
@@ -1344,22 +1595,16 @@ export async function getComplianceReportData() {
       .eq("role", "trainer"),
   ]);
 
-  // Compliance / FBR export = realized revenue. Replace monthly_fee with net
-  // of recurring discount so the report and CSV/PDF exports show what the gym
-  // actually collects from each member.
   type RawComplianceRow = {
     id: string; full_name: string; member_number: string | null; phone: string | null;
-    email: string | null; cnic: string | null; monthly_fee: number; monthly_discount: number | null;
+    email: string | null; cnic: string | null; monthly_fee: number;
     plan_id: string | null;
     assigned_trainer_id: string | null; status: string; join_date: string;
     plan_expiry_date: string | null;
     plan?: { name: string } | null;
     trainer?: { full_name: string } | null;
   };
-  const adjustedMembers = ((members ?? []) as unknown as RawComplianceRow[]).map((m) => ({
-    ...m,
-    monthly_fee: Math.max(0, Number(m.monthly_fee) - Number(m.monthly_discount ?? 0)),
-  }));
+  const adjustedMembers = ((members ?? []) as unknown as RawComplianceRow[]);
 
   return {
     gym,
@@ -1427,7 +1672,7 @@ export async function getCompliancePageData() {
       .single(),
     admin
       .from("pulse_members")
-      .select("id, full_name, cnic, phone, date_of_birth, join_date, monthly_fee, monthly_discount, assigned_trainer_id, plan:pulse_membership_plans(name)")
+      .select("id, full_name, cnic, phone, date_of_birth, join_date, monthly_fee, assigned_trainer_id, plan:pulse_membership_plans(name)")
       .eq("gym_id", complianceUser.gym_id)
       .eq("status", "active")
       .order("id", { ascending: true }),
@@ -1445,7 +1690,6 @@ export async function getCompliancePageData() {
     date_of_birth: string | null;
     join_date: string;
     monthly_fee: number;
-    monthly_discount: number | null;
     assigned_trainer_id: string | null;
     plan?: { name: string } | null;
   };
@@ -1466,8 +1710,7 @@ export async function getCompliancePageData() {
     date_of_birth: m.date_of_birth,
     join_date: m.join_date,
     plan_name: m.plan?.name ?? null,
-    // Compliance/FBR export = realized revenue (net of recurring discount).
-    monthly_fee: Math.max(0, Number(m.monthly_fee) - Number(m.monthly_discount ?? 0)),
+    monthly_fee: Number(m.monthly_fee),
     category,
   });
 
@@ -1477,7 +1720,7 @@ export async function getCompliancePageData() {
   ];
 
   const shownRevenue = [...selfRaw, ...ptRaw].reduce(
-    (s, m) => s + Math.max(0, Number(m.monthly_fee ?? 0) - Number(m.monthly_discount ?? 0)),
+    (s, m) => s + Number(m.monthly_fee ?? 0),
     0,
   );
 
@@ -1544,15 +1787,15 @@ export async function getComplianceSettingsForGym(gymId: string) {
 
 async function _fetchSmartEarn(gymId: string) {
   const admin = createAdminClient();
-  const [trainersRes, membersRes, plansRes, gymRes] = await Promise.all([
+  const [trainersRes, membersRes, plansRes, gymRes, shiftsRes] = await Promise.all([
     admin.from("pulse_staff")
-      .select("id,full_name,commission_percentage,commission_floor,member_capacity")
+      .select("id,full_name,commission_percentage,commission_floor,member_capacity,default_shift_name")
       .eq("gym_id", gymId)
       .eq("role", "trainer")
       .eq("status", "active")
       .order("full_name"),
     admin.from("pulse_members")
-      .select("id,full_name,member_number,assigned_trainer_id,plan_id,monthly_fee,join_date,plan_expiry_date,status,updated_at")
+      .select("id,full_name,member_number,assigned_trainer_id,assigned_shift_id,plan_id,monthly_fee,join_date,plan_expiry_date,status,updated_at")
       .eq("gym_id", gymId),
     admin.from("pulse_membership_plans")
       .select("id,name,price")
@@ -1563,18 +1806,22 @@ async function _fetchSmartEarn(gymId: string) {
       .select("default_trainer_capacity")
       .eq("id", gymId)
       .single(),
+    admin.from("pulse_trainer_shifts")
+      .select("id,staff_id,commission_type,commission_value,commission_floor")
+      .eq("gym_id", gymId),
   ]);
   return {
-    trainers: (trainersRes.data ?? []) as { id: string; full_name: string; commission_percentage: number | null; commission_floor: number | null; member_capacity: number }[],
-    members:  (membersRes.data  ?? []) as { id: string; full_name: string; member_number: string | null; assigned_trainer_id: string | null; plan_id: string | null; monthly_fee: number; join_date: string; plan_expiry_date: string | null; status: string; updated_at: string }[],
+    trainers: (trainersRes.data ?? []) as { id: string; full_name: string; commission_percentage: number | null; commission_floor: number | null; member_capacity: number; default_shift_name: string }[],
+    members:  (membersRes.data  ?? []) as { id: string; full_name: string; member_number: string | null; assigned_trainer_id: string | null; assigned_shift_id: string | null; plan_id: string | null; monthly_fee: number; join_date: string; plan_expiry_date: string | null; status: string; updated_at: string }[],
     plans:    (plansRes.data    ?? []) as { id: string; name: string; price: number }[],
+    shifts:   (shiftsRes.data   ?? []) as { id: string; staff_id: string; commission_type: string; commission_value: number; commission_floor: number }[],
     defaultTrainerCapacity: (gymRes.data?.default_trainer_capacity ?? 20) as number,
   };
 }
 
 export async function getSmartEarnData() {
   const gymId = await resolveActiveGymId();
-  if (!gymId) return { gymId: null, trainers: [], members: [], plans: [], defaultTrainerCapacity: 20 };
+  if (!gymId) return { gymId: null, trainers: [], members: [], plans: [], shifts: [], defaultTrainerCapacity: 20 };
   const data = await unstable_cache(
     () => _fetchSmartEarn(gymId),
     ["smart-earn", gymId],

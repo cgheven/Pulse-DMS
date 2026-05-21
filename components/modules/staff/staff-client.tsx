@@ -21,7 +21,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import { useGymContext } from "@/contexts/gym-context";
-import { formatCurrency, formatDate, formatDateInput } from "@/lib/utils";
+import { formatCurrency, formatDate, formatDateInput, formatTime12h } from "@/lib/utils";
 import { validateFullName, validateCNIC, validatePakPhone, validateMoney, runValidators } from "@/lib/validation";
 import {
   PERMISSIONS,
@@ -89,6 +89,7 @@ const emptyForm = {
   full_name: "", role: "other" as StaffRole, specialization: "", phone: "", cnic: "",
   join_date: formatDateInput(new Date()), monthly_salary: "",
   commission_percentage: "0", commission_floor: "0",
+  default_shift_name: "Full Time",
   member_capacity: "20",
   status: "active" as StaffStatus, notes: "",
   can_add_members: false,
@@ -148,9 +149,20 @@ export function StaffClient({ gymId, gymName, staff: initialStaff, salaryPayment
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   // ── Trainer shifts state ──────────────────────────────────
-  // shifts keyed by staff_id
+  // shifts keyed by staff_id (existing trainers). pendingShifts holds new
+  // shifts collected during Add Trainer flow — flushed to DB after staff
+  // insert returns its id.
+  type PendingShift = {
+    name: string;
+    start_time: string;
+    end_time: string;
+    commission_type: "percentage" | "flat";
+    commission_value: number;
+    commission_floor: number;
+  };
   const [shifts, setShifts] = useState<Record<string, TrainerShift[]>>({});
-  const [shiftForm, setShiftForm] = useState({ name: "", start_time: "", end_time: "", commission_type: "percentage" as "percentage" | "flat", commission_value: "" });
+  const [pendingShifts, setPendingShifts] = useState<PendingShift[]>([]);
+  const [shiftForm, setShiftForm] = useState({ name: "", start_time: "", end_time: "", commission_type: "percentage" as "percentage" | "flat", commission_value: "", commission_floor: "" });
   const [shiftSaving, setShiftSaving] = useState(false);
 
   useEffect(() => {
@@ -177,21 +189,43 @@ export function StaffClient({ gymId, gymName, staff: initialStaff, salaryPayment
 
   async function handleAddShift() {
     if (isDemo) { toast({ title: "You're in demo mode", description: "Sign up to unlock editing →" }); return; }
-    if (!editing || !gymId || !shiftForm.name || !shiftForm.start_time || !shiftForm.end_time) return;
+    if (!gymId || !shiftForm.name || !shiftForm.start_time || !shiftForm.end_time) return;
     setShiftSaving(true);
-    const { error } = await createClient().from("pulse_trainer_shifts").insert({
-      staff_id: editing.id,
-      gym_id: gymId,
-      name: shiftForm.name,
-      start_time: shiftForm.start_time,
-      end_time: shiftForm.end_time,
-      commission_type: shiftForm.commission_type,
-      commission_value: parseFloat(shiftForm.commission_value) || 0,
-    });
-    if (error) { toast({ title: "Error", description: error.message, variant: "destructive" }); }
-    else {
-      setShiftForm({ name: "", start_time: "", end_time: "", commission_type: "percentage", commission_value: "" });
-      reloadShifts();
+    // Shift is a standalone rule: blank or 0 = no Gym Fee on this shift
+    // (direct commission % on full member fee). Any positive value = floor
+    // amount deducted before commission applies.
+    const floorTrimmed = shiftForm.commission_floor.trim();
+    const shiftFloor = floorTrimmed === "" ? 0 : Math.max(0, parseFloat(floorTrimmed) || 0);
+    const commissionValue = parseFloat(shiftForm.commission_value) || 0;
+
+    if (editing) {
+      // Edit mode: write directly to DB.
+      const { error } = await createClient().from("pulse_trainer_shifts").insert({
+        staff_id: editing.id,
+        gym_id: gymId,
+        name: shiftForm.name,
+        start_time: shiftForm.start_time,
+        end_time: shiftForm.end_time,
+        commission_type: shiftForm.commission_type,
+        commission_value: commissionValue,
+        commission_floor: shiftFloor,
+      });
+      if (error) { toast({ title: "Error", description: error.message, variant: "destructive" }); }
+      else {
+        setShiftForm({ name: "", start_time: "", end_time: "", commission_type: "percentage", commission_value: "", commission_floor: "" });
+        reloadShifts();
+      }
+    } else {
+      // Add mode: defer to pendingShifts. Flushed after trainer insert.
+      setPendingShifts((prev) => [...prev, {
+        name: shiftForm.name,
+        start_time: shiftForm.start_time,
+        end_time: shiftForm.end_time,
+        commission_type: shiftForm.commission_type,
+        commission_value: commissionValue,
+        commission_floor: shiftFloor,
+      }]);
+      setShiftForm({ name: "", start_time: "", end_time: "", commission_type: "percentage", commission_value: "", commission_floor: "" });
     }
     setShiftSaving(false);
   }
@@ -200,6 +234,10 @@ export function StaffClient({ gymId, gymName, staff: initialStaff, salaryPayment
     if (isDemo) { toast({ title: "You're in demo mode", description: "Sign up to unlock editing →" }); return; }
     await createClient().from("pulse_trainer_shifts").delete().eq("id", shiftId);
     reloadShifts();
+  }
+
+  function handleDeletePendingShift(idx: number) {
+    setPendingShifts((prev) => prev.filter((_, i) => i !== idx));
   }
 
   // ── Trainer login state ───────────────────────────────────
@@ -300,16 +338,22 @@ export function StaffClient({ gymId, gymName, staff: initialStaff, salaryPayment
   const defaultRole: StaffRole = isTrainersMode ? "trainer" : isStaffMode ? "manager" : "other";
   function openAdd() {
     setEditing(null);
+    setPendingShifts([]);
+    setShiftForm({ name: "", start_time: "", end_time: "", commission_type: "percentage", commission_value: "", commission_floor: "" });
     setForm({ ...emptyForm, role: defaultRole, permissions: permissionsForRole(defaultRole) });
     setDialogOpen(true);
   }
   function quickStaff(item: { label: string; role: StaffRole }) {
     setEditing(null);
+    setPendingShifts([]);
+    setShiftForm({ name: "", start_time: "", end_time: "", commission_type: "percentage", commission_value: "", commission_floor: "" });
     setForm({ ...emptyForm, full_name: item.label, role: item.role, permissions: permissionsForRole(item.role) });
     setDialogOpen(true);
   }
   function openEdit(s: Staff) {
     setEditing(s);
+    setPendingShifts([]);
+    setShiftForm({ name: "", start_time: "", end_time: "", commission_type: "percentage", commission_value: "", commission_floor: "" });
     setForm({
       full_name: s.full_name,
       role: s.role,
@@ -320,6 +364,7 @@ export function StaffClient({ gymId, gymName, staff: initialStaff, salaryPayment
       monthly_salary: s.monthly_salary.toString(),
       commission_percentage: s.commission_percentage.toString(),
       commission_floor: (s.commission_floor ?? 0).toString(),
+      default_shift_name: s.default_shift_name ?? "Full Time",
       member_capacity: (s.member_capacity ?? 20).toString(),
       status: s.status,
       notes: s.notes ?? "",
@@ -379,6 +424,7 @@ export function StaffClient({ gymId, gymName, staff: initialStaff, salaryPayment
 
     setSaving(true);
     const supabase = createClient();
+    const trimmedShiftName = (form.default_shift_name ?? "").trim().slice(0, 60);
     const payload = {
       gym_id: gymId,
       full_name: form.full_name,
@@ -390,6 +436,7 @@ export function StaffClient({ gymId, gymName, staff: initialStaff, salaryPayment
       monthly_salary: parseFloat(form.monthly_salary) || 0,
       commission_percentage: parseFloat(form.commission_percentage) || 0,
       commission_floor: parseFloat(form.commission_floor) || 0,
+      default_shift_name: trimmedShiftName || "Full Time",
       member_capacity: Math.max(1, parseInt(form.member_capacity) || 20),
       status: form.status,
       notes: form.notes || null,
@@ -398,16 +445,44 @@ export function StaffClient({ gymId, gymName, staff: initialStaff, salaryPayment
       // For all other roles, persist the granular RBAC selection.
       permissions: form.role === "trainer" ? [] : (form.permissions ?? []),
     };
-    const { error } = editing
-      ? await supabase.from("pulse_staff").update(payload).eq("id", editing.id)
-      : await supabase.from("pulse_staff").insert(payload);
-    if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
-    else {
-      toast({ title: editing ? "Updated" : "Staff added" });
-      setDialogOpen(false);
-      reloadStaff();
-      revalidateDashboard().catch(() => {});
+    // Insert needs the returning row so we can flush pendingShifts with the new staff_id.
+    const result = editing
+      ? await supabase.from("pulse_staff").update(payload).eq("id", editing.id).select("id").single()
+      : await supabase.from("pulse_staff").insert(payload).select("id").single();
+    if (result.error) {
+      toast({ title: "Error", description: result.error.message, variant: "destructive" });
+      setSaving(false);
+      return;
     }
+    const savedStaffId = (result.data as { id: string } | null)?.id ?? editing?.id ?? null;
+
+    // Flush pending shifts (collected during Add Trainer flow) now that we
+    // have a staff_id. Best-effort — surface errors via toast but don't roll
+    // back the trainer insert.
+    if (!editing && savedStaffId && pendingShifts.length > 0) {
+      const { error: shiftErr } = await supabase.from("pulse_trainer_shifts").insert(
+        pendingShifts.map((sh) => ({
+          staff_id: savedStaffId,
+          gym_id: gymId,
+          name: sh.name,
+          start_time: sh.start_time,
+          end_time: sh.end_time,
+          commission_type: sh.commission_type,
+          commission_value: sh.commission_value,
+          commission_floor: sh.commission_floor,
+        }))
+      );
+      if (shiftErr) {
+        toast({ title: "Trainer saved, but shifts failed", description: shiftErr.message, variant: "destructive" });
+      }
+    }
+
+    toast({ title: editing ? "Updated" : "Staff added" });
+    setPendingShifts([]);
+    setDialogOpen(false);
+    reloadStaff();
+    reloadShifts();
+    revalidateDashboard().catch(() => {});
     setSaving(false);
   }
 
@@ -445,7 +520,7 @@ export function StaffClient({ gymId, gymName, staff: initialStaff, salaryPayment
 
     const [{ data: existing }, { data: activeMembers }, { data: allShifts }] = await Promise.all([
       supabase.from("pulse_salary_payments").select("staff_id").eq("gym_id", gymId).eq("for_month", month),
-      supabase.from("pulse_members").select("assigned_trainer_id,monthly_fee,monthly_discount,assigned_shift_id").eq("gym_id", gymId).eq("status", "active"),
+      supabase.from("pulse_members").select("assigned_trainer_id,monthly_fee,assigned_shift_id").eq("gym_id", gymId).eq("status", "active"),
       supabase.from("pulse_trainer_shifts").select("*").eq("gym_id", gymId),
     ]);
 
@@ -461,10 +536,11 @@ export function StaffClient({ gymId, gymName, staff: initialStaff, salaryPayment
           const myMembers = members.filter((m) => m.assigned_trainer_id === s.id);
           commissionAmount = myMembers.reduce((sum, m) => {
             const fee = Number(m.monthly_fee);
-            const discount = Number((m as { monthly_discount?: number }).monthly_discount ?? 0);
-            // Discount split equally between gym floor and trainer base.
-            const netFee = Math.max(0, fee - s.commission_floor - discount / 2);
             const shift = m.assigned_shift_id ? shiftMap[m.assigned_shift_id] : null;
+            // Shift = standalone rule. Its floor is final when shift is assigned;
+            // trainer floor only applies when no shift is set.
+            const effectiveFloor = shift ? Number(shift.commission_floor) : s.commission_floor;
+            const netFee = Math.max(0, fee - effectiveFloor);
             if (shift) {
               return sum + (shift.commission_type === "flat" ? shift.commission_value : Math.round(netFee * shift.commission_value / 100));
             }
@@ -899,17 +975,66 @@ export function StaffClient({ gymId, gymName, staff: initialStaff, salaryPayment
               <div className="space-y-1.5"><Label>Base Salary (PKR) *</Label><Input type="number" placeholder="0" value={form.monthly_salary} onChange={(e) => setForm({ ...form, monthly_salary: e.target.value })} /></div>
               <div className="space-y-1.5"><Label>Join Date</Label><Input type="date" value={form.join_date} onChange={(e) => setForm({ ...form, join_date: e.target.value })} /></div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>Commission %</Label>
-                <Input type="number" placeholder="0" value={form.commission_percentage} onChange={(e) => setForm({ ...form, commission_percentage: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Gym Fee (PKR)</Label>
-                <Input type="number" placeholder="0" value={form.commission_floor} onChange={(e) => setForm({ ...form, commission_floor: e.target.value })} />
+            {form.role === "trainer" && (
+              <div className="rounded-lg border border-sidebar-border bg-white/[0.02] p-3 space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Default Shift</p>
+                <p className="text-[11px] text-muted-foreground leading-snug">Applied when a member is not assigned to a named shift below.</p>
+                <div className="space-y-1.5 pt-1">
+                  <Label>Default Shift Name</Label>
+                  <Select
+                    value={["Full Time", "Morning", "Evening"].includes(form.default_shift_name) ? form.default_shift_name : "__custom__"}
+                    onValueChange={(v) => {
+                      if (v === "__custom__") {
+                        setForm({ ...form, default_shift_name: form.default_shift_name && !["Full Time", "Morning", "Evening"].includes(form.default_shift_name) ? form.default_shift_name : "" });
+                      } else {
+                        setForm({ ...form, default_shift_name: v });
+                      }
+                    }}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Full Time">Full Time</SelectItem>
+                      <SelectItem value="Morning">Morning</SelectItem>
+                      <SelectItem value="Evening">Evening</SelectItem>
+                      <SelectItem value="__custom__">Custom…</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {!["Full Time", "Morning", "Evening"].includes(form.default_shift_name) && (
+                    <Input
+                      placeholder="Type shift name (e.g. Weekend Only)"
+                      maxLength={60}
+                      value={form.default_shift_name}
+                      onChange={(e) => setForm({ ...form, default_shift_name: e.target.value })}
+                    />
+                  )}
+                  <p className="text-[11px] text-muted-foreground leading-snug">Label for the default commission rule (used when a member is not assigned to a Named Shift). Does not affect salary math.</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div className="space-y-1.5">
+                    <Label>Commission %</Label>
+                    <Input type="number" placeholder="0" value={form.commission_percentage} onChange={(e) => setForm({ ...form, commission_percentage: e.target.value })} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Gym Fee (PKR)</Label>
+                    <Input type="number" placeholder="0" value={form.commission_floor} onChange={(e) => setForm({ ...form, commission_floor: e.target.value })} />
+                  </div>
+                </div>
                 <p className="text-[11px] text-muted-foreground leading-snug">Gym&apos;s share kept off the top. Commission % applies to whatever remains of the member fee.</p>
               </div>
-            </div>
+            )}
+            {form.role !== "trainer" && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>Commission %</Label>
+                  <Input type="number" placeholder="0" value={form.commission_percentage} onChange={(e) => setForm({ ...form, commission_percentage: e.target.value })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Gym Fee (PKR)</Label>
+                  <Input type="number" placeholder="0" value={form.commission_floor} onChange={(e) => setForm({ ...form, commission_floor: e.target.value })} />
+                  <p className="text-[11px] text-muted-foreground leading-snug">Gym&apos;s share kept off the top. Commission % applies to whatever remains of the member fee.</p>
+                </div>
+              </div>
+            )}
             {form.role === "trainer" && (
               <div className="space-y-1.5">
                 <Label>Max Members Capacity</Label>
@@ -920,19 +1045,32 @@ export function StaffClient({ gymId, gymName, staff: initialStaff, salaryPayment
             <div className="space-y-1.5"><Label>Notes</Label><Textarea placeholder="Optional…" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={2} /></div>
 
             {/* ── Shifts (trainers only, when editing) ─── */}
-            {form.role === "trainer" && editing && (
+            {form.role === "trainer" && (
               <div className="rounded-lg border border-sidebar-border bg-white/[0.02] p-3 space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Shifts</p>
-                <p className="text-[11px] text-muted-foreground leading-snug">Each shift can have its own commission rate. Members assigned to a shift use that rate instead of the default above.</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Named Shifts</p>
+                <p className="text-[11px] text-muted-foreground leading-snug">Each named shift has its own commission rate. Members assigned to a named shift use that rate instead of the Default Shift above. {!editing && "Shifts you add here will be created together with this trainer when you save."}</p>
 
-                {/* Existing shifts */}
-                {(shifts[editing.id] ?? []).map((sh) => (
+                {/* Existing shifts (edit mode) — persisted in DB */}
+                {editing && (shifts[editing.id] ?? []).map((sh) => (
                   <div key={sh.id} className="flex items-center justify-between gap-2 rounded-md border border-sidebar-border bg-card px-3 py-2">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-foreground">{sh.name}</p>
-                      <p className="text-xs text-muted-foreground">{sh.start_time.slice(0, 5)} – {sh.end_time.slice(0, 5)} · {sh.commission_type === "flat" ? `PKR ${sh.commission_value}` : `${sh.commission_value}%`}</p>
+                      <p className="text-xs text-muted-foreground">{formatTime12h(sh.start_time)} – {formatTime12h(sh.end_time)} · {sh.commission_type === "flat" ? `PKR ${sh.commission_value}` : `${sh.commission_value}%`}{Number(sh.commission_floor) > 0 ? ` · floor ${sh.commission_floor}` : ""}</p>
                     </div>
                     <button type="button" onClick={() => handleDeleteShift(sh.id)} className="text-muted-foreground hover:text-destructive transition-colors shrink-0">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+
+                {/* Pending shifts (add mode) — flushed to DB on save */}
+                {!editing && pendingShifts.map((sh, idx) => (
+                  <div key={idx} className="flex items-center justify-between gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground">{sh.name} <span className="text-[10px] text-amber-400 uppercase ml-1">pending</span></p>
+                      <p className="text-xs text-muted-foreground">{formatTime12h(sh.start_time)} – {formatTime12h(sh.end_time)} · {sh.commission_type === "flat" ? `PKR ${sh.commission_value}` : `${sh.commission_value}%`}{sh.commission_floor > 0 ? ` · floor ${sh.commission_floor}` : ""}</p>
+                    </div>
+                    <button type="button" onClick={() => handleDeletePendingShift(idx)} className="text-muted-foreground hover:text-destructive transition-colors shrink-0">
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -955,6 +1093,16 @@ export function StaffClient({ gymId, gymName, staff: initialStaff, salaryPayment
                       </SelectContent>
                     </Select>
                     <Input type="number" placeholder={shiftForm.commission_type === "flat" ? "PKR amount" : "e.g. 30"} value={shiftForm.commission_value} onChange={(e) => setShiftForm({ ...shiftForm, commission_value: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Input
+                      type="number"
+                      min="0"
+                      placeholder="Gym Fee for this shift (0 = none)"
+                      value={shiftForm.commission_floor}
+                      onChange={(e) => setShiftForm({ ...shiftForm, commission_floor: e.target.value })}
+                    />
+                    <p className="text-[10px] text-muted-foreground leading-snug">Shift&apos;s own Gym Fee, deducted before commission. <strong>Blank or 0</strong> = no Gym Fee (direct commission % on full member fee). Trainer&apos;s default Gym Fee does <em>not</em> apply when a shift is assigned.</p>
                   </div>
                   <Button size="sm" variant="outline" className="w-full" onClick={handleAddShift} disabled={shiftSaving || !shiftForm.name || !shiftForm.start_time || !shiftForm.end_time}>
                     {shiftSaving ? "Saving…" : "+ Add Shift"}

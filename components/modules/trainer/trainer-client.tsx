@@ -16,14 +16,14 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
-import { formatCurrency, formatDate, formatDateInput, netMonthlyFee } from "@/lib/utils";
+import { formatCurrency, formatDate, formatDateInput, formatTime12h } from "@/lib/utils";
 import { buildReminderMessage, whatsappUrl } from "@/lib/whatsapp-reminder";
 import type { Payment, PaymentMethod, PaymentStatus, Member, MembershipPlan, Staff, MemberGoal, BodyMetric, MetricSkip, TrainerShift, PaymentMethodAccount } from "@/types";
 
 type MemberRow = Pick<Member,
   "id" | "full_name" | "member_number" | "phone" | "email" | "cnic" |
   "gender" | "date_of_birth" | "emergency_contact" | "address" |
-  "monthly_fee" | "monthly_discount" | "admission_fee" | "plan_id" | "assigned_trainer_id" | "assigned_shift_id" |
+  "monthly_fee" | "admission_fee" | "plan_id" | "assigned_trainer_id" | "assigned_shift_id" |
   "status" | "plan_expiry_date" | "outstanding_balance" | "join_date" | "notes"
 > & { plan?: { name: string } | null };
 
@@ -140,10 +140,12 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
   const NO_TRAINER = "__none__";
   const emptyMemberForm = {
     full_name: "", phone: "", email: "", cnic: "",
-    plan_id: "", monthly_fee: "", monthly_discount: "0", admission_fee: "0", admission_fee_paid: true,
+    plan_id: "", monthly_fee: "", admission_fee: "0", admission_fee_paid: true,
+    discount: "0",
     join_date: formatDateInput(new Date()),
     notes: "",
     assigned_trainer_id: staff.id,
+    assigned_shift_id: "",
   };
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [memberForm, setMemberForm] = useState(emptyMemberForm);
@@ -163,10 +165,10 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
       cnic: member.cnic ?? "",
       plan_id: member.plan_id ?? "",
       monthly_fee: String(member.monthly_fee ?? ""),
-      monthly_discount: String(member.monthly_discount ?? "0"),
       admission_fee: String(member.admission_fee ?? "0"),
       join_date: member.join_date ?? f.join_date,
       notes: member.notes ?? "",
+      assigned_shift_id: member.assigned_shift_id ?? "",
     }));
   }
 
@@ -179,12 +181,13 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
       cnic: m.cnic ?? "",
       plan_id: m.plan_id ?? "",
       monthly_fee: String(m.monthly_fee ?? ""),
-      monthly_discount: String(m.monthly_discount ?? "0"),
       admission_fee: String(m.admission_fee ?? "0"),
       admission_fee_paid: true,
+      discount: "0",
       join_date: m.join_date ?? formatDateInput(new Date()),
       notes: m.notes ?? "",
       assigned_trainer_id: m.assigned_trainer_id ?? NO_TRAINER,
+      assigned_shift_id: m.assigned_shift_id ?? "",
     });
     setAddMemberOpen(true);
   }
@@ -213,6 +216,12 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
     setSavingMember(true);
     const plan = plans.find((p) => p.id === memberForm.plan_id);
     const expiry = computeExpiry(memberForm.join_date, plan?.duration_type);
+    const admissionFee = parseFloat(memberForm.admission_fee) || 0;
+    const rawDiscount = parseFloat(memberForm.discount) || 0;
+    // Discount honored whether admission paid now or later.
+    const signupDiscount = !editingMember && admissionFee > 0
+      ? Math.min(Math.max(0, rawDiscount), admissionFee)
+      : 0;
     const basePayload = {
       full_name: memberForm.full_name,
       phone: memberForm.phone,
@@ -220,16 +229,16 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
       cnic: memberForm.cnic || null,
       plan_id: memberForm.plan_id,
       monthly_fee: parseFloat(memberForm.monthly_fee) || 0,
-      monthly_discount: Math.max(0, parseFloat(memberForm.monthly_discount) || 0),
-      admission_fee: parseFloat(memberForm.admission_fee) || 0,
+      admission_fee: admissionFee,
       join_date: memberForm.join_date,
       plan_expiry_date: expiry,
       notes: memberForm.notes || null,
       assigned_trainer_id: memberForm.assigned_trainer_id === NO_TRAINER ? null : memberForm.assigned_trainer_id,
+      assigned_shift_id: memberForm.assigned_shift_id || null,
     };
     const res = editingMember
       ? await updateMemberAsTrainer(editingMember.id, basePayload)
-      : await createMemberAsTrainer({ ...basePayload, admission_fee_paid: memberForm.admission_fee_paid });
+      : await createMemberAsTrainer({ ...basePayload, admission_fee_paid: memberForm.admission_fee_paid, discount: signupDiscount });
     setSavingMember(false);
     if (res.error) {
       toast({ title: "Error", description: res.error, variant: "destructive" });
@@ -283,10 +292,10 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
 
     const cutForMember = (m: MemberRow) => {
       const fee = Number(m.monthly_fee);
-      const discount = Number(m.monthly_discount ?? 0);
-      // Discount split equally between gym floor and trainer base.
-      const netFee = Math.max(0, fee - floor - discount / 2);
       const shift = m.assigned_shift_id ? shiftMap[m.assigned_shift_id] : null;
+      // Shift = standalone rule. Its floor is final when shift assigned.
+      const effectiveFloor = shift ? Number(shift.commission_floor) : floor;
+      const netFee = Math.max(0, fee - effectiveFloor);
       if (shift) return shift.commission_type === "flat" ? shift.commission_value : netFee * (shift.commission_value / 100);
       return netFee * defaultPct;
     };
@@ -331,7 +340,7 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
     const msg = buildReminderMessage({
       template: reminderTemplate,
       memberName: member.full_name,
-      amount: netMonthlyFee(member),
+      amount: Number(member.monthly_fee),
       month: monthLabel(selectedMonth),
       gymName,
       accounts: paymentMethods,
@@ -343,7 +352,7 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
   function openPay(member: MemberRow, payment: Payment | null) {
     setPayDialog({ member, payment });
     setPayForm({
-      amount: String(payment ? Number(payment.total_amount) : netMonthlyFee(member)),
+      amount: String(payment ? Number(payment.total_amount) : Number(member.monthly_fee)),
       discount: payment ? String(payment.discount ?? 0) : "0",
       late_fee: payment ? String(payment.late_fee ?? 0) : "0",
       method: payment?.payment_method ?? "cash",
@@ -357,7 +366,7 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
     if (!payDialog) return;
     setSaving(true);
     const { member, payment } = payDialog;
-    const amount = parseFloat(payForm.amount) || netMonthlyFee(member);
+    const amount = parseFloat(payForm.amount) || Number(member.monthly_fee);
     const discount = parseFloat(payForm.discount) || 0;
     const lateFee = parseFloat(payForm.late_fee) || 0;
     const total = Math.max(0, amount - discount + lateFee);
@@ -599,7 +608,7 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
                         <span className="text-sm text-muted-foreground">{member.plan?.name ?? "—"}</span>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <span className="font-medium text-foreground">{formatCurrency(netMonthlyFee(member))}</span>
+                        <span className="font-medium text-foreground">{formatCurrency(Number(member.monthly_fee))}</span>
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex flex-col items-end gap-0.5">
@@ -610,8 +619,8 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
                             const shift = member.assigned_shift_id ? shiftMap[member.assigned_shift_id] : null;
                             const label = shift
                               ? `${shift.name} · ${shift.commission_type === "flat" ? `PKR ${shift.commission_value}` : `${shift.commission_value}%`}`
-                              : earnings.pct > 0 ? `${earnings.pct}%` : null;
-                            return label ? <span className="text-[10px] text-muted-foreground">{label}</span> : null;
+                              : `${staff.default_shift_name} · ${staff.commission_percentage}%`;
+                            return <span className="text-[10px] text-muted-foreground">{label}</span>;
                           })()}
                         </div>
                       </td>
@@ -733,7 +742,7 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
                             <span className="text-sm text-muted-foreground">{member.plan?.name ?? "—"}</span>
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <span className="font-medium text-foreground">{formatCurrency(netMonthlyFee(member))}</span>
+                            <span className="font-medium text-foreground">{formatCurrency(Number(member.monthly_fee))}</span>
                           </td>
                           <td className="px-4 py-3 text-center">
                             {(() => { const { label, cls } = paymentBadge(payment, selectedMonth); return (
@@ -932,7 +941,7 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
               <div className="space-y-1.5">
                 <Label>Assign Trainer</Label>
                 <Select value={memberForm.assigned_trainer_id}
-                  onValueChange={(v) => setMemberForm({ ...memberForm, assigned_trainer_id: v })}>
+                  onValueChange={(v) => setMemberForm({ ...memberForm, assigned_trainer_id: v, assigned_shift_id: "" })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value={staff.id}>Me ({staff.full_name})</SelectItem>
@@ -944,14 +953,30 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
                 </Select>
               </div>
             </div>
+            {/* Shift picker — only when assigning to self (only self's shifts loaded here) */}
+            {memberForm.assigned_trainer_id === staff.id && Object.values(shiftMap).length > 0 && (
+              <div className="space-y-1.5">
+                <Label>Shift <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                <Select
+                  value={memberForm.assigned_shift_id || "none"}
+                  onValueChange={(v) => setMemberForm({ ...memberForm, assigned_shift_id: v === "none" ? "" : v })}
+                >
+                  <SelectTrigger><SelectValue placeholder="No shift — use trainer default" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No shift — use trainer default</SelectItem>
+                    {Object.values(shiftMap).map((sh) => (
+                      <SelectItem key={sh.id} value={sh.id}>
+                        {sh.name} · {formatTime12h(sh.start_time)}–{formatTime12h(sh.end_time)} · {sh.commission_type === "flat" ? `PKR ${sh.commission_value}` : `${sh.commission_value}%`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Monthly Fee (PKR)</Label>
                 <Input type="number" value={memberForm.monthly_fee} onChange={(e) => setMemberForm({ ...memberForm, monthly_fee: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Monthly Discount (PKR)</Label>
-                <Input type="number" min="0" value={memberForm.monthly_discount} onChange={(e) => setMemberForm({ ...memberForm, monthly_discount: e.target.value })} />
               </div>
               <div className="space-y-1.5">
                 <Label>Join Date</Label>
@@ -978,6 +1003,29 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
                       ? "bg-rose-500/15 text-rose-400 border border-rose-500/30"
                       : "bg-white/5 text-muted-foreground border border-transparent hover:text-foreground"
                   }`}>Pending</button>
+              </div>
+            )}
+            {!editingMember && parseFloat(memberForm.admission_fee) > 0 && (
+              <div className="space-y-1.5">
+                <Label>Discount (PKR)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={parseFloat(memberForm.admission_fee) || 0}
+                  value={memberForm.discount}
+                  onChange={(e) => setMemberForm({ ...memberForm, discount: e.target.value })}
+                />
+                {(() => {
+                  const d = parseFloat(memberForm.discount) || 0;
+                  const fee = parseFloat(memberForm.admission_fee) || 0;
+                  if (d > fee) {
+                    return <p className="text-xs text-rose-400">Discount cannot exceed admission fee. It will be clamped to PKR {fee}.</p>;
+                  }
+                  if (d < 0) {
+                    return <p className="text-xs text-rose-400">Discount cannot be negative. It will be clamped to 0.</p>;
+                  }
+                  return <p className="text-xs text-muted-foreground">One-time discount on admission fee. {memberForm.admission_fee_paid ? "Applied to the admission payment." : "Reduces the outstanding balance."}</p>;
+                })()}
               </div>
             )}
             <div className="space-y-1.5">

@@ -49,6 +49,7 @@ function revalidate(gymId: string) {
   revalidateTag(`dashboard-${gymId}`);
   revalidateTag(`reports-${gymId}`);
   revalidateTag(`smart-earn-${gymId}`);
+  revalidateTag(`discounts-${gymId}`);
 }
 
 // ── Mass-assignment whitelist ──────────────────────────────────────────────────
@@ -71,7 +72,7 @@ const MEMBER_UPDATE_ALLOWED = [
   "full_name", "phone", "email", "cnic", "gender", "date_of_birth",
   "emergency_contact", "emergency_phone", "address", "notes", "medical_notes",
   "photo_url",
-  "plan_id", "monthly_fee", "monthly_discount", "admission_fee", "outstanding_balance",
+  "plan_id", "monthly_fee", "admission_fee", "outstanding_balance",
   "assigned_trainer_id", "assigned_shift_id", "referrer_id",
   "member_number", "join_date", "plan_start_date", "plan_expiry_date",
   "status", "device_user_id",
@@ -84,7 +85,7 @@ const MEMBER_CREATE_ALLOWED = [
 type MemberCreateKey = (typeof MEMBER_CREATE_ALLOWED)[number];
 
 const MEMBER_BULK_ALLOWED = [
-  "plan_id", "monthly_fee", "monthly_discount", "admission_fee",
+  "plan_id", "monthly_fee", "admission_fee",
   "assigned_trainer_id", "assigned_shift_id", "referrer_id",
 ] as const;
 type MemberBulkKey = (typeof MEMBER_BULK_ALLOWED)[number];
@@ -350,6 +351,32 @@ export async function updateMember(memberId: string, payload: Record<string, unk
   if (Object.keys(update).length === 0) {
     return { success: true };
   }
+
+  // Validate shift belongs to the (possibly new) trainer. If the caller is
+  // changing trainer without also setting shift, or the requested shift was
+  // assigned to a different trainer, clear it so salary calc falls back to
+  // the trainer's default rate instead of applying a stale shift's rule.
+  const incomingTrainerId = "assigned_trainer_id" in update
+    ? (update.assigned_trainer_id as string | null | undefined) ?? null
+    : (existing?.assigned_trainer_id as string | null | undefined) ?? null;
+  if ("assigned_shift_id" in update || "assigned_trainer_id" in update) {
+    const requestedShift = ("assigned_shift_id" in update
+      ? (update.assigned_shift_id as string | null | undefined)
+      : null) ?? null;
+    if (!incomingTrainerId || !requestedShift) {
+      update.assigned_shift_id = null;
+    } else {
+      const { data: shiftRow } = await admin
+        .from("pulse_trainer_shifts")
+        .select("id")
+        .eq("id", requestedShift)
+        .eq("gym_id", ctx.gymId)
+        .eq("staff_id", incomingTrainerId)
+        .maybeSingle();
+      update.assigned_shift_id = shiftRow?.id ?? null;
+    }
+  }
+
   update.updated_at = new Date().toISOString();
 
   const { error } = await admin
@@ -478,6 +505,13 @@ export async function createMember(payload: Record<string, unknown>) {
     status: picked.status ?? "active",
     join_date: picked.join_date ?? new Date().toISOString().slice(0, 10),
   };
+  // Accept pending_signup_discount only on create (NOT via the general update
+  // whitelist). Client passes it when admission is unpaid + a discount was
+  // promised. Server clamps to >= 0; the column also has a CHECK constraint.
+  if ("pending_signup_discount" in payload) {
+    const raw = Number(payload.pending_signup_discount ?? 0);
+    insertPayload.pending_signup_discount = Number.isFinite(raw) && raw > 0 ? raw : 0;
+  }
 
   const { data, error } = await admin
     .from("pulse_members")
@@ -530,6 +564,14 @@ export async function bulkUpdateMembers(
   const update = pickAllowed(payload, MEMBER_BULK_ALLOWED) as Partial<Record<MemberBulkKey, unknown>> & { updated_at?: string };
   if (Object.keys(update).length === 0) {
     return { error: "No editable fields supplied" };
+  }
+
+  // Bulk safety: if trainer is being changed for a multi-member set, the old
+  // shift IDs from each member are almost certainly NOT valid for the new
+  // trainer. Force-clear assigned_shift_id so salary calc falls back to the
+  // new trainer's default rate instead of applying an unrelated shift's rule.
+  if ("assigned_trainer_id" in update) {
+    update.assigned_shift_id = null;
   }
   update.updated_at = new Date().toISOString();
 

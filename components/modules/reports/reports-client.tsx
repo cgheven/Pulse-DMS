@@ -5,10 +5,11 @@ import {
   BarChart3, TrendingUp, TrendingDown, Users,
   AlertTriangle, Activity, UserCheck, UserX,
   Clock, Flame, ArrowUpRight, ArrowDownRight, CalendarRange,
+  BadgePercent, HandCoins, Gift,
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import type { RevenueMonth, AgingBucket, TrainerReportRow, TrainerFlowRow, MemberReportSummary, ExpiringMember } from "@/types";
+import type { RevenueMonth, AgingBucket, TrainerReportRow, TrainerFlowRow, MemberReportSummary, ExpiringMember, DiscountReport } from "@/types";
 
 const RevenueChart = dynamic(() => import("./revenue-chart").then((m) => m.RevenueChart), {
   ssr: false, loading: () => <div className="h-[260px] animate-pulse bg-white/5 rounded-xl" />,
@@ -25,6 +26,7 @@ interface Props {
     trainerRows: TrainerReportRow[];
     trainerFlow: TrainerFlowRow[];
     memberSummary: MemberReportSummary;
+    discounts?: DiscountReport;
     totalCapacity?: number;
   } | null;
 }
@@ -46,7 +48,7 @@ export function ReportsClient({ data }: Props) {
     );
   }
 
-  const { revenueByMonth, aging, trainerRows, trainerFlow, memberSummary } = data;
+  const { revenueByMonth, aging, trainerRows, trainerFlow, memberSummary, discounts } = data;
 
   const minMonth = revenueByMonth[0]?.monthKey ?? "";
   const maxMonth = revenueByMonth[revenueByMonth.length - 1]?.monthKey ?? "";
@@ -156,6 +158,7 @@ export function ReportsClient({ data }: Props) {
           <TabsTrigger value="financial"><BarChart3 className="w-3.5 h-3.5 mr-1.5" />Financial</TabsTrigger>
           <TabsTrigger value="trainers"><UserCheck className="w-3.5 h-3.5 mr-1.5" />Trainers</TabsTrigger>
           <TabsTrigger value="members"><Users className="w-3.5 h-3.5 mr-1.5" />Members</TabsTrigger>
+          <TabsTrigger value="discounts"><BadgePercent className="w-3.5 h-3.5 mr-1.5" />Discounts</TabsTrigger>
         </TabsList>
 
         {/* ═══════════════════════ FINANCIAL TAB ════════════════════════════ */}
@@ -838,7 +841,301 @@ export function ReportsClient({ data }: Props) {
           </div>
 
         </TabsContent>
+
+        {/* ═══════════════════════ DISCOUNTS TAB ═════════════════════════════ */}
+        <TabsContent value="discounts" className="space-y-6">
+          <DiscountsPanel discounts={discounts} />
+        </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+// ── Discounts tab ──────────────────────────────────────────────────────────
+function DiscountsPanel({ discounts }: { discounts: DiscountReport | undefined }) {
+  const [scope, setScope] = useState<"all" | "month">("all");
+  const [selectedMonth, setSelectedMonth] = useState<string>("");
+  const [search, setSearch] = useState("");
+
+  if (!discounts) {
+    return (
+      <div className="rounded-2xl border border-sidebar-border bg-card flex flex-col items-center justify-center py-20 gap-2 text-muted-foreground">
+        <BadgePercent className="w-10 h-10 opacity-20" />
+        <p className="text-sm">No discount data available.</p>
+      </div>
+    );
+  }
+
+  const months = discounts.byMonth;
+  const defaultMonth = months[months.length - 1]?.monthKey ?? "";
+  const activeMonth = selectedMonth || defaultMonth;
+  const monthRow = months.find((m) => m.monthKey === activeMonth);
+
+  // Switch between aggregate (all rows) and a single-month focus (filter trend).
+  // Note: byMonth currently only tracks realized payment-row discounts; the
+  // promised pledge book is global (not date-bounded), so we keep it visible
+  // in the single-month view too.
+  const summary = scope === "month" && monthRow
+    ? {
+        totalDiscountAmount: monthRow.totalDiscount + discounts.summary.promisedDiscountAmount,
+        realizedDiscountAmount: monthRow.totalDiscount,
+        promisedDiscountAmount: discounts.summary.promisedDiscountAmount,
+        paymentsWithDiscount: monthRow.discountCount,
+        uniqueMembersDiscounted: monthRow.uniqueMembers,
+        uniqueMembersPromised: discounts.summary.uniqueMembersPromised,
+      }
+    : discounts.summary;
+
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return discounts.rows;
+    return discounts.rows.filter((r) =>
+      r.memberName.toLowerCase().includes(q) ||
+      (r.memberNumber ?? "").toLowerCase().includes(q)
+    );
+  }, [discounts.rows, search]);
+
+  const maxDiscount = Math.max(...discounts.rows.map((r) => r.totalDiscount), 1);
+  const maxMonth = Math.max(...months.map((m) => m.totalDiscount), 1);
+
+  const SCOPES: { label: string; value: "all" | "month" }[] = [
+    { label: "All time", value: "all" },
+    { label: "Single month", value: "month" },
+  ];
+
+  return (
+    <>
+      {/* Scope selector */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1 rounded-xl border border-sidebar-border bg-card p-1 shrink-0">
+          {SCOPES.map((s) => (
+            <button
+              key={s.value}
+              onClick={() => setScope(s.value)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                scope === s.value ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+        {scope === "month" && months.length > 0 && (
+          <select
+            value={activeMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            className="text-xs bg-card border border-sidebar-border rounded-lg px-3 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            {months.map((m) => (
+              <option key={m.monthKey} value={m.monthKey}>{m.month}</option>
+            ))}
+          </select>
+        )}
+      </div>
+
+      {/* KPI cards — 4 tiles: total, realized, promised, member-count */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="rounded-2xl border border-sidebar-border bg-card p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Total Discount</p>
+            <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+              <HandCoins className="w-4 h-4 text-amber-400" />
+            </div>
+          </div>
+          <p className="text-3xl font-bold leading-none text-amber-400">{formatCurrency(summary.totalDiscountAmount)}</p>
+          <p className="text-xs text-muted-foreground">Realized + Promised</p>
+        </div>
+
+        <div className="rounded-2xl border border-sidebar-border bg-card p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Realized</p>
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+              <BadgePercent className="w-4 h-4 text-emerald-400" />
+            </div>
+          </div>
+          <p className="text-3xl font-bold leading-none text-emerald-400">{formatCurrency(summary.realizedDiscountAmount)}</p>
+          <p className="text-xs text-muted-foreground">{summary.paymentsWithDiscount} payments • {scope === "month" ? monthRow?.month ?? "—" : "all time"}</p>
+        </div>
+
+        <div className="rounded-2xl border border-sidebar-border bg-card p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Promised (unpaid)</p>
+            <div className="w-8 h-8 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center">
+              <Gift className="w-4 h-4 text-sky-400" />
+            </div>
+          </div>
+          <p className="text-3xl font-bold leading-none text-sky-400">{formatCurrency(summary.promisedDiscountAmount)}</p>
+          <p className="text-xs text-muted-foreground">{summary.uniqueMembersPromised} member{summary.uniqueMembersPromised === 1 ? "" : "s"} • open pledge</p>
+        </div>
+
+        <div className="rounded-2xl border border-sidebar-border bg-card p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Unique Members</p>
+            <div className="w-8 h-8 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
+              <Gift className="w-4 h-4 text-purple-400" />
+            </div>
+          </div>
+          <p className="text-3xl font-bold leading-none">{summary.uniqueMembersDiscounted}</p>
+          <p className="text-xs text-muted-foreground">Received at least one realized discount</p>
+        </div>
+      </div>
+
+      {/* Monthly trend */}
+      {months.some((m) => m.totalDiscount > 0) && (
+        <div className="rounded-2xl border border-sidebar-border bg-card overflow-hidden">
+          <div className="px-6 py-4 border-b border-sidebar-border">
+            <h2 className="text-sm font-semibold">Monthly Trend</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Discounts given per month — last 12 months</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-sidebar-border">
+                  <th className="text-left px-6 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Month</th>
+                  <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Total Discount</th>
+                  <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Payments</th>
+                  <th className="text-right px-6 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden md:table-cell">Members</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-sidebar-border/50">
+                {months.map((m) => {
+                  const barPct = Math.round((m.totalDiscount / maxMonth) * 100);
+                  return (
+                    <tr key={m.monthKey} className="hover:bg-white/[0.02] transition-colors">
+                      <td className="px-6 py-2.5 text-muted-foreground font-medium">{m.month}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        <div className="flex items-center justify-end gap-3">
+                          <div className="hidden sm:block w-24 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                            <div className="h-full bg-amber-400/60 rounded-full" style={{ width: `${barPct}%` }} />
+                          </div>
+                          <span className={`tabular-nums font-semibold ${m.totalDiscount > 0 ? "text-amber-400" : "text-muted-foreground"}`}>
+                            {m.totalDiscount > 0 ? formatCurrency(m.totalDiscount) : "—"}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5 text-right tabular-nums hidden sm:table-cell">
+                        {m.discountCount > 0 ? m.discountCount : <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="px-6 py-2.5 text-right tabular-nums hidden md:table-cell">
+                        {m.uniqueMembers > 0 ? m.uniqueMembers : <span className="text-muted-foreground">—</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Per-member breakdown */}
+      <div className="rounded-2xl border border-sidebar-border bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-sidebar-border gap-3">
+          <div>
+            <h2 className="text-sm font-semibold">Per-Member Breakdown</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Sorted by total discount. Top {discounts.rows.length} member{discounts.rows.length !== 1 ? "s" : ""}.</p>
+          </div>
+          <input
+            type="text"
+            placeholder="Search member..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="text-xs bg-white/5 border border-sidebar-border rounded-lg px-3 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary w-44 sm:w-56"
+          />
+        </div>
+        {rows.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
+            <BadgePercent className="w-10 h-10 opacity-20" />
+            <p className="text-sm">{search ? "No members match your search." : "No discounts recorded yet."}</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-sidebar-border">
+                  <th className="text-left px-6 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Member</th>
+                  <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Realized</th>
+                  <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Promised</th>
+                  <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Payments</th>
+                  <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden md:table-cell">Avg / Payment</th>
+                  <th className="text-right px-6 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden md:table-cell">Last Discount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-sidebar-border/50">
+                {rows.map((r) => {
+                  const barPct = Math.round((r.totalDiscount / maxDiscount) * 100);
+                  return (
+                    <tr key={r.memberId} className="hover:bg-white/[0.02] transition-colors">
+                      <td className="px-6 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-7 h-7 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-xs font-bold text-amber-400 shrink-0">
+                            {r.memberName.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium">{r.memberName}</p>
+                            {r.memberNumber && (
+                              <p className="text-xs text-muted-foreground">#{r.memberNumber}</p>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-3">
+                          <div className="hidden sm:block w-20 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                            <div className="h-full bg-amber-400/60 rounded-full" style={{ width: `${barPct}%` }} />
+                          </div>
+                          {r.realizedDiscount > 0 ? (
+                            <span className="text-emerald-400 font-semibold tabular-nums">{formatCurrency(r.realizedDiscount)}</span>
+                          ) : (
+                            <span className="text-muted-foreground tabular-nums">—</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {r.pendingDiscount > 0 ? (
+                          <span className="text-sky-400 font-semibold">{formatCurrency(r.pendingDiscount)}</span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums hidden sm:table-cell">
+                        <span className="text-foreground font-semibold">{r.discountCount}</span>
+                        {r.totalPayments > r.discountCount && (
+                          <span className="text-muted-foreground"> / {r.totalPayments}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right text-muted-foreground tabular-nums hidden md:table-cell">
+                        {formatCurrency(r.avgDiscount)}
+                      </td>
+                      <td className="px-6 py-3 text-right text-xs text-muted-foreground hidden md:table-cell">
+                        {r.lastDiscountDate ? formatDate(r.lastDiscountDate) : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-sidebar-border">
+                  <td className="px-6 py-3 text-xs font-semibold text-muted-foreground">
+                    {rows.length} member{rows.length !== 1 ? "s" : ""}{search && ` (filtered)`}
+                  </td>
+                  <td className="px-4 py-3 text-right font-bold text-emerald-400 tabular-nums">
+                    {formatCurrency(rows.reduce((s, r) => s + r.realizedDiscount, 0))}
+                  </td>
+                  <td className="px-4 py-3 text-right font-bold text-sky-400 tabular-nums">
+                    {formatCurrency(rows.reduce((s, r) => s + r.pendingDiscount, 0))}
+                  </td>
+                  <td className="px-4 py-3 text-right font-bold tabular-nums hidden sm:table-cell">
+                    {rows.reduce((s, r) => s + r.discountCount, 0)}
+                  </td>
+                  <td className="hidden md:table-cell" />
+                  <td className="hidden md:table-cell" />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
