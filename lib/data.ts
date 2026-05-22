@@ -16,6 +16,30 @@ import type {
   InventoryTopSeller, InventoryDeadStockItem, InventoryExpiringBatch,
 } from "@/types";
 
+// ── Billing-cycle helper ──────────────────────────────────────────────
+// A member's monthly_fee only counts in their billing month. Quarterly /
+// biannual / annual plans bill once per cycle anchored on plan_start_date.
+// Daily, dropin, unknown, or missing-anchor cases fall back to "bill every
+// month" so we never under-collect by accident.
+export const CYCLE_MONTHS: Record<string, number> = {
+  monthly: 1, quarterly: 3, biannual: 6, annual: 12,
+};
+
+export function isBillingMonth(
+  planStartDate: string | null | undefined,
+  planDuration: string | null | undefined,
+  currentMonthKey: string,
+): boolean {
+  const cycle = planDuration ? CYCLE_MONTHS[planDuration] : undefined;
+  if (!cycle) return true; // daily/dropin/unknown → bill every month
+  if (!planStartDate) return true; // missing anchor → bill every month
+  const [startYear, startMonth] = planStartDate.split("-").map(Number);
+  const [curYear, curMonth] = currentMonthKey.split("-").map(Number);
+  const monthsSince = (curYear - startYear) * 12 + (curMonth - startMonth);
+  if (monthsSince < 0) return false; // future plan_start_date
+  return monthsSince % cycle === 0;
+}
+
 export const getAuthContext = cache(async () => {
   const supabase = await createClient();
   // NEVER cache auth.getUser() — JWT verification must always run.
@@ -115,7 +139,7 @@ async function _fetchDashboard(gymId: string, gym: Gym | null) {
     paidSocialRes,
     paidBillsRes,
   ] = await Promise.all([
-    supabase.from("pulse_members").select("id, full_name, status, monthly_fee, plan_expiry_date").eq("gym_id", gymId),
+    supabase.from("pulse_members").select("id, full_name, status, monthly_fee, plan_expiry_date, plan_start_date, plan:pulse_membership_plans(duration_type)").eq("gym_id", gymId),
     supabase.from("pulse_check_ins").select("id").eq("gym_id", gymId).gte("checked_in_at", `${todayStr}T00:00:00`).lte("checked_in_at", `${todayStr}T23:59:59`),
     supabase.from("pulse_expenses").select("amount").eq("gym_id", gymId).gte("date", start).lte("date", end),
     supabase.from("pulse_salary_payments").select("total_amount").eq("gym_id", gymId).eq("for_month", currentMonthKey).eq("status", "paid"),
@@ -127,7 +151,7 @@ async function _fetchDashboard(gymId: string, gym: Gym | null) {
     // Collection-eligible roster: members who should/may owe fees this month.
     // Active = currently paying, defaulter = owes back fees. Excludes frozen
     // (paused, no fee owed), on_hold (paused), expired/cancelled (gone).
-    supabase.from("pulse_members").select("id,assigned_trainer_id,monthly_fee,status").eq("gym_id", gymId).in("status", ["active", "defaulter"]),
+    supabase.from("pulse_members").select("id,assigned_trainer_id,monthly_fee,status,plan_start_date,plan:pulse_membership_plans(duration_type)").eq("gym_id", gymId).in("status", ["active", "defaulter"]),
     supabase.from("pulse_payments").select("member_id,total_amount,status").eq("gym_id", gymId).eq("for_period", currentMonthKey),
     supabase.from("pulse_member_goals")
       .select("id,member_id,trainer_id,title,category,unit,start_value,target_value,current_value,direction,status,start_date,target_date,updated_at,member:pulse_members(full_name,assigned_trainer_id),trainer:pulse_staff(full_name)")
@@ -159,9 +183,21 @@ async function _fetchDashboard(gymId: string, gym: Gym | null) {
   const monthlyPaidBills = (paidBillsRes.data ?? []).reduce((s, b) => s + Number(b.amount) + Number(b.late_fee), 0);
 
   const unpaidBills = unpaidBillsRes.data ?? [];
-  // Realized revenue = sticker fee per active member.
+  // Realized revenue = sticker fee per active member, but only in their
+  // billing month. Quarterly/biannual/annual members owe nothing in the
+  // intermediate months — counting them every month inflates revenue.
+  type MemberBilling = {
+    monthly_fee: number;
+    plan_start_date: string | null;
+    plan?: { duration_type: string } | null;
+  };
   const monthlyRevenue = activeMembers.reduce(
-    (s, m) => s + Number(m.monthly_fee),
+    (s, m) => {
+      const mb = m as unknown as MemberBilling;
+      return isBillingMonth(mb.plan_start_date, mb.plan?.duration_type, currentMonthKey)
+        ? s + Number(mb.monthly_fee)
+        : s;
+    },
     0,
   );
 
@@ -175,6 +211,10 @@ async function _fetchDashboard(gymId: string, gym: Gym | null) {
     }
   }
   const overdueMembers: DashboardMember[] = activeMembers
+    .filter((m) => {
+      const mb = m as unknown as MemberBilling;
+      return isBillingMonth(mb.plan_start_date, mb.plan?.duration_type, currentMonthKey);
+    })
     .map((m) => {
       const expected = Number(m.monthly_fee);
       const paid = paidByMemberThisMonth.get(m.id) ?? 0;
@@ -230,7 +270,12 @@ async function _fetchDashboard(gymId: string, gym: Gym | null) {
     const paidIds = new Set(myPayments.filter((p) => p.status === "paid").map((p) => p.member_id));
     const collected = myPayments.filter((p) => p.status === "paid").reduce((s, p) => s + Number(p.total_amount), 0);
     const totalDue = myMembers.reduce(
-      (s, m) => s + Number(m.monthly_fee),
+      (s, m) => {
+        const mb = m as unknown as MemberBilling;
+        return isBillingMonth(mb.plan_start_date, mb.plan?.duration_type, currentMonthKey)
+          ? s + Number(mb.monthly_fee)
+          : s;
+      },
       0,
     );
     return {
@@ -257,7 +302,12 @@ async function _fetchDashboard(gymId: string, gym: Gym | null) {
     unpaid: selfMembers.length - selfPaidIds.size,
     collected: selfPayments.filter((p) => p.status === "paid").reduce((s, p) => s + Number(p.total_amount), 0),
     totalDue: selfMembers.reduce(
-      (s, m) => s + Number(m.monthly_fee),
+      (s, m) => {
+        const mb = m as unknown as MemberBilling;
+        return isBillingMonth(mb.plan_start_date, mb.plan?.duration_type, currentMonthKey)
+          ? s + Number(mb.monthly_fee)
+          : s;
+      },
       0,
     ),
     rate: Math.round((selfPaidIds.size / selfMembers.length) * 100),
@@ -985,7 +1035,7 @@ async function _fetchReports(gymId: string) {
       .gte("date", windowStart)
       .lte("date", windowEnd),
     supabase.from("pulse_members")
-      .select("id,full_name,phone,status,monthly_fee,assigned_trainer_id,assigned_shift_id,join_date,plan_expiry_date,plan_id,defaulter_since")
+      .select("id,full_name,phone,status,monthly_fee,assigned_trainer_id,assigned_shift_id,join_date,plan_start_date,plan_expiry_date,plan_id,defaulter_since,plan:pulse_membership_plans(duration_type)")
       .eq("gym_id", gymId),
     supabase.from("pulse_salary_payments").select("for_month,total_amount,status")
       .eq("gym_id", gymId)
@@ -1058,11 +1108,22 @@ async function _fetchReports(gymId: string) {
   });
 
   // ── Trainer report rows ────────────────────────────────
+  type ReportMemberBilling = {
+    monthly_fee: number;
+    plan_start_date: string | null;
+    plan?: { duration_type: string } | null;
+  };
   const trainerRows: TrainerReportRow[] = trainers.map((t) => {
     const activeM = members.filter((m) => m.assigned_trainer_id === t.id && m.status === "active");
-    // monthlyFeeGenerated = realized revenue this trainer drives.
+    // monthlyFeeGenerated = realized revenue this trainer drives, only in
+    // members' billing month (quarterly/biannual/annual don't bill monthly).
     const monthlyFeeGenerated = activeM.reduce(
-      (s, m) => s + Number(m.monthly_fee),
+      (s, m) => {
+        const mb = m as unknown as ReportMemberBilling;
+        return isBillingMonth(mb.plan_start_date, mb.plan?.duration_type, currentMonthKey)
+          ? s + Number(mb.monthly_fee)
+          : s;
+      },
       0,
     );
     const salaryRecord = currentSalaries.find((s) => s.staff_id === t.id);
