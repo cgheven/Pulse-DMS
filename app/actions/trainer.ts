@@ -3,6 +3,8 @@ import { revalidateTag } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAuthContext, getTrainerContext } from "@/lib/data";
 import { writeAuditLog } from "@/lib/audit";
+import { calcCommission, commissionRuleLabel } from "@/lib/commission";
+import { memberPlanLabel } from "@/lib/utils";
 
 // ── Commission recalculation utility ─────────────────────────────────────────
 // Recalculates the commission_amount (and total_amount) on a trainer's PENDING
@@ -870,4 +872,104 @@ export async function deleteStaffMember(staffId: string): Promise<{
   revalidateTag(`reports-${gymId}`);
 
   return { success: true };
+}
+
+// ── Owner view: per-trainer commission breakdown for a given month ───────────
+// Returns every active trainer with their assigned members, the commission rule
+// + amount per member, paid/pending status, and rollup totals. Mirrors the
+// trainer portal's earned/pending math (snapshotted payment.trainer_id for
+// earned; currently-assigned members' fee for pending) so owner and trainer
+// always see the same numbers. Owner-only.
+export async function getTrainerCommissions(monthKey: string) {
+  const ctx = await getAuthContext();
+  if (!ctx?.user || !ctx.gymId) return { error: "Unauthorized" as const };
+  if (!/^\d{4}-\d{2}$/.test(monthKey)) return { error: "Invalid month" as const };
+  const gymId = ctx.gymId;
+  const admin = createAdminClient();
+
+  const [{ data: trainers }, { data: members }, { data: shifts }, { data: payments }] =
+    await Promise.all([
+      admin.from("pulse_staff")
+        .select("id, full_name, commission_percentage, commission_floor, default_shift_name, monthly_salary")
+        .eq("gym_id", gymId).eq("role", "trainer").eq("status", "active").order("full_name"),
+      admin.from("pulse_members")
+        .select("id, full_name, monthly_fee, assigned_trainer_id, assigned_shift_id, status, plan:pulse_membership_plans(name), plans:pulse_member_plans(plan:pulse_membership_plans(name))")
+        .eq("gym_id", gymId).eq("status", "active").not("assigned_trainer_id", "is", null),
+      admin.from("pulse_trainer_shifts")
+        .select("id, staff_id, commission_type, commission_value, commission_floor")
+        .eq("gym_id", gymId),
+      admin.from("pulse_payments")
+        .select("member_id, trainer_id, total_amount, status")
+        .eq("gym_id", gymId).eq("for_period", monthKey),
+    ]);
+
+  const shiftMap = new Map((shifts ?? []).map((s) => [s.id, s]));
+  const allMembers = members ?? [];
+  const monthPayments = payments ?? [];
+  const paidByMember = new Set(monthPayments.filter((p) => p.status === "paid").map((p) => p.member_id));
+
+  // Apply a member's shift only if it actually belongs to their assigned
+  // trainer — mirrors the trainer portal (which only loads its own shifts) and
+  // guards against a stale shift_id pointing at another trainer's rule.
+  const shiftFor = (m: { assigned_shift_id: string | null; assigned_trainer_id: string | null }) => {
+    if (!m.assigned_shift_id) return null;
+    const s = shiftMap.get(m.assigned_shift_id);
+    if (!s || s.staff_id !== m.assigned_trainer_id) return null;
+    return s;
+  };
+
+  // O(1) member lookup for the earned-commission roll-up (avoids find() per
+  // paid payment per trainer — O(n²) on large gyms).
+  const memberById = new Map(allMembers.map((m) => [m.id, m]));
+
+  const rows = (trainers ?? []).map((t) => {
+    const floor = Number(t.commission_floor ?? 0);
+    const pct = Number(t.commission_percentage ?? 0);
+    const assigned = allMembers.filter((m) => m.assigned_trainer_id === t.id);
+
+    const memberRows = assigned
+      .map((m) => {
+        const shift = shiftFor(m);
+        return {
+          memberId: m.id,
+          memberName: m.full_name,
+          plan: memberPlanLabel(m as { plan?: { name?: string | null } | null; plans?: { plan?: { name?: string | null } | null }[] | null }),
+          monthlyFee: Number(m.monthly_fee),
+          rule: commissionRuleLabel(floor, pct, shift),
+          commission: calcCommission(Number(m.monthly_fee), floor, pct, shift),
+          paid: paidByMember.has(m.id),
+        };
+      })
+      .sort((a, b) => (a.paid === b.paid ? b.commission - a.commission : a.paid ? 1 : -1));
+
+    const earned = monthPayments
+      .filter((p) => p.status === "paid" && p.trainer_id === t.id)
+      .reduce((s, p) => {
+        const m = p.member_id ? memberById.get(p.member_id) : undefined;
+        if (m) return s + calcCommission(Number(m.monthly_fee), floor, pct, shiftFor(m));
+        return s + Math.max(0, Number(p.total_amount) - floor) * (pct / 100);
+      }, 0);
+
+    const pending = assigned
+      .filter((m) => !paidByMember.has(m.id))
+      .reduce((s, m) => s + calcCommission(Number(m.monthly_fee), floor, pct, shiftFor(m)), 0);
+
+    const feeGenerated = assigned.reduce((s, m) => s + Number(m.monthly_fee), 0);
+    const baseSalary = Number(t.monthly_salary ?? 0);
+
+    return {
+      trainerId: t.id,
+      trainerName: t.full_name,
+      defaultRule: commissionRuleLabel(floor, pct, null),
+      baseSalary,
+      totalMembers: assigned.length,
+      feeGenerated,
+      earned,
+      pending,
+      totalComp: baseSalary + earned,
+      members: memberRows,
+    };
+  });
+
+  return { success: true as const, rows };
 }

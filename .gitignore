@@ -33,3 +33,5 @@ next-env.d.ts
 
 # Local DB backups — never commit
 backups/
+claude/
+.mcp.json

@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
-import { formatCurrency, formatDate, formatDateInput, formatTime12h } from "@/lib/utils";
+import { formatCurrency, formatDate, formatDateInput, formatTime12h, memberPlanLabel } from "@/lib/utils";
 import { buildReminderMessage, whatsappUrl } from "@/lib/whatsapp-reminder";
 import type { Payment, PaymentMethod, PaymentStatus, Member, MembershipPlan, Staff, MemberGoal, BodyMetric, MetricSkip, TrainerShift, PaymentMethodAccount } from "@/types";
 
@@ -25,7 +25,7 @@ type MemberRow = Pick<Member,
   "gender" | "date_of_birth" | "emergency_contact" | "address" |
   "monthly_fee" | "admission_fee" | "plan_id" | "assigned_trainer_id" | "assigned_shift_id" |
   "status" | "plan_expiry_date" | "outstanding_balance" | "join_date" | "notes"
-> & { plan?: { name: string } | null };
+> & { plan?: { name: string } | null; plans?: { plan?: { id: string; name: string; color: string } | null }[] | null };
 
 type TrainerOption = Pick<Staff, "id" | "full_name">;
 
@@ -605,7 +605,7 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
                         </button>
                       </td>
                       <td className="px-4 py-3 hidden md:table-cell">
-                        <span className="text-sm text-muted-foreground">{member.plan?.name ?? "—"}</span>
+                        <span className="text-sm text-muted-foreground">{memberPlanLabel(member)}</span>
                       </td>
                       <td className="px-4 py-3 text-right">
                         <span className="font-medium text-foreground">{formatCurrency(Number(member.monthly_fee))}</span>
@@ -739,7 +739,7 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
                             </div>
                           </td>
                           <td className="px-4 py-3 hidden md:table-cell">
-                            <span className="text-sm text-muted-foreground">{member.plan?.name ?? "—"}</span>
+                            <span className="text-sm text-muted-foreground">{memberPlanLabel(member)}</span>
                           </td>
                           <td className="px-4 py-3 text-right">
                             <span className="font-medium text-foreground">{formatCurrency(Number(member.monthly_fee))}</span>
@@ -823,7 +823,7 @@ export function TrainerClient({ staff, gymId, gymName, reminderTemplate, payment
               <div className="rounded-lg bg-white/5 px-3 py-2.5 space-y-0.5">
                 <p className="text-sm font-semibold text-foreground">{payDialog.member.full_name}</p>
                 <p className="text-xs text-muted-foreground">
-                  {payDialog.member.plan?.name ?? "No plan"} · {monthLabel(selectedMonth)}
+                  {memberPlanLabel(payDialog.member, "No plan")} · {monthLabel(selectedMonth)}
                 </p>
               </div>
 

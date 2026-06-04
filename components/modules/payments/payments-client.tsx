@@ -1,7 +1,7 @@
 "use client";
 import { useState, useMemo, useTransition } from "react";
 import {
-  CreditCard, AlertTriangle, Plus, XCircle, Search, MessageCircle,
+  CreditCard, AlertTriangle, Plus, XCircle, Search, MessageCircle, FileText,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { revalidatePayments, createPayment, updatePayment } from "@/app/actions/payments";
@@ -11,17 +11,18 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
-import { formatCurrency, formatDate, formatDateInput } from "@/lib/utils";
+import { formatCurrency, formatDate, formatDateInput, memberPlanLabel } from "@/lib/utils";
 import { useGymContext } from "@/contexts/gym-context";
 import { buildReminderMessage, whatsappUrl } from "@/lib/whatsapp-reminder";
 import { validateMoney } from "@/lib/validation";
-import type { Payment, PaymentMethod, PaymentStatus, Member, MembershipPlan } from "@/types";
+import type { Payment, PaymentMethod, PaymentStatus, Member, MembershipPlan, Gym } from "@/types";
+import { InvoiceDialog, type InvoiceData } from "@/components/modules/payments/invoice-dialog"
 
 type MemberRow = Pick<Member,
   "id" | "full_name" | "member_number" | "phone" | "monthly_fee" | "plan_id" |
   "assigned_trainer_id" | "status" | "plan_expiry_date" | "outstanding_balance" |
   "pending_signup_discount"
-> & { plan?: { name: string } | null; trainer?: { full_name: string } | null };
+> & { plan?: { name: string } | null; plans?: { plan?: { id: string; name: string; color: string } | null }[] | null; trainer?: { full_name: string } | null };
 
 type PlanRow = Pick<MembershipPlan, "id" | "name" | "price" | "duration_type">;
 
@@ -153,14 +154,14 @@ function MemberPicker({ members, value, onChange }: {
               <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
                 selected ? "bg-primary text-primary-foreground" : "bg-primary/20 text-primary"
               }`}>
-                {m.full_name[0].toUpperCase()}
+                {m.full_name[0]?.toUpperCase() ?? "?"}
               </div>
               <div className="min-w-0 flex-1">
                 <p className={`text-sm font-medium truncate ${selected ? "text-primary" : "text-foreground"}`}>
                   {m.full_name}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {formatCurrency(Number(m.monthly_fee))} · {m.plan?.name ?? "No plan"}
+                  {formatCurrency(Number(m.monthly_fee))} · {memberPlanLabel(m, "No plan")}
                   {m.trainer?.full_name && <span className="ml-1 text-muted-foreground/60">· {m.trainer.full_name}</span>}
                 </p>
               </div>
@@ -189,6 +190,7 @@ export function PaymentsClient({ gymId, payments: initialPayments, members }: Pr
 
   const [addDialog, setAddDialog] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [invoiceData, setInvoiceData] = useState<InvoiceData | null>(null)
   const router = useRouter();
   const [refreshing, startRefresh] = useTransition();
 
@@ -276,6 +278,15 @@ export function PaymentsClient({ gymId, payments: initialPayments, members }: Pr
     setAddDialog(true);
   }
 
+  function openInvoice(payment: Payment, member?: MemberRow | null) {
+    setInvoiceData({
+      payment,
+      memberName: payment.member?.full_name ?? member?.full_name ?? "Member",
+      memberPhone: member?.phone ?? null,
+      planName: member ? (memberPlanLabel(member, "") || null) : null,
+    })
+  }
+
   function sendReminder(m: MemberRow) {
     if (!m.phone) {
       toast({ title: "No phone number on file for this member", variant: "destructive" });
@@ -336,31 +347,38 @@ export function PaymentsClient({ gymId, payments: initialPayments, members }: Pr
     const totalAmount = parseFloat(addForm.total_amount) || 0;
     const discount = parseFloat(addForm.discount) || 0;
     const lateFee = parseFloat(addForm.late_fee) || 0;
-    // Route through server action so RLS doesn't block non-owner staff
-    // (manager/frontdesk with payments.create permission). Server action
-    // uses admin client + verifies permission server-side.
-    const res = await createPayment({
-      member_id: addForm.member_id,
-      plan_id: member?.plan_id ?? null,
-      amount: totalAmount,
-      discount,
-      late_fee: lateFee,
-      total_amount: Math.max(0, totalAmount - discount + lateFee),
-      payment_method: addForm.method,
-      payment_date: addForm.date || formatDateInput(new Date()),
-      for_period: addForm.for_period || "",
-      status: addForm.date ? "paid" : "pending",
-      receipt_number: addForm.receipt_number || receipt,
-      notes: addForm.notes || null,
-    });
-    if ("error" in res) {
-      toast({ title: "Error", description: res.error, variant: "destructive" });
-    } else {
-      toast({ title: "Payment recorded" });
-      setAddDialog(false);
-      if (res.payment) setPayments((prev) => [res.payment as Payment, ...prev]);
+    try {
+      // Route through server action so RLS doesn't block non-owner staff
+      // (manager/frontdesk with payments.create permission). Server action
+      // uses admin client + verifies permission server-side.
+      const res = await createPayment({
+        member_id: addForm.member_id,
+        plan_id: member?.plan_id ?? null,
+        amount: totalAmount,
+        discount,
+        late_fee: lateFee,
+        total_amount: Math.max(0, totalAmount - discount + lateFee),
+        payment_method: addForm.method,
+        payment_date: addForm.date || formatDateInput(new Date()),
+        for_period: addForm.for_period || "",
+        status: addForm.date ? "paid" : "pending",
+        receipt_number: addForm.receipt_number || receipt,
+        notes: addForm.notes || null,
+      });
+      if ("error" in res) {
+        toast({ title: "Error", description: res.error, variant: "destructive" });
+      } else {
+        toast({ title: "Payment recorded" });
+        setAddDialog(false);
+        if (res.payment) {
+          setPayments((prev) => [res.payment as Payment, ...prev]);
+          const m = members.find((x) => x.id === addForm.member_id);
+          openInvoice(res.payment as Payment, m);
+        }
+      }
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   }
 
   const paidCount = useMemo(() =>
@@ -404,6 +422,8 @@ export function PaymentsClient({ gymId, payments: initialPayments, members }: Pr
 
     return { groups: list, totalCollected, totalPaid, totalRemaining, totalDue };
   }, [members, currentMonthPayments]);
+
+  const todayDayOfMonth = new Date().getDate();
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -534,7 +554,7 @@ export function PaymentsClient({ gymId, payments: initialPayments, members }: Pr
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center text-xs font-bold text-primary shrink-0">
-                                {m.full_name[0].toUpperCase()}
+                                {m.full_name[0]?.toUpperCase() ?? "?"}
                               </div>
                               <p className="font-medium text-foreground">{m.full_name}</p>
                             </div>
@@ -545,7 +565,7 @@ export function PaymentsClient({ gymId, payments: initialPayments, members }: Pr
                             </span>
                           </td>
                           <td className="px-4 py-3 hidden lg:table-cell">
-                            <span className="text-sm text-muted-foreground">{m.plan?.name ?? "—"}</span>
+                            <span className="text-sm text-muted-foreground">{memberPlanLabel(m)}</span>
                           </td>
                           <td className="px-4 py-3 text-right">
                             <span className="font-medium text-foreground">{formatCurrency(Number(m.monthly_fee))}</span>
@@ -554,22 +574,28 @@ export function PaymentsClient({ gymId, payments: initialPayments, members }: Pr
                             {payment ? (
                               <StatusBadge status={payment.status} />
                             ) : (() => {
-                              // Days into the current billing month — proxy for overdue
-                              const daysIn = new Date().getDate();
-                              const overdue = daysIn >= 3;
+                              const overdue = todayDayOfMonth >= 3;
                               return (
                                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${
                                   overdue
                                     ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
                                     : "bg-white/5 text-muted-foreground border-white/10"
                                 }`}>
-                                  {overdue ? `${daysIn}d overdue` : "Not paid"}
+                                  {overdue ? `${todayDayOfMonth}d overdue` : "Not paid"}
                                 </span>
                               );
                             })()}
                           </td>
                           <td className="px-4 py-3 text-right">
-                            {!paid && (
+                            {paid ? (
+                              payment && (
+                                <button type="button" onClick={() => openInvoice(payment, m)}
+                                  title="View Receipt"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white/5 text-muted-foreground border border-white/10 hover:bg-white/10 hover:text-foreground transition-colors">
+                                  <FileText className="w-3 h-3" /> Receipt
+                                </button>
+                              )
+                            ) : (
                               <div className="inline-flex items-center gap-1.5">
                                 {m.phone && (
                                   <button type="button" onClick={() => sendReminder(m)}
@@ -678,6 +704,10 @@ export function PaymentsClient({ gymId, payments: initialPayments, members }: Pr
                           <td className="px-4 py-3 text-center"><StatusBadge status={p.status} /></td>
                           <td className="px-4 py-3">
                             <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button title="View Receipt" onClick={() => openInvoice(p, members.find(m => m.id === p.member_id))}
+                                className="p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
+                                <FileText className="w-3.5 h-3.5" />
+                              </button>
                               {p.status !== "paid" && p.status !== "waived" && p.status !== "refunded" && (
                                 <>
                                   {p.status !== "overdue" && (
@@ -775,6 +805,12 @@ export function PaymentsClient({ gymId, payments: initialPayments, members }: Pr
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <InvoiceDialog
+        data={invoiceData}
+        gym={gym}
+        onClose={() => setInvoiceData(null)}
+      />
     </div>
   );
 }

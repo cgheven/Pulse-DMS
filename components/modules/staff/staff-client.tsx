@@ -3,7 +3,7 @@ import { useState, useMemo, useEffect } from "react";
 import {
   Plus, Search, Edit2, Trash2, UserCog, Wallet,
   CheckCircle2, Clock, Users, TrendingDown, Star,
-  KeyRound, UserX, ArrowRightLeft,
+  KeyRound, UserX, ArrowRightLeft, Percent,
 } from "lucide-react";
 import { createTrainerLogin, removeTrainerLogin, transferTrainerClients, deleteStaffMember } from "@/app/actions/trainer";
 import { resetStaffPassword } from "@/app/actions/account";
@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { TrainerCommissionsPanel } from "@/components/modules/staff/trainer-commissions-panel";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import { useGymContext } from "@/contexts/gym-context";
@@ -685,8 +686,11 @@ export function StaffClient({ gymId, gymName, staff: initialStaff, salaryPayment
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
         <TabsList>
-          <TabsTrigger value="staff"><Users className="w-3.5 h-3.5 mr-1.5" />Staff</TabsTrigger>
+          <TabsTrigger value="staff"><Users className="w-3.5 h-3.5 mr-1.5" />{isTrainersMode ? "Trainers" : "Staff"}</TabsTrigger>
           <TabsTrigger value="salaries"><Wallet className="w-3.5 h-3.5 mr-1.5" />Salaries</TabsTrigger>
+          {!isStaffMode && (
+            <TabsTrigger value="commissions"><Percent className="w-3.5 h-3.5 mr-1.5" />Commissions</TabsTrigger>
+          )}
         </TabsList>
 
         {/* ── Staff tab ──────────────────────────────── */}
@@ -917,6 +921,13 @@ export function StaffClient({ gymId, gymName, staff: initialStaff, salaryPayment
             </Card>
           )}
         </TabsContent>
+
+        {/* ── Commissions tab (trainers / all) ────────── */}
+        {!isStaffMode && (
+          <TabsContent value="commissions" className="space-y-4">
+            <TrainerCommissionsPanel />
+          </TabsContent>
+        )}
       </Tabs>
 
       <ConfirmDialog

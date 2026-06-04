@@ -7,6 +7,7 @@ import {
   Snowflake, AlertCircle, CheckCircle,
   ChevronLeft, ChevronRight, CheckCircle2, Wallet, CreditCard,
   PauseCircle, PlayCircle, Ban,
+  Target, Phone, X, Activity, ChevronDown, Check,
 } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { createClient } from "@/lib/supabase/client";
@@ -16,16 +17,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
 import { useGymContext } from "@/contexts/gym-context";
-import { formatCurrency, formatDate, formatDateInput, cn } from "@/lib/utils";
+import { formatCurrency, formatDate, formatDateInput, cn, memberPlanLabel } from "@/lib/utils";
 import { validateFullName, validateCNIC, validatePakPhone, validateDOB, validateMoney, runValidators, type ValidationResult } from "@/lib/validation";
-import type { Member, MembershipPlan, MemberStatus, MemberGender, Staff, Payment, PaymentMethod, PaymentStatus, Referrer, SocialManager, SocialLead, TrainerShift } from "@/types";
+import type { Member, MembershipPlan, MemberStatus, MemberGender, MemberShift, Staff, Payment, PaymentMethod, PaymentStatus, Referrer, SocialManager, SocialLead, TrainerShift } from "@/types";
 import { matchSocialLead } from "@/app/actions/social";
 import { freezeMember, unfreezeMember, putMemberOnHold, resumeMember, markAsDefaulter, clearDefaulter, checkAndClearDefaulter, updateMember, deleteMember as deleteMemberAction, createMember, bulkUpdateMembers, createReferralForMember, consumeUnlinkedPunch, reloadMembersData } from "@/app/actions/members";
 import { createPayment, updatePayment, listPaymentsForGym, listMemberTimeline } from "@/app/actions/payments";
 import { SmartAssignPanel } from "@/components/modules/profit-insights/smart-assign-panel";
+import { PhotoPicker } from "@/components/modules/members/photo-picker";
+import { InvoiceDialog, type InvoiceData } from "@/components/modules/payments/invoice-dialog";
 
 // ── Payment helpers ────────────────────────────────────────────────────────────
 const methodLabels: Record<PaymentMethod, string> = {
@@ -69,35 +73,41 @@ interface Props {
   referrers: Pick<Referrer, "id" | "full_name" | "commission_type" | "commission_value">[];
 }
 
-const emptyForm = {
-  full_name: "",
-  phone: "",
-  email: "",
-  cnic: "",
-  gender: "male" as MemberGender,
-  date_of_birth: "",
-  address: "",
-  member_number: "",
-  plan_id: "",
-  assigned_trainer_id: "",
-  assigned_shift_id: "",
-  referrer_id: "",
-  social_lead_id: "",
-  join_date: formatDateInput(new Date()),
-  plan_start_date: formatDateInput(new Date()),
-  plan_expiry_date: "",
-  admission_fee: "",
-  admission_fee_paid: false,
-  discount: "0",
-  monthly_fee: "",
-  outstanding_balance: "0",
-  emergency_contact: "",
-  emergency_phone: "",
-  medical_notes: "",
-  notes: "",
-  device_user_id: "",
-  status: "active" as MemberStatus,
-};
+function makeEmptyForm(deviceUserId = "") {
+  const today = formatDateInput(new Date());
+  return {
+    full_name: "",
+    phone: "",
+    email: "",
+    cnic: "",
+    gender: "male" as MemberGender,
+    date_of_birth: "",
+    address: "",
+    shift: "" as "" | MemberShift,
+    member_number: "",
+    photo_url: "" as string,
+    plan_id: "",
+    plan_ids: [] as string[],
+    assigned_trainer_id: "",
+    assigned_shift_id: "",
+    referrer_id: "",
+    social_lead_id: "",
+    join_date: today,
+    plan_start_date: today,
+    plan_expiry_date: "",
+    admission_fee: "",
+    admission_fee_paid: false,
+    discount: "0",
+    monthly_fee: "",
+    outstanding_balance: "0",
+    emergency_contact: "",
+    emergency_phone: "",
+    medical_notes: "",
+    notes: "",
+    device_user_id: deviceUserId,
+    status: "active" as MemberStatus,
+  };
+}
 
 const STATUS_CONFIG: Record<MemberStatus, { label: string; className: string; icon: React.ElementType }> = {
   active:    { label: "Active",     className: "status-active",    icon: UserCheck },
@@ -106,6 +116,12 @@ const STATUS_CONFIG: Record<MemberStatus, { label: string; className: string; ic
   defaulter: { label: "Defaulter",  className: "status-defaulter", icon: Ban },
   expired:   { label: "Expired",    className: "status-expired",   icon: CalendarX },
   cancelled: { label: "Cancelled",  className: "status-expired",   icon: AlertCircle },
+};
+
+const SHIFT_LABELS: Record<MemberShift, string> = {
+  morning: "Morning",
+  evening: "Evening",
+  night:   "Night",
 };
 
 const DURATION_LABELS: Record<string, string> = {
@@ -135,13 +151,14 @@ interface MemberTableProps {
   planMap: Record<string, MembershipPlan>;
   onEdit: (m: Member) => void;
   onDelete: (m: Member) => void;
+  onView?: (m: Member) => void;
   selectedIds: Set<string>;
   onToggle: (id: string) => void;
   onSelectAll: () => void;
   extraActions?: (m: Member) => React.ReactNode;
 }
 
-const MemberTable = memo(function MemberTable({ list, showExpired, planMap, onEdit, onDelete, selectedIds, onToggle, onSelectAll, extraActions }: MemberTableProps) {
+const MemberTable = memo(function MemberTable({ list, showExpired, planMap, onEdit, onDelete, onView, selectedIds, onToggle, onSelectAll, extraActions }: MemberTableProps) {
   if (list.length === 0) return null;
   const allSelected = list.length > 0 && list.every((m) => selectedIds.has(m.id));
   const someSelected = !allSelected && list.some((m) => selectedIds.has(m.id));
@@ -175,11 +192,19 @@ const MemberTable = memo(function MemberTable({ list, showExpired, planMap, onEd
             const planData = (m as Member & { plan?: { name: string; color: string } | null }).plan;
             const planName = planData?.name ?? plan?.name;
             const planColor = planData?.color ?? plan?.color ?? "#6B7A99";
+            const allPlans = ((m as Member & { plans?: { plan?: { id: string; name: string; color: string } | null }[] }).plans ?? [])
+              .map((pp) => pp.plan)
+              .filter((p): p is { id: string; name: string; color: string } => !!p)
+              .sort((a, b) => (a.id === m.plan_id ? -1 : b.id === m.plan_id ? 1 : 0));
             const trainerData = (m as Member & { trainer?: { full_name: string } | null }).trainer;
             const isSelected = selectedIds.has(m.id);
             return (
-              <tr key={m.id} className={`hover:bg-white/[0.02] transition-colors group ${isSelected ? "bg-primary/[0.04]" : ""}`}>
-                <td className="px-3 sm:px-4 py-3">
+              <tr
+                key={m.id}
+                onClick={() => onView?.(m)}
+                className={`hover:bg-white/[0.02] transition-colors group ${onView ? "cursor-pointer" : ""} ${isSelected ? "bg-primary/[0.04]" : ""}`}
+              >
+                <td className="px-3 sm:px-4 py-3" onClick={(e) => e.stopPropagation()}>
                   <input
                     type="checkbox"
                     checked={isSelected}
@@ -190,20 +215,39 @@ const MemberTable = memo(function MemberTable({ list, showExpired, planMap, onEd
                 <td className="px-3 sm:px-4 py-3">
                   <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
                     <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 overflow-hidden"
                       style={{ backgroundColor: `${planColor}22`, color: planColor }}
                     >
-                      {m.full_name[0].toUpperCase()}
+                      {m.photo_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={m.photo_url} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        m.full_name[0]?.toUpperCase() ?? "?"
+                      )}
                     </div>
                     <div className="min-w-0">
                       <p className="font-medium text-foreground truncate">{m.full_name}</p>
                       {m.member_number && <p className="text-xs text-muted-foreground font-mono">{m.member_number}</p>}
-                      {planName && <p className="sm:hidden text-[11px] mt-0.5" style={{ color: planColor }}>● {planName}</p>}
+                      {allPlans.length > 0 ? (
+                        <p className="sm:hidden text-[11px] mt-0.5" style={{ color: allPlans[0].color }}>
+                          ● {allPlans[0].name}{allPlans.length > 1 ? ` +${allPlans.length - 1}` : ""}
+                        </p>
+                      ) : planName && <p className="sm:hidden text-[11px] mt-0.5" style={{ color: planColor }}>● {planName}</p>}
                     </div>
                   </div>
                 </td>
                 <td className="px-4 py-3 hidden sm:table-cell">
-                  {planName ? (
+                  {allPlans.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {allPlans.map((p) => (
+                        <span key={p.id} className="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-md"
+                          style={{ backgroundColor: `${p.color}20`, color: p.color }}>
+                          <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: p.color }} />
+                          {p.name}
+                        </span>
+                      ))}
+                    </div>
+                  ) : planName ? (
                     <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-md"
                       style={{ backgroundColor: `${planColor}20`, color: planColor }}>
                       <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: planColor }} />
@@ -230,7 +274,7 @@ const MemberTable = memo(function MemberTable({ list, showExpired, planMap, onEd
                 <td className="px-4 py-3 text-center hidden sm:table-cell">
                   <StatusBadge status={m.status} />
                 </td>
-                <td className="px-3 sm:px-4 py-3 text-right">
+                <td className="px-3 sm:px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-0.5 sm:gap-1">
                     {extraActions?.(m)}
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(m)}>
@@ -310,6 +354,7 @@ export function MembersClient({
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState("active");
   const [trainerFilter, setTrainerFilter] = useState<string>("all");
+  const [shiftFilter, setShiftFilter] = useState<"all" | MemberShift>("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Member | null>(null);
   const [deleteMember, setDeleteMember] = useState<Member | null>(null);
@@ -641,6 +686,9 @@ export function MembersClient({
     } else if (trainerFilter !== "all") {
       filtered = filtered.filter((m) => m.assigned_trainer_id === trainerFilter);
     }
+    if (shiftFilter !== "all") {
+      filtered = filtered.filter((m) => m.shift === shiftFilter);
+    }
     if (search) {
       const q = search.toLowerCase();
       filtered = filtered.filter(
@@ -676,13 +724,23 @@ export function MembersClient({
     expired:   expired.length,
   };
 
-  const filteredActive    = useMemo(() => filterList(active),    [active,    trainerFilter, search]);
-  const filteredFrozen    = useMemo(() => filterList(frozen),    [frozen,    trainerFilter, search]);
-  const filteredOnHold    = useMemo(() => filterList(onHold),    [onHold,    trainerFilter, search]);
-  const filteredDefaulters = useMemo(() => filterList(defaulters), [defaulters, trainerFilter, search]);
-  const filteredExpired   = useMemo(() => filterList(expired),   [expired,   trainerFilter, search]);
+  // Shift chip counts (across all member pools).
+  const shiftCounts = useMemo(() => {
+    const counts: Record<string, number> = { morning: 0, evening: 0, night: 0 };
+    for (const m of [...active, ...frozen, ...onHold, ...defaulters, ...expired]) {
+      if (m.shift) counts[m.shift] = (counts[m.shift] ?? 0) + 1;
+    }
+    return counts;
+  }, [active, frozen, onHold, defaulters, expired]);
+  const hasShiftData = shiftCounts.morning + shiftCounts.evening + shiftCounts.night > 0;
 
-  useEffect(() => { setSelectedIds(new Set()); }, [trainerFilter, tab, search]);
+  const filteredActive    = useMemo(() => filterList(active),    [active,    trainerFilter, shiftFilter, search]);
+  const filteredFrozen    = useMemo(() => filterList(frozen),    [frozen,    trainerFilter, shiftFilter, search]);
+  const filteredOnHold    = useMemo(() => filterList(onHold),    [onHold,    trainerFilter, shiftFilter, search]);
+  const filteredDefaulters = useMemo(() => filterList(defaulters), [defaulters, trainerFilter, shiftFilter, search]);
+  const filteredExpired   = useMemo(() => filterList(expired),   [expired,   trainerFilter, shiftFilter, search]);
+
+  useEffect(() => { setSelectedIds(new Set()); }, [trainerFilter, shiftFilter, tab, search]);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -767,6 +825,28 @@ export function MembersClient({
             SELF <span className="text-[10px] opacity-70">{trainerCounts.self}</span>
           </button>
         </div>
+        {hasShiftData && (
+          <div className="flex gap-1.5 flex-wrap items-center">
+            <span className="text-[11px] text-muted-foreground mr-0.5">Shift:</span>
+            <button type="button" onClick={() => setShiftFilter("all")}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                shiftFilter === "all"
+                  ? "bg-primary/15 border-primary/30 text-primary"
+                  : "bg-white/[0.03] border-white/10 text-muted-foreground hover:border-white/20 hover:text-foreground"
+              }`}>All</button>
+            {(["morning", "evening", "night"] as MemberShift[]).map((s) => (
+              <button key={s} type="button"
+                onClick={() => setShiftFilter(shiftFilter === s ? "all" : s)}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors inline-flex items-center gap-1.5 ${
+                  shiftFilter === s
+                    ? "bg-primary/15 border-primary/30 text-primary"
+                    : "bg-white/[0.03] border-white/10 text-muted-foreground hover:border-white/20 hover:text-foreground"
+                }`}>
+                {SHIFT_LABELS[s]} <span className="text-[10px] opacity-70">{shiftCounts[s]}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Tabs */}
@@ -805,7 +885,7 @@ export function MembersClient({
             ) : (
               <MemberTable
                 list={filteredActive} showExpired={false} planMap={planMap}
-                onEdit={openEdit} onDelete={setDeleteMember}
+                onEdit={openEdit} onDelete={setDeleteMember} onView={setTimelineMember}
                 selectedIds={selectedIds} onToggle={toggleMember} onSelectAll={() => selectAll(filteredActive)}
                 extraActions={(m) => (
                   <>
@@ -1085,7 +1165,7 @@ export function MembersClient({
                 <p className="text-sm">{search ? "No members match your search" : "No expired or cancelled members"}</p>
               </div>
             ) : (
-              <MemberTable list={filteredExpired} showExpired={true} planMap={planMap} onEdit={openEdit} onDelete={setDeleteMember}
+              <MemberTable list={filteredExpired} showExpired={true} planMap={planMap} onEdit={openEdit} onDelete={setDeleteMember} onView={setTimelineMember}
                 selectedIds={selectedIds} onToggle={toggleMember} onSelectAll={() => selectAll(filteredExpired)}
                 extraActions={(m) => (
                   <Button variant="ghost" size="icon" title="History" className="h-7 w-7 text-muted-foreground hover:text-foreground"
@@ -1178,7 +1258,7 @@ export function MembersClient({
                           </td>
                           <td className="px-4 py-3 hidden md:table-cell">
                             <span className="text-sm text-muted-foreground">
-                              {(member as Member & { plan?: { name: string } | null }).plan?.name ?? "—"}
+                              {memberPlanLabel(member as Member & { plans?: { plan?: { name?: string | null } | null }[] | null })}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-right">
@@ -1233,7 +1313,7 @@ export function MembersClient({
               <div className="rounded-lg bg-white/5 px-3 py-2.5 space-y-0.5">
                 <p className="text-sm font-semibold text-foreground">{payDialog.member.full_name}</p>
                 <p className="text-xs text-muted-foreground">
-                  {(payDialog.member as Member & { plan?: { name: string } | null }).plan?.name ?? "No plan"} · {monthLabel(selectedMonth)}
+                  {memberPlanLabel(payDialog.member as Member & { plans?: { plan?: { name?: string | null } | null }[] | null }, "No plan")} · {monthLabel(selectedMonth)}
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -1484,7 +1564,7 @@ function MemberFormDialog({
   open, onOpenChange, editing, existingMembers, plans, staff, shifts, referrers, gymId, initialDeviceUserId, unlinkedPunchId, onSaved, onOpenExisting,
 }: MemberFormDialogProps) {
   const { isDemo } = useGymContext();
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState(() => makeEmptyForm());
   const [saving, setSaving] = useState(false);
   const [allowDuplicate, setAllowDuplicate] = useState(false);
   const [leadPickerOpen, setLeadPickerOpen] = useState(false);
@@ -1548,8 +1628,22 @@ function MemberFormDialog({
         gender: editing.gender ?? "male",
         date_of_birth: editing.date_of_birth ?? "",
         address: editing.address ?? "",
+        shift: (editing.shift ?? "") as "" | MemberShift,
         member_number: editing.member_number ?? "",
+        photo_url: editing.photo_url ?? "",
         plan_id: editing.plan_id ?? "",
+        plan_ids: (() => {
+          const fromJunction = ((editing as Member & { plans?: { plan?: { id: string } | null }[] }).plans ?? [])
+            .map((pp) => pp.plan?.id)
+            .filter((id): id is string => !!id);
+          if (fromJunction.length) {
+            // Keep the primary (member.plan_id) first so it drives the cycle.
+            return editing.plan_id
+              ? [editing.plan_id, ...fromJunction.filter((id) => id !== editing.plan_id)]
+              : fromJunction;
+          }
+          return editing.plan_id ? [editing.plan_id] : [];
+        })(),
         assigned_trainer_id: editing.assigned_trainer_id ?? "",
         assigned_shift_id: editing.assigned_shift_id ?? "",
         referrer_id: (editing as Member & { referrer_id?: string | null }).referrer_id ?? "",
@@ -1570,19 +1664,51 @@ function MemberFormDialog({
         status: editing.status,
       });
     } else {
-      setForm({ ...emptyForm, device_user_id: initialDeviceUserId ?? "" });
+      setForm(makeEmptyForm(initialDeviceUserId ?? ""));
     }
   }, [open, editing, initialDeviceUserId]);
 
-  function handlePlanChange(planId: string) {
-    const plan = planMap[planId];
-    setForm((f) => ({
-      ...f,
-      plan_id: planId,
-      monthly_fee: plan ? plan.price.toString() : f.monthly_fee,
-      admission_fee: plan?.admission_fee > 0 ? plan.admission_fee.toString() : f.admission_fee,
-      // Trainer/shift kept regardless of plan.includes_pt — owner sets these independently.
-    }));
+  function calcPlanExpiry(plan: MembershipPlan, startDateStr: string): string {
+    const [y, m, d] = (startDateStr || formatDateInput(new Date())).split("-").map(Number);
+
+    // Standard cycles always use CALENDAR MONTHS (duration_days is ignored for
+    // these — "quarterly" means 3 calendar months, not exactly 90 days).
+    // Last active day = (start + cycle) - 1 day. The Date constructor handles
+    // month-overflow automatically; m is 1-indexed so month m = start month + 1.
+    switch (plan.duration_type) {
+      case "monthly":   return formatDateInput(new Date(y, m,     d - 1));
+      case "quarterly": return formatDateInput(new Date(y, m + 2, d - 1));
+      case "biannual":  return formatDateInput(new Date(y, m + 5, d - 1));
+      case "annual":    return formatDateInput(new Date(y + 1, m - 1, d - 1));
+    }
+
+    // daily / dropin (or unknown): use duration_days as a literal day-count pass
+    // (e.g. a 7-day pass), start day counts as day 1. No duration_days → same day.
+    if (plan.duration_days && plan.duration_days > 0) {
+      return formatDateInput(new Date(y, m - 1, d + plan.duration_days - 1));
+    }
+    return formatDateInput(new Date(y, m - 1, d));
+  }
+
+  // Toggle a plan in the member's multi-plan set. The first selected plan is
+  // the primary (member.plan_id) — it drives the billing cycle/expiry. The
+  // monthly fee auto-sums all selected plan prices (still editable below).
+  function togglePlan(planId: string) {
+    setForm((f) => {
+      const has = f.plan_ids.includes(planId);
+      const nextIds = has ? f.plan_ids.filter((id) => id !== planId) : [...f.plan_ids, planId];
+      const primaryId = nextIds[0] ?? "";
+      const primary = primaryId ? planMap[primaryId] : null;
+      const sumFee = nextIds.reduce((s, id) => s + Number(planMap[id]?.price ?? 0), 0);
+      return {
+        ...f,
+        plan_ids: nextIds,
+        plan_id: primaryId,
+        monthly_fee: nextIds.length ? String(sumFee) : f.monthly_fee,
+        admission_fee: primary && primary.admission_fee > 0 ? String(primary.admission_fee) : f.admission_fee,
+        plan_expiry_date: primary ? calcPlanExpiry(primary, f.plan_start_date || f.join_date) : f.plan_expiry_date,
+      };
+    });
   }
 
   async function handleSave() {
@@ -1641,8 +1767,12 @@ function MemberFormDialog({
       gender: form.gender || null,
       date_of_birth: form.date_of_birth || null,
       address: form.address || null,
+      shift: form.shift || null,
+      photo_url: form.photo_url || null,
       ...(editing ? { member_number: form.member_number || null } : {}),
-      plan_id: form.plan_id || null,
+      plan_id: form.plan_ids[0] || form.plan_id || null,
+      // Full multi-plan set; server syncs the pulse_member_plans junction.
+      plan_ids: form.plan_ids,
       assigned_trainer_id: form.assigned_trainer_id || null,
       assigned_shift_id: form.assigned_shift_id || null,
       referrer_id: form.referrer_id || null,
@@ -1746,6 +1876,14 @@ function MemberFormDialog({
         <div className="grid gap-5 py-2">
           <div>
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Personal Info</p>
+            <div className="flex justify-center mb-5">
+              <PhotoPicker
+                value={form.photo_url || null}
+                onChange={(url) => setForm((f) => ({ ...f, photo_url: url ?? "" }))}
+                fallbackText={form.full_name}
+                disabled={isDemo}
+              />
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5 sm:col-span-2">
                 <Label>Full Name *</Label>
@@ -1832,6 +1970,18 @@ function MemberFormDialog({
                 </Select>
               </div>
               <div className="space-y-1.5">
+                <Label>Gym Shift</Label>
+                <Select value={form.shift || "none"} onValueChange={(v) => setForm((f) => ({ ...f, shift: v === "none" ? "" : (v as MemberShift) }))}>
+                  <SelectTrigger><SelectValue placeholder="Not set" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Not set</SelectItem>
+                    <SelectItem value="morning">Morning</SelectItem>
+                    <SelectItem value="evening">Evening</SelectItem>
+                    <SelectItem value="night">Night</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
                 <Label>Date of Birth</Label>
                 <ValidatedInput
                   type="date"
@@ -1858,26 +2008,74 @@ function MemberFormDialog({
           <div>
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Membership</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>Membership Plan</Label>
-                  <Select value={form.plan_id} onValueChange={handlePlanChange}>
-                    <SelectTrigger className="overflow-hidden">
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>Membership Plans</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex h-10 w-full items-center justify-between gap-2 rounded-lg border border-sidebar-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/50"
+                    >
                       <span className="flex-1 min-w-0 truncate text-left">
-                        <SelectValue placeholder="Select plan" />
+                        {form.plan_ids.length === 0 ? (
+                          <span className="text-muted-foreground">Select plans</span>
+                        ) : (
+                          form.plan_ids
+                            .map((id) => planMap[id]?.name)
+                            .filter(Boolean)
+                            .join(", ")
+                        )}
                       </span>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {plans.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          <span className="flex items-center gap-2 min-w-0">
+                      {form.plan_ids.length > 1 && (
+                        <span className="shrink-0 text-[10px] font-medium text-primary bg-primary/10 rounded-full px-1.5 py-0.5">
+                          {form.plan_ids.length}
+                        </span>
+                      )}
+                      <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="p-0 overflow-hidden w-[var(--radix-popover-trigger-width)] min-w-[260px]">
+                    <div className="max-h-64 overflow-y-auto divide-y divide-sidebar-border/50">
+                      {plans.length === 0 ? (
+                        <p className="px-3 py-3 text-sm text-muted-foreground text-center">No plans available</p>
+                      ) : plans.map((p) => {
+                        const idx = form.plan_ids.indexOf(p.id);
+                        const selected = idx !== -1;
+                        const isPrimary = idx === 0;
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => togglePlan(p.id)}
+                            className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors ${
+                              selected ? "bg-primary/10" : "hover:bg-white/5"
+                            }`}
+                          >
+                            <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                              selected ? "bg-primary border-primary" : "border-sidebar-border"
+                            }`}>
+                              {selected && <Check className="w-3 h-3 text-primary-foreground" />}
+                            </span>
                             <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: p.color }} />
-                            <span className="truncate">{p.name} · {DURATION_LABELS[p.duration_type] ?? p.duration_type} · {formatCurrency(p.price)}</span>
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                            <span className="flex-1 min-w-0 truncate text-sm">
+                              <span className="font-medium text-foreground">{p.name}</span>
+                              <span className="text-muted-foreground"> · {DURATION_LABELS[p.duration_type] ?? p.duration_type} · {formatCurrency(p.price)}</span>
+                            </span>
+                            {isPrimary && (
+                              <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide text-primary">Primary</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+                {form.plan_ids.length > 1 && (
+                  <p className="text-[11px] text-muted-foreground">
+                    The <span className="text-foreground">primary</span> plan (first selected) sets the billing cycle &amp; expiry. All plans share one combined monthly fee.
+                  </p>
+                )}
+              </div>
                 <SmartAssignPanel
                   trainers={staff}
                   shifts={shifts}
@@ -1949,7 +2147,17 @@ function MemberFormDialog({
                 </div>
                 <div className="space-y-1.5">
                   <Label>Plan Start Date</Label>
-                  <Input type="date" value={form.plan_start_date} onChange={(e) => setForm((f) => ({ ...f, plan_start_date: e.target.value }))} />
+                  <Input type="date" value={form.plan_start_date} onChange={(e) => {
+                    const newStart = e.target.value;
+                    setForm((f) => {
+                      const plan = f.plan_id ? planMap[f.plan_id] : null;
+                      return {
+                        ...f,
+                        plan_start_date: newStart,
+                        plan_expiry_date: plan && newStart ? calcPlanExpiry(plan, newStart) : f.plan_expiry_date,
+                      };
+                    });
+                  }} />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Plan Expiry Date</Label>
@@ -2132,7 +2340,7 @@ function MemberFormDialog({
 // ─── Member Timeline Dialog ──────────────────────────────────────────────────
 
 type AuditRow = { id: string; action: string; created_at: string; meta: Record<string, unknown> | null };
-type PaymentRow = { id: string; total_amount: number; payment_method: string; for_period: string; status: string; receipt_number: string | null; payment_date: string | null; created_at: string };
+type TimelinePayment = Payment & { plan?: { name: string } | null; trainer?: { full_name: string } | null };
 
 type TimelineEvent = {
   id: string;
@@ -2140,6 +2348,10 @@ type TimelineEvent = {
   type: "joined" | "payment" | "freeze" | "unfreeze" | "hold" | "resume" | "defaulter" | "defaulter_cleared" | "status";
   title: string;
   description: string;
+  // Payment events render as stacked rows (amount, plan, trainer) instead of
+  // one long line that wraps badly in the narrow dialog. lines[0] is shown
+  // emphasized; the rest are muted.
+  lines?: string[];
 };
 
 const TIMELINE_ICONS: Record<TimelineEvent["type"], { icon: React.ElementType; color: string; bg: string }> = {
@@ -2154,7 +2366,7 @@ const TIMELINE_ICONS: Record<TimelineEvent["type"], { icon: React.ElementType; c
   status:            { icon: AlertCircle, color: "text-muted-foreground", bg: "bg-white/5 border-white/10" },
 };
 
-function buildTimeline(member: Member, audits: AuditRow[], payments: PaymentRow[]): TimelineEvent[] {
+function buildTimeline(member: Member, audits: AuditRow[], payments: TimelinePayment[]): TimelineEvent[] {
   const events: TimelineEvent[] = [];
 
   events.push({
@@ -2185,88 +2397,316 @@ function buildTimeline(member: Member, audits: AuditRow[], payments: PaymentRow[
   }
 
   for (const p of payments) {
-    const label = p.for_period === "admission" ? "Admission Fee" : (() => {
-      const [y, m] = p.for_period.split("-");
+    const period = p.for_period ?? "";
+    const label = period === "admission" ? "Admission Fee" : (() => {
+      const [y, m] = period.split("-");
+      if (!y || !m) return period || "Payment";
       return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
     })();
+    const method = (p.payment_method ?? "").replace("_", " ");
+    // Prefer the plan breakdown snapshotted on the payment (all plans that
+    // month) over the single primary-plan join.
+    const breakdown = (p as Payment & { plan_breakdown?: { name: string }[] | null }).plan_breakdown;
+    const planName = Array.isArray(breakdown) && breakdown.length
+      ? breakdown.map((b) => b.name).join(" + ")
+      : p.plan?.name;
+    const trainerName = p.trainer?.full_name;
+    const lines = [
+      `${formatCurrency(p.total_amount)}${method ? ` (${method})` : ""}`,
+      planName ? `Plan:  ${planName}` : null,
+      trainerName ? `Trainer:  ${trainerName}` : null,
+    ].filter(Boolean) as string[];
     events.push({
       id: p.id,
       date: p.payment_date ?? p.created_at,
       type: "payment",
       title: `Payment · ${label}`,
-      description: `${formatCurrency(p.total_amount)} · ${p.payment_method.replace("_", " ")}${p.receipt_number ? ` · #${p.receipt_number}` : ""}`,
+      description: lines.join(" · "),
+      lines,
     });
   }
 
-  return events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  // Newest first so the current month's payment is at the top. On a date
+  // tie, "Joined" sorts last (it happened before any same-day payment).
+  return events.sort((a, b) => {
+    const diff = new Date(b.date).getTime() - new Date(a.date).getTime();
+    if (diff !== 0) return diff;
+    if (a.type === "joined") return 1;
+    if (b.type === "joined") return -1;
+    return 0;
+  });
+}
+
+type MetricRow = { measurement_date: string; weight_kg: number | null; body_fat_percentage: number | null };
+type GoalRow = { id: string; title: string; category: string | null; unit: string | null; current_value: number | null; target_value: number | null; direction: string | null; status: string; target_date: string | null };
+
+// Simple full-screen image viewer for the member photo.
+function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] bg-black/85 flex items-center justify-center p-6 animate-in fade-in duration-150"
+      onClick={onClose}
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute top-5 right-5 w-10 h-10 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-colors"
+      >
+        <X className="w-5 h-5" />
+      </button>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={alt}
+        className="max-w-full max-h-full rounded-2xl object-contain shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      />
+    </div>
+  );
+}
+
+function StatCard({ icon: Icon, label, value, accent }: { icon: React.ElementType; label: string; value: string; accent?: string }) {
+  return (
+    <div className="rounded-xl border border-sidebar-border bg-white/[0.02] p-3">
+      <div className="flex items-center gap-1.5 text-muted-foreground mb-1">
+        <Icon className="w-3.5 h-3.5" />
+        <p className="text-[10px] font-semibold uppercase tracking-wider">{label}</p>
+      </div>
+      <p className={`text-sm font-bold ${accent ?? "text-foreground"}`}>{value}</p>
+    </div>
+  );
 }
 
 function MemberTimelineDialog({ member, gymId, onClose }: { member: Member | null; gymId: string | null; onClose: () => void }) {
+  const { gym } = useGymContext();
   const [loading, setLoading] = useState(false);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
+  const [payments, setPayments] = useState<TimelinePayment[]>([]);
+  const [totalPaid, setTotalPaid] = useState(0);
+  const [metric, setMetric] = useState<MetricRow | null>(null);
+  const [goals, setGoals] = useState<GoalRow[]>([]);
+  const [lightbox, setLightbox] = useState(false);
+  const [invoice, setInvoice] = useState<InvoiceData | null>(null);
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     if (!member || !gymId) return;
     const m = member;
-    setEvents([]);
+    setEvents([]); setPayments([]); setTotalPaid(0); setMetric(null); setGoals([]); setShowAll(false);
     setLoading(true);
-    // Use a server action — pulse_audit_log + pulse_payments are not
-    // SELECT-able by non-owner staff via RLS, so the previous direct
-    // client query returned [] and the timeline was always empty for
-    // managers/frontdesk.
     listMemberTimeline(m.id).then((res) => {
       if ("error" in res) {
         setEvents([]);
       } else {
-        setEvents(buildTimeline(m, res.audit as AuditRow[], res.payments as PaymentRow[]));
+        const pays = res.payments as TimelinePayment[];
+        setPayments(pays);
+        setEvents(buildTimeline(m, res.audit as AuditRow[], pays));
+        setTotalPaid(pays.reduce((s, p) => s + Number(p.total_amount), 0));
+        setMetric((res as { latestMetric?: MetricRow | null }).latestMetric ?? null);
+        setGoals(((res as { goals?: GoalRow[] }).goals ?? []));
       }
       setLoading(false);
     });
   }, [member, gymId]);
 
+  if (!member) return null;
+
+  const currentPlan = (member as Member & { plan?: { name: string } | null }).plan;
+  function openReceipt(paymentId: string) {
+    const p = payments.find((x) => x.id === paymentId);
+    if (!p) return;
+    setInvoice({
+      payment: p,
+      memberName: member!.full_name,
+      memberPhone: member!.phone,
+      // Use the plan snapshotted on THIS payment, not the member's current
+      // plan — so a past receipt reflects what they were on that month.
+      planName: p.plan?.name ?? currentPlan?.name ?? null,
+    });
+  }
+
+  const plan = (member as Member & { plan?: { name: string; color: string } | null }).plan;
+  const planColor = plan?.color ?? "#6B7A99";
+  const memberPlans = ((member as Member & { plans?: { plan?: { id: string; name: string } | null }[] }).plans ?? [])
+    .map((pp) => pp.plan)
+    .filter((p): p is { id: string; name: string } => !!p)
+    .sort((a, b) => (a.id === member.plan_id ? -1 : b.id === member.plan_id ? 1 : 0));
+  const planLabel = memberPlans.length ? memberPlans.map((p) => p.name).join(" + ") : (plan?.name ?? "—");
+  const statusCfg = STATUS_CONFIG[member.status];
+  const outstanding = Number(member.outstanding_balance) || 0;
+
   return (
+    <>
     <Dialog open={!!member} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-lg max-h-[88vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Clock className="w-4 h-4 text-muted-foreground" />
-            {member?.full_name} — History
-          </DialogTitle>
-          {member?.member_number && <p className="text-xs text-muted-foreground font-mono mt-0.5">#{member.member_number}</p>}
+          <DialogTitle className="sr-only">{member.full_name} — Profile</DialogTitle>
         </DialogHeader>
 
-        {loading ? (
-          <div className="flex items-center justify-center py-12 text-muted-foreground text-sm">Loading timeline…</div>
-        ) : events.length === 0 ? (
-          <div className="flex items-center justify-center py-12 text-muted-foreground text-sm">No history found</div>
-        ) : (
-          <div className="relative mt-2 pb-2">
-            {/* Vertical connector line */}
-            <div className="absolute left-[19px] top-2 bottom-2 w-px bg-sidebar-border" />
-            <div className="space-y-0">
-              {events.map((ev, i) => {
-                const cfg = TIMELINE_ICONS[ev.type];
+        {/* ── Header: photo + identity ── */}
+        <div className="flex items-start gap-4">
+          <button
+            type="button"
+            onClick={() => member.photo_url && setLightbox(true)}
+            className={`w-20 h-20 rounded-2xl overflow-hidden border-2 border-sidebar-border flex items-center justify-center shrink-0 ${member.photo_url ? "cursor-zoom-in hover:border-primary/40 transition-colors" : ""}`}
+            style={{ backgroundColor: `${planColor}22` }}
+          >
+            {member.photo_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={member.photo_url} alt={member.full_name} className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-2xl font-bold" style={{ color: planColor }}>{member.full_name[0]?.toUpperCase() ?? "?"}</span>
+            )}
+          </button>
+          <div className="min-w-0 flex-1 pt-1">
+            <h2 className="text-lg font-bold text-foreground leading-tight truncate">{member.full_name}</h2>
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${statusCfg.className}`}>
+                <statusCfg.icon className="w-3 h-3" /> {statusCfg.label}
+              </span>
+              {member.member_number && <span className="text-xs text-muted-foreground font-mono">#{member.member_number}</span>}
+            </div>
+            {member.phone && (
+              <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1.5">
+                <Phone className="w-3 h-3" /> {member.phone}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* ── Summary stats ── */}
+        <div className="grid grid-cols-2 gap-2.5 mt-2">
+          <StatCard icon={Clock} label="Member Since" value={member.join_date ? formatDate(member.join_date) : "—"} />
+          <StatCard icon={Wallet} label="Outstanding" value={formatCurrency(outstanding)} accent={outstanding > 0 ? "text-rose-400" : "text-emerald-400"} />
+          <StatCard icon={CreditCard} label={memberPlans.length > 1 ? "Plans" : "Plan"} value={planLabel} />
+          <StatCard icon={CalendarX} label="Expires" value={member.plan_expiry_date ? formatDate(member.plan_expiry_date) : "—"} />
+          <StatCard icon={CheckCircle2} label="Total Paid" value={formatCurrency(totalPaid)} accent="text-emerald-400" />
+          {member.shift && (
+            <StatCard icon={Clock} label="Gym Shift" value={SHIFT_LABELS[member.shift]} />
+          )}
+          {metric?.weight_kg != null && (
+            <StatCard icon={Activity} label="Latest Weight" value={`${metric.weight_kg} kg${metric.body_fat_percentage != null ? ` · ${metric.body_fat_percentage}% BF` : ""}`} />
+          )}
+        </div>
+
+        {/* ── Active goals ── */}
+        {goals.length > 0 && (
+          <div className="mt-2">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <Target className="w-3.5 h-3.5" /> Active Goals
+            </p>
+            <div className="space-y-2">
+              {goals.map((g) => {
+                const cur = g.current_value, tgt = g.target_value;
                 return (
-                  <div key={ev.id} className={`relative flex gap-4 ${i < events.length - 1 ? "pb-5" : ""}`}>
-                    {/* Icon dot */}
-                    <div className={`relative z-10 flex items-center justify-center w-10 h-10 rounded-full border shrink-0 ${cfg.bg}`}>
-                      <cfg.icon className={`w-4 h-4 ${cfg.color}`} />
-                    </div>
-                    {/* Content */}
-                    <div className="flex-1 min-w-0 pt-1.5">
-                      <div className="flex items-baseline gap-2 flex-wrap">
-                        <p className="text-sm font-semibold text-foreground">{ev.title}</p>
-                        <p className="text-xs text-muted-foreground">{formatDate(ev.date)}</p>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">{ev.description}</p>
-                    </div>
+                  <div key={g.id} className="flex items-center justify-between rounded-lg border border-sidebar-border bg-white/[0.02] px-3 py-2">
+                    <span className="text-sm text-foreground truncate">{g.title}</span>
+                    <span className="text-xs text-muted-foreground shrink-0 ml-2">
+                      {cur != null ? cur : "—"}{tgt != null ? ` → ${tgt}` : ""}{g.unit ? ` ${g.unit}` : ""}
+                    </span>
                   </div>
                 );
               })}
             </div>
           </div>
         )}
+
+        {/* ── Timeline ── */}
+        <div className="mt-3">
+          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5" /> History
+          </p>
+          {loading ? (
+            <div className="flex items-center justify-center py-10 text-muted-foreground text-sm">Loading…</div>
+          ) : events.length === 0 ? (
+            <div className="flex items-center justify-center py-10 text-muted-foreground text-sm">No history found</div>
+          ) : (() => {
+            const TIMELINE_LIMIT = 12;
+            const visible = showAll ? events : events.slice(0, TIMELINE_LIMIT);
+            const hidden = events.length - visible.length;
+            return (
+            <div className="relative pb-2">
+              <div className="absolute left-[19px] top-2 bottom-2 w-px bg-sidebar-border" />
+              <div className="space-y-0">
+                {visible.map((ev, i) => {
+                  const cfg = TIMELINE_ICONS[ev.type];
+                  const isReceipt = ev.type === "payment";
+                  return (
+                    <div key={ev.id} className={`relative flex gap-4 ${i < visible.length - 1 ? "pb-5" : ""}`}>
+                      <div className={`relative z-10 flex items-center justify-center w-10 h-10 rounded-full border shrink-0 ${cfg.bg}`}>
+                        <cfg.icon className={`w-4 h-4 ${cfg.color}`} />
+                      </div>
+                      <div className="flex-1 min-w-0 pt-1.5">
+                        <div className="flex items-baseline gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-foreground">{ev.title}</p>
+                          <p className="text-xs text-muted-foreground">{formatDate(ev.date)}</p>
+                        </div>
+                        {ev.lines ? (
+                          <div className="mt-1 space-y-0.5">
+                            {ev.lines.map((line, idx) => (
+                              <p key={idx} className={`text-xs ${idx === 0 ? "text-foreground font-medium" : "text-muted-foreground"}`}>
+                                {line}
+                              </p>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground mt-0.5">{ev.description}</p>
+                        )}
+                        {isReceipt && (
+                          <button
+                            type="button"
+                            onClick={() => openReceipt(ev.id)}
+                            className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+                          >
+                            <CreditCard className="w-3 h-3" /> View receipt
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {hidden > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAll(true)}
+                  className="ml-14 mt-1 text-xs font-medium text-primary hover:underline"
+                >
+                  Show older history ({hidden} more)
+                </button>
+              )}
+              {showAll && events.length > TIMELINE_LIMIT && (
+                <button
+                  type="button"
+                  onClick={() => setShowAll(false)}
+                  className="ml-14 mt-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:underline"
+                >
+                  Show less
+                </button>
+              )}
+            </div>
+            );
+          })()}
+        </div>
       </DialogContent>
     </Dialog>
+
+    {lightbox && member.photo_url && (
+      <ImageLightbox src={member.photo_url} alt={member.full_name} onClose={() => setLightbox(false)} />
+    )}
+
+    <InvoiceDialog
+      data={invoice}
+      gym={gym}
+      onClose={() => setInvoice(null)}
+    />
+    </>
   );
 }

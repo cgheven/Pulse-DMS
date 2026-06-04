@@ -12,6 +12,28 @@ export function formatCurrency(amount: number) {
   }).format(amount)}`;
 }
 
+// Multi-plan display helpers. A member may have several plans via the
+// pulse_member_plans junction (member.plans); member.plan is the primary
+// (fallback for surfaces that don't join the junction).
+type PlanLike = { name?: string | null } | null;
+interface MemberPlanShape {
+  plan?: PlanLike;
+  plans?: { plan?: PlanLike }[] | null;
+}
+
+export function memberPlanNames(m: MemberPlanShape | null | undefined): string[] {
+  const fromJunction = (m?.plans ?? [])
+    .map((pp) => pp.plan?.name)
+    .filter((n): n is string => !!n);
+  if (fromJunction.length) return fromJunction;
+  return m?.plan?.name ? [m.plan.name] : [];
+}
+
+export function memberPlanLabel(m: MemberPlanShape | null | undefined, empty = "—"): string {
+  const names = memberPlanNames(m);
+  return names.length ? names.join(" + ") : empty;
+}
+
 export function formatLakh(amount: number): string {
   if (amount >= 10_000_000) return `Rs. ${(amount / 10_000_000).toFixed(1)} Cr`;
   if (amount >= 100_000)    return `Rs. ${(amount / 100_000).toFixed(1)} Lakh`;
@@ -27,7 +49,14 @@ export function formatDate(date: string | Date) {
 }
 
 export function formatDateInput(date: Date) {
-  return date.toISOString().split("T")[0];
+  // Build the YYYY-MM-DD string from LOCAL date components.
+  // Using toISOString() here would convert to UTC, which shifts the date
+  // back a day for any positive-offset timezone (e.g. Pakistan UTC+5) when
+  // the Date sits at local midnight — exactly what new Date(y, m, d) produces.
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 /**

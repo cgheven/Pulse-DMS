@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "@/hooks/use-toast";
-import { formatCurrency, formatDate, formatDateInput } from "@/lib/utils";
+import { formatCurrency, formatDate, formatDateInput, memberPlanLabel } from "@/lib/utils";
 import { saveComplianceSettings, logComplianceReport } from "@/app/actions/compliance";
 import type { Gym } from "@/types";
 
@@ -28,6 +28,7 @@ type Member = {
   join_date: string;
   plan_expiry_date: string | null;
   plan?: { name: string } | null;
+  plans?: { plan?: { id: string; name: string; color: string } | null }[] | null;
   trainer?: { full_name: string } | null;
 };
 
@@ -313,7 +314,7 @@ export function ComplianceClient({ gym, members, payments, trainers }: Props) {
         if (selectedFields.has("name"))        cols.push(r.full_name);
         if (selectedFields.has("cnic"))        cols.push(fmtCnic(r.cnic));
         if (selectedFields.has("phone"))       cols.push(r.phone ?? "");
-        if (selectedFields.has("plan"))        cols.push(r.plan?.name ?? "");
+        if (selectedFields.has("plan"))        cols.push(memberPlanLabel(r, ""));
         if (selectedFields.has("monthly_fee")) cols.push(fmtMoney(r.monthly_fee));
         if (selectedFields.has("total_paid"))  cols.push(fmtMoney(r.total_paid));
         if (selectedFields.has("join_date"))   cols.push(r.join_date ? formatDate(r.join_date) : "");
@@ -487,7 +488,7 @@ export function ComplianceClient({ gym, members, payments, trainers }: Props) {
       if (selectedFields.has("name"))        cols.push(r.full_name);
       if (selectedFields.has("cnic"))        cols.push(asText(fmtCnic(r.cnic)));
       if (selectedFields.has("phone"))       cols.push(asText(r.phone ?? ""));
-      if (selectedFields.has("plan"))        cols.push(r.plan?.name ?? "");
+      if (selectedFields.has("plan"))        cols.push(memberPlanLabel(r, ""));
       if (selectedFields.has("monthly_fee")) cols.push(money(r.monthly_fee));
       if (selectedFields.has("total_paid"))  cols.push(money(r.total_paid));
       if (selectedFields.has("join_date"))   cols.push(r.join_date ?? "");
@@ -736,7 +737,7 @@ export function ComplianceClient({ gym, members, payments, trainers }: Props) {
                         {selectedFields.has("name")        && <td className="px-3 py-2 font-medium text-foreground whitespace-nowrap">{m.full_name}</td>}
                         {selectedFields.has("cnic")        && <td className="px-3 py-2 font-mono text-xs text-muted-foreground whitespace-nowrap">{m.cnic ?? <span className="italic opacity-60">—</span>}</td>}
                         {selectedFields.has("phone")       && <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">{m.phone ?? "—"}</td>}
-                        {selectedFields.has("plan")        && <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">{m.plan?.name ?? "—"}</td>}
+                        {selectedFields.has("plan")        && <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">{memberPlanLabel(m)}</td>}
                         {selectedFields.has("monthly_fee") && <td className="px-3 py-2 text-right text-xs text-foreground whitespace-nowrap">{formatCurrency(m.monthly_fee)}</td>}
                         {selectedFields.has("total_paid")  && <td className={`px-3 py-2 text-right text-sm font-semibold tabular-nums whitespace-nowrap ${paid > 0 ? "text-emerald-400" : "text-muted-foreground"}`}>{formatCurrency(paid)}</td>}
                         {selectedFields.has("join_date")   && <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">{m.join_date ? formatDate(m.join_date) : "—"}</td>}
@@ -859,7 +860,7 @@ function PrintReport({ gym, ntn, headerTitle, notes, startDate, endDate, rows, t
                 {has("cnic")        && <td className="py-1.5 px-2 font-mono text-xs">{r.cnic ?? "—"}</td>}
                 {has("phone")       && <td className="py-1.5 px-2 text-xs">{r.phone ?? "—"}</td>}
                 {has("email")       && <td className="py-1.5 px-2 text-xs">{r.email ?? "—"}</td>}
-                {has("plan")        && <td className="py-1.5 px-2">{r.plan?.name ?? "—"}</td>}
+                {has("plan")        && <td className="py-1.5 px-2">{memberPlanLabel(r)}</td>}
                 {has("monthly_fee") && <td className="py-1.5 px-2 text-right">{formatCurrency(r.monthly_fee)}</td>}
                 {has("total_paid")  && <td className="py-1.5 px-2 text-right font-medium">{formatCurrency(r.total_paid)}</td>}
                 {has("join_date")   && <td className="py-1.5 px-2 text-xs">{r.join_date ? formatDate(r.join_date) : "—"}</td>}

@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DatePicker } from "@/components/ui/date-picker";
 import { toast } from "@/hooks/use-toast";
-import { formatDate, formatDateInput } from "@/lib/utils";
+import { formatDate, formatDateInput, memberPlanLabel } from "@/lib/utils";
 import { createGoal, logGoalProgress, updateGoal, deleteGoal } from "@/app/actions/trainer";
 import type { MemberGoal, GoalCategory, GoalDirection, BodyMetric, MetricSkip } from "@/types";
 import { BodyMetricsSection } from "./body-metrics-section";
@@ -23,6 +23,7 @@ type MemberLite = {
   member_number: string | null;
   phone: string | null;
   plan?: { name: string } | null;
+  plans?: { plan?: { id: string; name: string; color: string } | null }[] | null;
   monthly_fee: number;
 };
 
@@ -153,7 +154,7 @@ export function MemberDetailDialog({ open, onClose, member, goals: initialGoals,
                 <DialogTitle className="text-xl">{member.full_name}</DialogTitle>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {member.member_number && `#${member.member_number} · `}
-                  {member.plan?.name ?? "No plan"}
+                  {memberPlanLabel(member, "No plan")}
                   {member.phone && ` · ${member.phone}`}
                 </p>
               </div>

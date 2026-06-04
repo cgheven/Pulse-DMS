@@ -3,7 +3,7 @@ import { unstable_cache } from "next/cache";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getMonthRange, formatDateInput } from "@/lib/utils";
+import { getMonthRange, formatDateInput, memberPlanLabel } from "@/lib/utils";
 import type {
   Profile, Gym, Member, MembershipPlan, Payment, Issue, Announcement,
   Expense, Bill, Staff, StaffRole, SalaryPayment, CheckIn, GymClass,
@@ -434,11 +434,9 @@ export async function getDashboardData() {
 
 async function _fetchMembers(gymId: string) {
   const supabase = createAdminClient();
-  const [{ data: members }, { data: plans }, { data: staff }, { data: referrers }, { data: gymData }] = await Promise.all([
-    supabase.from("pulse_members")
-      .select("*, plan:pulse_membership_plans(name,duration_type,price,color), trainer:pulse_staff(full_name)")
-      .eq("gym_id", gymId)
-      .order("created_at", { ascending: false }),
+  // Fetch everything EXCEPT members first (members are fetched once, after the
+  // auto-expire/defaulter RPCs mutate statuses — avoids a wasted pre-RPC fetch).
+  const [{ data: plans }, { data: staff }, { data: referrers }, { data: gymData }] = await Promise.all([
     supabase.from("pulse_membership_plans").select("*").eq("gym_id", gymId).eq("is_active", true).order("name"),
     supabase.from("pulse_staff").select("id,full_name,role,commission_percentage,commission_floor,default_shift_name").eq("gym_id", gymId).eq("status", "active").eq("role", "trainer"),
     supabase.from("pulse_referrers").select("id,full_name,commission_type,commission_value").eq("gym_id", gymId).eq("status", "active").order("full_name"),
@@ -447,21 +445,20 @@ async function _fetchMembers(gymId: string) {
 
   const threshold = Math.max(1, Math.min(6, (gymData?.compliance_settings as Record<string, unknown> | null)?.defaulter_threshold_months as number ?? 2));
 
-  // Auto-expire members whose plan_expiry_date has passed
-  const { error: expireErr } = await supabase.rpc("auto_expire_members", { p_gym_id: gymId });
+  // Run both auto-mark RPCs in parallel, then fetch members once with fresh statuses.
+  const [{ error: expireErr }, { error: defaulterErr }] = await Promise.all([
+    supabase.rpc("auto_expire_members", { p_gym_id: gymId }),
+    supabase.rpc("check_defaulters", { p_gym_id: gymId, p_threshold: threshold }),
+  ]);
   if (expireErr) console.error("[auto_expire_members]", expireErr.message);
-
-  // Auto-mark defaulters based on threshold
-  const { error: defaulterErr } = await supabase.rpc("check_defaulters", { p_gym_id: gymId, p_threshold: threshold });
   if (defaulterErr) console.error("[check_defaulters]", defaulterErr.message);
 
-  // Re-fetch after auto-mark so the buckets are accurate
-  const { data: freshMembers } = await supabase.from("pulse_members")
-    .select("*, plan:pulse_membership_plans(name,duration_type,price,color), trainer:pulse_staff(full_name)")
+  const { data: members } = await supabase.from("pulse_members")
+    .select("*, plan:pulse_membership_plans(name,duration_type,price,color), plans:pulse_member_plans(plan:pulse_membership_plans(id,name,color)), trainer:pulse_staff(full_name)")
     .eq("gym_id", gymId)
     .order("created_at", { ascending: false });
 
-  const all = (freshMembers ?? members ?? []) as Member[];
+  const all = (members ?? []) as Member[];
   return {
     active:    all.filter((m) => m.status === "active"),
     frozen:    all.filter((m) => m.status === "frozen"),
@@ -508,7 +505,7 @@ async function _fetchPayments(gymId: string) {
       .order("created_at", { ascending: false })
       .limit(200),
     supabase.from("pulse_members")
-      .select("id,full_name,member_number,phone,monthly_fee,plan_id,assigned_trainer_id,status,plan_expiry_date,outstanding_balance,pending_signup_discount,plan:pulse_membership_plans(name),trainer:pulse_staff(full_name)")
+      .select("id,full_name,member_number,phone,monthly_fee,plan_id,assigned_trainer_id,status,plan_expiry_date,outstanding_balance,pending_signup_discount,plan:pulse_membership_plans(name),plans:pulse_member_plans(plan:pulse_membership_plans(id,name,color)),trainer:pulse_staff(full_name)")
       .eq("gym_id", gymId)
       .eq("status", "active")
       .order("full_name"),
@@ -519,7 +516,7 @@ async function _fetchPayments(gymId: string) {
   ]);
   return {
     payments: (payments ?? []) as Payment[],
-    members: (members ?? []) as unknown as (Pick<Member, "id" | "full_name" | "member_number" | "phone" | "monthly_fee" | "plan_id" | "assigned_trainer_id" | "status" | "plan_expiry_date" | "outstanding_balance" | "pending_signup_discount"> & { plan?: { name: string } | null; trainer?: { full_name: string } | null })[],
+    members: (members ?? []) as unknown as (Pick<Member, "id" | "full_name" | "member_number" | "phone" | "monthly_fee" | "plan_id" | "assigned_trainer_id" | "status" | "plan_expiry_date" | "outstanding_balance" | "pending_signup_discount"> & { plan?: { name: string } | null; plans?: { plan?: { id: string; name: string; color: string } | null }[] | null; trainer?: { full_name: string } | null })[],
     plans: (plans ?? []) as Pick<MembershipPlan, "id" | "name" | "price" | "duration_type">[],
   };
 }
@@ -628,7 +625,7 @@ export async function getTrainerPageData() {
   const [{ data: members }, { data: plans }, { data: trainers }] = await Promise.all([
     supabase
       .from("pulse_members")
-      .select("id,full_name,member_number,phone,email,cnic,gender,date_of_birth,emergency_contact,address,monthly_fee,admission_fee,plan_id,assigned_trainer_id,assigned_shift_id,status,plan_expiry_date,outstanding_balance,join_date,notes,plan:pulse_membership_plans(name)")
+      .select("id,full_name,member_number,phone,email,cnic,gender,date_of_birth,emergency_contact,address,monthly_fee,admission_fee,plan_id,assigned_trainer_id,assigned_shift_id,status,plan_expiry_date,outstanding_balance,join_date,notes,plan:pulse_membership_plans(name),plans:pulse_member_plans(plan:pulse_membership_plans(id,name,color))")
       .eq("assigned_trainer_id", staff.id)
       .eq("status", "active")
       .order("full_name"),
@@ -653,7 +650,7 @@ export async function getTrainerPageData() {
   const selfRes = staff.can_add_members
     ? await createAdminClient()
         .from("pulse_members")
-        .select("id,full_name,member_number,phone,email,cnic,gender,date_of_birth,emergency_contact,address,monthly_fee,admission_fee,plan_id,assigned_trainer_id,assigned_shift_id,status,plan_expiry_date,outstanding_balance,join_date,notes,plan:pulse_membership_plans(name)")
+        .select("id,full_name,member_number,phone,email,cnic,gender,date_of_birth,emergency_contact,address,monthly_fee,admission_fee,plan_id,assigned_trainer_id,assigned_shift_id,status,plan_expiry_date,outstanding_balance,join_date,notes,plan:pulse_membership_plans(name),plans:pulse_member_plans(plan:pulse_membership_plans(id,name,color))")
         .eq("gym_id", gymId)
         .eq("status", "active")
         .is("assigned_trainer_id", null)
@@ -737,8 +734,8 @@ export async function getTrainerPageData() {
     gymName: gymData?.name ?? "",
     reminderTemplate: gymData?.reminder_template ?? null,
     paymentMethods: (gymData?.payment_methods ?? []) as import("@/types").PaymentMethodAccount[],
-    members: (members ?? []) as unknown as (Pick<Member, "id" | "full_name" | "member_number" | "phone" | "email" | "cnic" | "gender" | "date_of_birth" | "emergency_contact" | "address" | "monthly_fee" | "admission_fee" | "plan_id" | "assigned_trainer_id" | "assigned_shift_id" | "status" | "plan_expiry_date" | "outstanding_balance" | "join_date" | "notes"> & { plan?: { name: string } | null })[],
-    selfMembers: (selfRes.data ?? []) as unknown as (Pick<Member, "id" | "full_name" | "member_number" | "phone" | "email" | "cnic" | "gender" | "date_of_birth" | "emergency_contact" | "address" | "monthly_fee" | "admission_fee" | "plan_id" | "assigned_trainer_id" | "assigned_shift_id" | "status" | "plan_expiry_date" | "outstanding_balance" | "join_date" | "notes"> & { plan?: { name: string } | null })[],
+    members: (members ?? []) as unknown as (Pick<Member, "id" | "full_name" | "member_number" | "phone" | "email" | "cnic" | "gender" | "date_of_birth" | "emergency_contact" | "address" | "monthly_fee" | "admission_fee" | "plan_id" | "assigned_trainer_id" | "assigned_shift_id" | "status" | "plan_expiry_date" | "outstanding_balance" | "join_date" | "notes"> & { plan?: { name: string } | null; plans?: { plan?: { id: string; name: string; color: string } | null }[] | null })[],
+    selfMembers: (selfRes.data ?? []) as unknown as (Pick<Member, "id" | "full_name" | "member_number" | "phone" | "email" | "cnic" | "gender" | "date_of_birth" | "emergency_contact" | "address" | "monthly_fee" | "admission_fee" | "plan_id" | "assigned_trainer_id" | "assigned_shift_id" | "status" | "plan_expiry_date" | "outstanding_balance" | "join_date" | "notes"> & { plan?: { name: string } | null; plans?: { plan?: { id: string; name: string; color: string } | null }[] | null })[],
     payments: (paymentsRes.data ?? []) as Payment[],
     plans: (plans ?? []) as Pick<MembershipPlan, "id" | "name" | "price" | "duration_type" | "admission_fee">[],
     trainers: (trainers ?? []) as Pick<Staff, "id" | "full_name">[],
@@ -1646,7 +1643,7 @@ export async function getComplianceReportData() {
 
   const [{ data: members }, { data: payments }, { data: trainers }] = await Promise.all([
     admin.from("pulse_members")
-      .select("id, full_name, member_number, phone, email, cnic, monthly_fee, plan_id, assigned_trainer_id, status, join_date, plan_expiry_date, plan:pulse_membership_plans(name), trainer:pulse_staff(full_name)")
+      .select("id, full_name, member_number, phone, email, cnic, monthly_fee, plan_id, assigned_trainer_id, status, join_date, plan_expiry_date, plan:pulse_membership_plans(name), plans:pulse_member_plans(plan:pulse_membership_plans(id,name,color)), trainer:pulse_staff(full_name)")
       .eq("gym_id", gymId)
       .order("full_name"),
     admin.from("pulse_payments")
@@ -1736,7 +1733,7 @@ export async function getCompliancePageData() {
       .single(),
     admin
       .from("pulse_members")
-      .select("id, full_name, cnic, phone, date_of_birth, join_date, monthly_fee, assigned_trainer_id, plan:pulse_membership_plans(name)")
+      .select("id, full_name, cnic, phone, date_of_birth, join_date, monthly_fee, assigned_trainer_id, plan:pulse_membership_plans(name), plans:pulse_member_plans(plan:pulse_membership_plans(id,name,color))")
       .eq("gym_id", complianceUser.gym_id)
       .eq("status", "active")
       .order("id", { ascending: true }),
@@ -1773,7 +1770,7 @@ export async function getCompliancePageData() {
     phone: m.phone,
     date_of_birth: m.date_of_birth,
     join_date: m.join_date,
-    plan_name: m.plan?.name ?? null,
+    plan_name: memberPlanLabel(m as { plan?: { name?: string | null } | null; plans?: { plan?: { name?: string | null } | null }[] | null }, "") || null,
     monthly_fee: Number(m.monthly_fee),
     category,
   });

@@ -75,7 +75,7 @@ const MEMBER_UPDATE_ALLOWED = [
   "plan_id", "monthly_fee", "admission_fee", "outstanding_balance",
   "assigned_trainer_id", "assigned_shift_id", "referrer_id",
   "member_number", "join_date", "plan_start_date", "plan_expiry_date",
-  "status", "device_user_id",
+  "status", "device_user_id", "shift",
 ] as const;
 type MemberUpdateKey = (typeof MEMBER_UPDATE_ALLOWED)[number];
 
@@ -99,6 +99,105 @@ function pickAllowed<K extends string>(
     if (key in payload) out[key] = payload[key];
   }
   return out;
+}
+
+// Replace a member's full plan set in the pulse_member_plans junction.
+// member.plan_id (the primary) is written separately on the member row; this
+// keeps the junction (all assigned plans, including primary) in sync.
+async function syncMemberPlans(
+  admin: ReturnType<typeof createAdminClient>,
+  gymId: string,
+  memberId: string,
+  planIds: string[],
+): Promise<{ error?: string }> {
+  const ids = Array.from(new Set(planIds.filter((x) => typeof x === "string" && x)));
+
+  // Upsert the new set FIRST (idempotent via the unique(member_id,plan_id)
+  // constraint), THEN remove rows no longer in the set. Ordering matters:
+  // if the second step fails, the member is left with extra plans rather than
+  // zero — never a data-loss window between a delete and a failed insert.
+  if (ids.length > 0) {
+    const { error: upErr } = await admin
+      .from("pulse_member_plans")
+      .upsert(
+        ids.map((plan_id) => ({ gym_id: gymId, member_id: memberId, plan_id })),
+        { onConflict: "member_id,plan_id", ignoreDuplicates: true },
+      );
+    if (upErr) return { error: upErr.message };
+  }
+
+  let del = admin.from("pulse_member_plans").delete().eq("member_id", memberId);
+  if (ids.length > 0) del = del.not("plan_id", "in", `(${ids.join(",")})`);
+  const { error: delErr } = await del;
+  if (delErr) return { error: delErr.message };
+  return {};
+}
+
+function extractPlanIds(payload: Record<string, unknown>): string[] | null {
+  if (!Array.isArray(payload.plan_ids)) return null;
+  return (payload.plan_ids as unknown[]).filter((x): x is string => typeof x === "string" && !!x);
+}
+
+// ── Member photo upload ─────────────────────────────────────────────────────
+//
+// Receives an already-optimized image (client crops/resizes to 400×400 WebP
+// ~30KB before sending). We re-validate size/type server-side and upload via
+// the admin client to the public `member-photos` bucket, namespaced by gym.
+// Returns the public URL to store in pulse_members.photo_url.
+const PHOTO_MAX_BYTES = 524288; // 512KB — matches the bucket's file_size_limit
+const PHOTO_MIME_EXT: Record<string, string> = {
+  "image/webp": "webp",
+  "image/jpeg": "jpg",
+  "image/png": "png",
+};
+
+export async function uploadMemberPhoto(formData: FormData) {
+  // Either permission lets you attach a photo (add during create, edit later).
+  const ctx =
+    (await requireOwnerOrPermission("members.edit")) ??
+    (await requireOwnerOrPermission("members.add"));
+  if (!ctx) return { error: "Unauthorized" };
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) return { error: "No file provided" };
+  if (file.size > PHOTO_MAX_BYTES) return { error: "Image too large" };
+
+  const ext = PHOTO_MIME_EXT[file.type];
+  if (!ext) return { error: "Unsupported image type" };
+
+  const admin = createAdminClient();
+  const path = `${ctx.gymId}/${crypto.randomUUID()}.${ext}`;
+
+  const { error: upErr } = await admin.storage
+    .from("member-photos")
+    .upload(path, file, { contentType: file.type, upsert: false });
+  if (upErr) return { error: upErr.message };
+
+  // Return an app-relative path proxied via next.config rewrites, so the
+  // Supabase storage URL (project ref) is never exposed to clients.
+  return { url: `/media/member-photos/${path}` };
+}
+
+// Best-effort delete of a previously-uploaded member photo. Only removes files
+// inside this gym's folder of the member-photos bucket. Never throws — a failed
+// cleanup must not block the member save.
+export async function deleteMemberPhoto(photoUrl: string) {
+  const ctx =
+    (await requireOwnerOrPermission("members.edit")) ??
+    (await requireOwnerOrPermission("members.add"));
+  if (!ctx) return { ok: false };
+
+  const marker = "/member-photos/";
+  const idx = photoUrl.indexOf(marker);
+  if (idx === -1) return { ok: false };
+  const objectPath = photoUrl.slice(idx + marker.length);
+
+  // Guard: only delete within this gym's namespace.
+  if (!objectPath.startsWith(`${ctx.gymId}/`)) return { ok: false };
+
+  const admin = createAdminClient();
+  await admin.storage.from("member-photos").remove([objectPath]);
+  return { ok: true };
 }
 
 // ── Freeze ────────────────────────────────────────────────────────────────────
@@ -348,7 +447,9 @@ export async function updateMember(memberId: string, payload: Record<string, unk
 
   // Whitelist allowed fields — see MEMBER_UPDATE_ALLOWED rationale above.
   const update = pickAllowed(payload, MEMBER_UPDATE_ALLOWED) as Partial<Record<MemberUpdateKey, unknown>> & { updated_at?: string };
-  if (Object.keys(update).length === 0) {
+  const planIds = extractPlanIds(payload);
+  // Nothing to do — no field changes and no plan-set change.
+  if (Object.keys(update).length === 0 && !planIds) {
     return { success: true };
   }
 
@@ -403,6 +504,13 @@ export async function updateMember(memberId: string, payload: Record<string, unk
     } catch (err) {
       console.error("[updateMember] recalcPendingSalary failed:", err);
     }
+  }
+
+  // Sync the member's full plan set (multi-plan support). The primary plan
+  // (member.plan_id) was set via the whitelist above; this mirrors the full set.
+  if (planIds) {
+    const sync = await syncMemberPlans(admin, ctx.gymId, memberId, planIds);
+    if (sync.error) return { error: `Member saved, but plans failed to sync: ${sync.error}` };
   }
 
   revalidate(ctx.gymId);
@@ -519,6 +627,18 @@ export async function createMember(payload: Record<string, unknown>) {
     .select("id")
     .single();
   if (error || !data) return { error: error?.message ?? "Failed to create member" };
+
+  // Sync the member's plan set. Prefer the explicit multi-plan list; fall back
+  // to the single primary plan_id so the junction stays consistent either way.
+  const planIds = extractPlanIds(payload);
+  if (planIds && planIds.length) {
+    await syncMemberPlans(admin, ctx.gymId, data.id, planIds);
+  } else if (insertPayload.plan_id) {
+    await syncMemberPlans(admin, ctx.gymId, data.id, [insertPayload.plan_id as string]);
+  }
+  // Note: member row already created; a junction sync failure here is logged via
+  // the returned error path on update, but create still succeeds (primary plan
+  // is on the member row and getMembers falls back to it).
 
   await writeAuditLog({
     actor_id: ctx.user.id, actor_email: ctx.user.email ?? "",

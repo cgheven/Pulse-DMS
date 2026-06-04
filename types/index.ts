@@ -11,6 +11,7 @@ export interface TrainerStat {
 
 // ── Enums ──────────────────────────────────────────────────────────────────
 export type MemberStatus = "active" | "frozen" | "on_hold" | "defaulter" | "expired" | "cancelled";
+export type MemberShift = "morning" | "evening" | "night";
 export type MemberGender = "male" | "female" | "other";
 export type PlanDurationType = "daily" | "monthly" | "quarterly" | "biannual" | "annual" | "dropin";
 export type PaymentStatus = "paid" | "pending" | "overdue" | "refunded" | "waived";
@@ -248,6 +249,7 @@ export interface Member {
   plan_id: string | null;
   assigned_trainer_id: string | null;
   assigned_shift_id: string | null;
+  shift: MemberShift | null;
   referrer_id: string | null;
   member_number: string | null;
   full_name: string;

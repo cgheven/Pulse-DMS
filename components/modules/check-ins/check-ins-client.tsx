@@ -230,8 +230,11 @@ export function CheckInsClient({ gymId, checkIns: initial, members, unlinked: in
                             onClick={() => handleLink(m, u)}
                             className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-amber-500/10 transition-colors disabled:opacity-50"
                           >
-                            <div className="w-7 h-7 rounded-full bg-amber-500/20 flex items-center justify-center text-xs font-bold text-amber-400 shrink-0">
-                              {m.full_name[0]?.toUpperCase()}
+                            <div className="w-7 h-7 rounded-full bg-amber-500/20 flex items-center justify-center text-xs font-bold text-amber-400 shrink-0 overflow-hidden">
+                              {m.photo_url ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={m.photo_url} alt="" className="w-full h-full object-cover" />
+                              ) : m.full_name[0]?.toUpperCase()}
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium text-foreground truncate">{m.full_name}</p>
@@ -313,8 +316,11 @@ export function CheckInsClient({ gymId, checkIns: initial, members, unlinked: in
                   (m.plan_expiry_date != null && new Date(m.plan_expiry_date) < new Date());
                 return (
                   <div key={m.id} className={cn("flex items-center gap-3 px-3 py-2.5", hasDue && "bg-rose-500/[0.04]")}>
-                    <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0", hasDue ? "bg-rose-500/15 text-rose-400" : "bg-primary/15 text-primary")}>
-                      {m.full_name[0]?.toUpperCase()}
+                    <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 overflow-hidden", hasDue ? "bg-rose-500/15 text-rose-400" : "bg-primary/15 text-primary")}>
+                      {m.photo_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={m.photo_url} alt="" className="w-full h-full object-cover" />
+                      ) : m.full_name[0]?.toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-foreground truncate">{m.full_name}</p>
@@ -372,8 +378,11 @@ export function CheckInsClient({ gymId, checkIns: initial, members, unlinked: in
                     <tr key={c.id} className={cn("transition-colors", due ? "bg-rose-500/[0.04] hover:bg-rose-500/[0.07]" : "hover:bg-white/[0.02]")}>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
-                          <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0", due ? "bg-rose-500/15 text-rose-400" : "bg-primary/15 text-primary")}>
-                            {name[0]?.toUpperCase() ?? "?"}
+                          <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 overflow-hidden", due ? "bg-rose-500/15 text-rose-400" : "bg-primary/15 text-primary")}>
+                            {c.member?.photo_url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={c.member.photo_url} alt="" className="w-full h-full object-cover" />
+                            ) : (name[0]?.toUpperCase() ?? "?")}
                           </div>
                           <div>
                             <p className="font-medium text-foreground">{name}</p>

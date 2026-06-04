@@ -80,6 +80,18 @@ export async function createPayment(payload: CreatePaymentPayload) {
     .single();
   if (!member) return { error: "Member not found" };
 
+  // Snapshot the member's plan set (name + price) onto the payment so the
+  // receipt can itemize multi-plan members. Captured at payment time → stays
+  // correct on historical receipts even if the member's plans change later.
+  const { data: memberPlans } = await admin
+    .from("pulse_member_plans")
+    .select("plan:pulse_membership_plans(name, price)")
+    .eq("member_id", payload.member_id);
+  const planBreakdown = (memberPlans ?? [])
+    .map((r) => (r as unknown as { plan?: { name: string; price: number } | null }).plan)
+    .filter((p): p is { name: string; price: number } => !!p)
+    .map((p) => ({ name: p.name, price: Number(p.price) }));
+
   const { data, error } = await admin
     .from("pulse_payments")
     .insert({
@@ -96,6 +108,7 @@ export async function createPayment(payload: CreatePaymentPayload) {
       status: payload.status,
       receipt_number: payload.receipt_number ?? null,
       notes: payload.notes ?? null,
+      plan_breakdown: planBreakdown.length ? planBreakdown : null,
     })
     .select("*, member:pulse_members(full_name,plan_id)")
     .single();
@@ -165,7 +178,7 @@ export async function listMemberTimeline(memberId: string) {
     .single();
   if (!member) return { error: "Member not found" };
 
-  const [auditRes, payRes] = await Promise.all([
+  const [auditRes, payRes, metricRes, goalsRes] = await Promise.all([
     admin
       .from("pulse_audit_log")
       .select("id,action,created_at,meta")
@@ -174,15 +187,29 @@ export async function listMemberTimeline(memberId: string) {
       .order("created_at", { ascending: false }),
     admin
       .from("pulse_payments")
-      .select("id,total_amount,payment_method,for_period,status,receipt_number,payment_date,created_at")
+      .select("*, plan:pulse_membership_plans(name), trainer:pulse_staff!trainer_id(full_name)")
       .eq("member_id", memberId)
       .eq("status", "paid")
       .order("payment_date", { ascending: false }),
+    admin
+      .from("pulse_body_metrics")
+      .select("measurement_date,weight_kg,body_fat_percentage")
+      .eq("member_id", memberId)
+      .order("measurement_date", { ascending: false })
+      .limit(1),
+    admin
+      .from("pulse_member_goals")
+      .select("id,title,category,unit,current_value,target_value,direction,status,target_date")
+      .eq("member_id", memberId)
+      .eq("status", "active")
+      .order("created_at", { ascending: false }),
   ]);
   return {
     success: true as const,
     audit: (auditRes.data ?? []) as Array<{ id: string; action: string; created_at: string; meta: Record<string, unknown> | null }>,
-    payments: (payRes.data ?? []) as Array<{ id: string; total_amount: number; payment_method: string; for_period: string; status: string; receipt_number: string | null; payment_date: string; created_at: string }>,
+    payments: (payRes.data ?? []) as Array<Payment & { plan?: { name: string } | null; trainer?: { full_name: string } | null }>,
+    latestMetric: (metricRes.data?.[0] ?? null) as { measurement_date: string; weight_kg: number | null; body_fat_percentage: number | null } | null,
+    goals: (goalsRes.data ?? []) as Array<{ id: string; title: string; category: string | null; unit: string | null; current_value: number | null; target_value: number | null; direction: string | null; status: string; target_date: string | null }>,
   };
 }
 
