@@ -76,7 +76,7 @@ export function SmartAssignPanel({
       <div className="flex items-center gap-2">
         <TrendingUp className="w-3.5 h-3.5 text-amber-400" />
         <Label className="text-xs font-semibold text-amber-400 uppercase tracking-wider">
-          Profit Insights
+          Assign Trainer
         </Label>
         {!hasFee && (
           <span className="text-[10px] text-muted-foreground ml-1">— set monthly fee to see profit breakdown</span>
