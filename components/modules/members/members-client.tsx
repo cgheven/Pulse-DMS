@@ -7,7 +7,7 @@ import {
   Snowflake, AlertCircle, CheckCircle,
   ChevronLeft, ChevronRight, CheckCircle2, Wallet, CreditCard,
   PauseCircle, PlayCircle, Ban,
-  Target, Phone, X, Activity, ChevronDown, Check,
+  Target, Phone, X, Activity, ChevronDown, Check, MessageCircle,
 } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { createClient } from "@/lib/supabase/client";
@@ -22,6 +22,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
 import { useGymContext } from "@/contexts/gym-context";
 import { formatCurrency, formatDate, formatDateInput, cn, memberPlanLabel } from "@/lib/utils";
+import { buildReminderMessage, whatsappUrl } from "@/lib/whatsapp-reminder";
 import { validateFullName, validateCNIC, validatePakPhone, validateDOB, validateMoney, runValidators, type ValidationResult } from "@/lib/validation";
 import type { Member, MembershipPlan, MemberStatus, MemberGender, MemberShift, Staff, Payment, PaymentMethod, PaymentStatus, Referrer, SocialManager, SocialLead, TrainerShift } from "@/types";
 import { matchSocialLead } from "@/app/actions/social";
@@ -306,7 +307,7 @@ export function MembersClient({
   staff: initialStaff,
   referrers: initialReferrers,
 }: Props) {
-  const { isDemo } = useGymContext();
+  const { isDemo, gym } = useGymContext();
   const [active, setActive] = useState(initialActive);
   const [frozen, setFrozen] = useState(initialFrozen);
   const [onHold, setOnHold] = useState(initialOnHold);
@@ -572,6 +573,30 @@ export function MembersClient({
     if ("error" in result) { toast({ title: "Error", description: result.error, variant: "destructive" }); return; }
     toast({ title: `${m.full_name} cleared — back to active` });
     await reload();
+  }
+
+  // Open WhatsApp with a pre-filled payment reminder for a defaulter. Uses the
+  // gym's saved reminder template + payment methods (Settings → Payment Recovery).
+  function sendReminder(m: Member) {
+    if (!m.phone) {
+      toast({ title: "No phone number on file for this member", variant: "destructive" });
+      return;
+    }
+    const due = m.outstanding_balance && m.outstanding_balance > 0 ? Number(m.outstanding_balance) : Number(m.monthly_fee);
+    const message = buildReminderMessage({
+      template: gym?.reminder_template,
+      memberName: m.full_name,
+      amount: due,
+      month: new Date().toLocaleString("default", { month: "long", year: "numeric" }),
+      gymName: gym?.name ?? "Your Gym",
+      accounts: gym?.payment_methods ?? [],
+    });
+    const url = whatsappUrl(m.phone, message);
+    if (!url) {
+      toast({ title: "Phone format invalid", description: "Couldn't build a WhatsApp link for this number.", variant: "destructive" });
+      return;
+    }
+    window.open(url, "_blank");
   }
 
   function openAdd() {
@@ -1137,6 +1162,13 @@ export function MembersClient({
                               <Button variant="ghost" size="icon" title="History" className="h-7 w-7 text-muted-foreground hover:text-foreground"
                                 onClick={() => setTimelineMember(m)}>
                                 <Clock className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button size="sm" variant="ghost"
+                                title={m.phone ? "Send WhatsApp payment reminder" : "No phone number on file"}
+                                className="h-7 text-xs gap-1 bg-[#25D366]/10 text-[#25D366] border border-[#25D366]/20 hover:bg-[#25D366]/20 disabled:opacity-40"
+                                disabled={!m.phone}
+                                onClick={() => sendReminder(m)}>
+                                <MessageCircle className="w-3 h-3" /> Remind
                               </Button>
                               <Button size="sm" variant="ghost"
                                 className="h-7 text-xs gap-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20"
