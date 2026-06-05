@@ -1,5 +1,6 @@
 "use client";
 import { useState, useMemo, useEffect, memo } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import {
   Plus, Users, Search, Edit2, Trash2,
@@ -2480,9 +2481,15 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  // Portal to <body> with pointer-events-auto + high z-index so it escapes the
+  // parent dialog's stacking context (Radix DialogContent is portaled at z-50 and
+  // sets body pointer-events:none). Without this the lightbox renders BEHIND the
+  // open profile dialog and is unclickable.
+  return createPortal(
     <div
-      className="fixed inset-0 z-[100] bg-black/85 flex items-center justify-center p-6 animate-in fade-in duration-150"
+      className="fixed inset-0 z-[200] bg-black/85 flex items-center justify-center p-6 pointer-events-auto animate-in fade-in duration-150"
       onClick={onClose}
     >
       <button
@@ -2499,7 +2506,8 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
         className="max-w-full max-h-full rounded-2xl object-contain shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       />
-    </div>
+    </div>,
+    document.body,
   );
 }
 
