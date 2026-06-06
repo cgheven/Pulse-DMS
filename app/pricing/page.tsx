@@ -3,21 +3,20 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Check, Zap, Users, Bell, BarChart3, TrendingUp,
-  CalendarDays, MessageSquare, FileText, ArrowRight, Loader2,
+  Check, Zap, Users, ArrowRight, Loader2,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
-const BASE_PRICES = { starter: 10000, growth: 15000, pro: 20000 };
+const BASE_PRICES = { starter: 10000, growth: 15000, pro: 25000 };
 const ANNUAL_DISCOUNT = 0.20;
 
 const branchTiers = [
   {
     name: "Double Branch",
     branches: 2,
-    price: 35000,
-    perBranch: 17500,
-    savings: 5000,
+    price: 40000,
+    perBranch: 20000,
+    savings: 10000,
     badge: null,
     highlight: false,
     tagline: "Two locations, one system.",
@@ -25,9 +24,9 @@ const branchTiers = [
   {
     name: "Branch Group",
     branches: 5,
-    price: 75000,
-    perBranch: 15000,
-    savings: 25000,
+    price: 80000,
+    perBranch: 16000,
+    savings: 45000,
     badge: "Most Popular",
     highlight: true,
     tagline: "The sweet spot for growing chains.",
@@ -35,9 +34,9 @@ const branchTiers = [
   {
     name: "Branch Chain",
     branches: 7,
-    price: 95000,
-    perBranch: 13572,
-    savings: 45000,
+    price: 100000,
+    perBranch: 14286,
+    savings: 75000,
     badge: "Best Value",
     highlight: false,
     tagline: "Maximum scale. Lowest cost per branch.",
@@ -73,7 +72,7 @@ const tiers = [
       "Up to 1000 active members",
       "Everything in Starter",
       "Lead pipeline — every walk-in tracked, followed up, and converted",
-      "Class scheduling with capacity limits and attendance tracking",
+      "Transfer clients between trainers in one click",
       "PDF & CSV export of compliance-scoped reports",
       "Priority support",
     ],
@@ -91,85 +90,12 @@ const tiers = [
       "Make more money with Profit Insights",
       "Track marketing ROI with Social Media Manager",
       "Grow memberships with Referral Engine",
-      "Transfer clients between trainers in one click",
       "Advanced Reports — revenue trends, trainer performance, member retention",
     ],
   },
 ];
 
-const painPoints = [
-  {
-    icon: Bell,
-    heading: "You find out a member expired when they're already at the front desk.",
-    fix: "Pulse flags every expiry the moment it happens. You always know who owes.",
-  },
-  {
-    icon: MessageSquare,
-    heading: "Collecting dues means manually messaging 30 people on WhatsApp.",
-    fix: "One click sends a personalized WhatsApp reminder to every overdue member.",
-  },
-  {
-    icon: Users,
-    heading: "Your trainers can see every member's details — including clients that aren't theirs.",
-    fix: "Role-based access. Trainers see their clients only. Staff sees what you allow.",
-  },
-];
 
-const features = [
-  {
-    icon: Bell,
-    title: "Dues that collect themselves",
-    body: "Overdue members get a personalized WhatsApp message in one click. No manual copy-paste. No forgetting. No awkward conversations.",
-  },
-  {
-    icon: Users,
-    title: "Access that fits your team",
-    body: "Trainers see their clients only. Front desk sees check-ins. Staff sees what you decide. Nobody accesses what they have no business seeing.",
-  },
-  {
-    icon: TrendingUp,
-    title: "Your numbers, at a glance",
-    body: "Revenue, active members, expiring plans, top earners — your dashboard gives you the full picture the moment you log in.",
-  },
-  {
-    icon: CalendarDays,
-    title: "Classes that fill up, not get lost",
-    body: "Schedule classes, set capacity, track attendance. Know which sessions are popular and which to drop before you waste more floor time.",
-  },
-  {
-    icon: FileText,
-    title: "Leads that don't fall through the cracks",
-    body: "Every walk-in is a lead. Log them, assign follow-up, track conversion. Most gyms lose 40% of their pipeline by not having a system.",
-  },
-  {
-    icon: BarChart3,
-    title: "Reports built for your business",
-    body: "Compliance reports, revenue summaries, member breakdowns — export to PDF or CSV whenever you need them.",
-  },
-];
-
-const faqs = [
-  {
-    q: "Can I import my existing member data?",
-    a: "Pro tier includes dedicated data migration. On Starter and Growth you can bulk-import members via CSV.",
-  },
-  {
-    q: "What happens if I go over the member limit on my plan?",
-    a: "We'll notify you and give you a grace period before prompting an upgrade. No sudden lockouts.",
-  },
-  {
-    q: "Can I change plans later?",
-    a: "Upgrade or downgrade any time. Changes take effect on your next billing cycle.",
-  },
-  {
-    q: "Is my data safe?",
-    a: "All data is encrypted at rest and in transit. Role-based access controls and a full audit log are built in.",
-  },
-  {
-    q: "Do you support multiple locations?",
-    a: "Multi-location support is on the roadmap. Reach out to sales if this is a requirement — we can discuss options.",
-  },
-];
 
 export default function PricingPage() {
   const [annual, setAnnual] = useState(false);
@@ -430,65 +356,48 @@ export default function PricingPage() {
         </p>
       </section>
 
-      {/* Pain points */}
-      <section className="relative z-10 px-6 py-12 max-w-6xl mx-auto">
-        <p className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-8">
-          Sound familiar?
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {painPoints.map(({ icon: Icon, heading, fix }) => (
-            <div key={heading} className="rounded-2xl border border-sidebar-border bg-card p-5 flex flex-col gap-4">
-              <div className="w-9 h-9 rounded-xl bg-destructive/10 border border-destructive/20 flex items-center justify-center shrink-0">
-                <Icon className="w-4 h-4 text-destructive" />
-              </div>
-              <p className="text-sm text-muted-foreground leading-relaxed">{heading}</p>
-              <div className="mt-auto pt-3 border-t border-sidebar-border">
-                <div className="flex items-start gap-2">
-                  <Check className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
-                  <p className="text-xs text-foreground leading-relaxed">{fix}</p>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
 
-      {/* Feature highlights */}
-      <section className="relative z-10 px-6 py-12 max-w-6xl mx-auto">
-        <div className="text-center mb-10">
-          <h2 className="text-3xl font-serif font-normal tracking-tight mb-3">
-            Everything your gym needs. Nothing it doesn&apos;t.
-          </h2>
-          <p className="text-muted-foreground max-w-xl mx-auto">
-            Built around how gyms actually operate — not how a startup imagines they do.
-          </p>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {features.map(({ icon: Icon, title, body }) => (
-            <div key={title} className="rounded-2xl border border-sidebar-border bg-card p-6 space-y-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
-                <Icon className="w-5 h-5 text-primary" />
-              </div>
-              <h3 className="font-semibold text-foreground">{title}</h3>
-              <p className="text-sm text-muted-foreground leading-relaxed">{body}</p>
-            </div>
-          ))}
-        </div>
-      </section>
 
-      {/* FAQ */}
-      <section className="relative z-10 px-6 py-12 max-w-3xl mx-auto">
-        <div className="text-center mb-10">
-          <h2 className="text-3xl font-serif font-normal tracking-tight mb-2">Common questions</h2>
-          <p className="text-muted-foreground">Anything else — reach out directly.</p>
-        </div>
-        <div className="space-y-3">
-          {faqs.map(({ q, a }) => (
-            <div key={q} className="rounded-2xl border border-sidebar-border bg-card px-6 py-5">
-              <p className="font-semibold text-foreground mb-2">{q}</p>
-              <p className="text-sm text-muted-foreground leading-relaxed">{a}</p>
+      {/* Feature grid */}
+      <section className="relative z-10 px-6 py-16 max-w-6xl mx-auto">
+        <div className="rounded-3xl border border-sidebar-border bg-card p-8 sm:p-12">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-6 mb-10">
+            <div>
+              <p className="text-xs font-semibold text-primary uppercase tracking-widest mb-3">Every Plan</p>
+              <h2 className="text-3xl sm:text-4xl font-serif font-normal tracking-tight mb-3">
+                Every plan ships with every feature.
+              </h2>
+              <p className="text-muted-foreground max-w-md leading-relaxed">
+                Tier choice is purely about member count. The product itself is identical from Starter to Pro.
+              </p>
             </div>
-          ))}
+            <div className="shrink-0 flex flex-col items-center justify-center w-16 h-16 rounded-2xl border border-primary/20 bg-primary/[0.06]">
+              <span className="text-2xl font-bold text-primary leading-none">10</span>
+              <span className="text-[10px] font-semibold text-primary/70 uppercase tracking-widest mt-0.5">FEATURES</span>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-0">
+            {[
+              "WhatsApp dues reminders — collected in one tap",
+              "Member management — active, expired, frozen and defaulter",
+              "Staff & trainer roles — scoped access only",
+              "Payment history with printable receipts",
+              "Lead pipeline — every walk-in tracked and followed up",
+              "Live revenue dashboard — your numbers at a glance",
+              "Expense tracking — know exactly what's left after bills",
+              "PDF & CSV reports for compliance and operations",
+              "Referral engine — grow memberships through your members",
+              "Profit insights — see where your money actually goes",
+            ].map((feature, i) => (
+              <div key={feature} className="flex items-center gap-4 py-4 border-b border-sidebar-border last:border-0 [&:nth-last-child(2):nth-child(odd)]:border-0">
+                <span className="text-xs font-semibold text-muted-foreground/50 w-5 shrink-0 tabular-nums">
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                <span className="text-sm text-foreground flex-1 leading-snug">{feature}</span>
+                <Check className="w-4 h-4 text-primary shrink-0" />
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
