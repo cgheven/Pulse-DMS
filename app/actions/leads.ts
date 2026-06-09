@@ -316,6 +316,7 @@ export async function convertLeadToMember(leadId: string, payload: ConvertPayloa
     revalidateTag(`members-${ctx.gymId}`);
     revalidateTag(`reports-${ctx.gymId}`);
     revalidateTag(`discounts-${ctx.gymId}`);
+    revalidateTag(`payments-${ctx.gymId}`);
   }
   bumpDashboard(ctx.gymId);
   return { success: true, memberId: member.id };

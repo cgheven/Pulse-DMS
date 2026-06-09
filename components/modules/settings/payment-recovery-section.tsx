@@ -19,6 +19,7 @@ export function PaymentRecoverySection({ gym }: { gym: Gym | null }) {
   const [methods, setMethods] = useState<PaymentMethodAccount[]>(
     () => (gym?.payment_methods ?? []).map((m) => ({ ...m, id: m.id || uid() }))
   );
+  const [graceDays, setGraceDays] = useState(gym?.payment_overdue_grace_days ?? 2);
   const [saving, setSaving] = useState(false);
 
   function addMethod() {
@@ -36,6 +37,7 @@ export function PaymentRecoverySection({ gym }: { gym: Gym | null }) {
     const res = await saveReminderSettings({
       template,
       payment_methods: methods.filter((m) => m.label.trim()),
+      payment_overdue_grace_days: graceDays,
     });
     setSaving(false);
     if (res.error) toast({ title: "Error", description: res.error, variant: "destructive" });
@@ -62,6 +64,26 @@ export function PaymentRecoverySection({ gym }: { gym: Gym | null }) {
         <CardDescription>WhatsApp reminder template + payment methods sent to members with unpaid fees.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
+        {/* Overdue grace period */}
+        <div className="space-y-1.5">
+          <Label className="text-sm font-semibold">Overdue Grace Period</Label>
+          <p className="text-xs text-muted-foreground">Number of days into the month before unpaid members are marked overdue.</p>
+          <div className="flex items-center gap-3">
+            <Input
+              type="number"
+              min={0}
+              max={28}
+              step={1}
+              value={graceDays}
+              onChange={(e) => setGraceDays(Math.min(28, Math.max(0, parseInt(e.target.value) || 0)))}
+              className="w-24 h-9"
+            />
+            <span className="text-sm text-muted-foreground">
+              {graceDays === 0 ? "Overdue from day 1" : `Overdue from day ${graceDays + 1}`}
+            </span>
+          </div>
+        </div>
+
         {/* Payment methods */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
@@ -135,7 +157,7 @@ export function PaymentRecoverySection({ gym }: { gym: Gym | null }) {
         <div className="rounded-lg border border-sidebar-border bg-card/30 p-3 text-xs space-y-1">
           <p className="font-semibold text-foreground">How it works</p>
           <p className="text-muted-foreground">On the Transactions page, each unpaid member shows a <span className="font-medium text-foreground">"Send Reminder"</span> button. Click → opens WhatsApp Web/app with this message pre-filled. You hit send.</p>
-          <p className="text-muted-foreground">Members overdue by 3+ days are highlighted in red so you know who to chase first.</p>
+          <p className="text-muted-foreground">Members unpaid after the grace period are highlighted in red so you know who to chase first.</p>
         </div>
 
         {/* Helper preview of how accounts will render */}

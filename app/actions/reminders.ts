@@ -7,6 +7,7 @@ import type { PaymentMethodAccount } from "@/types";
 interface SaveReminderInput {
   template: string;
   payment_methods: PaymentMethodAccount[];
+  payment_overdue_grace_days: number;
 }
 
 export async function saveReminderSettings(input: SaveReminderInput) {
@@ -20,6 +21,7 @@ export async function saveReminderSettings(input: SaveReminderInput) {
     .update({
       reminder_template: input.template,
       payment_methods: input.payment_methods,
+      payment_overdue_grace_days: input.payment_overdue_grace_days,
     })
     .eq("id", ctx.gymId);
 

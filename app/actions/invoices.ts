@@ -36,6 +36,8 @@ async function appOrigin(): Promise<string | null> {
 
 interface MemberJoin {
   full_name: string;
+  member_number?: string | null;
+  phone?: string | null;
   plan?: { name: string } | null;
   plans?: { plan?: { name: string } | null }[] | null;
 }
@@ -75,7 +77,7 @@ export async function createInvoiceLink(
   const { data: payment, error: payErr } = await admin
     .from("pulse_payments")
     .select(
-      "*, member:pulse_members(full_name, plan:pulse_membership_plans(name), plans:pulse_member_plans(plan:pulse_membership_plans(name)))",
+      "*, member:pulse_members(full_name, member_number, phone, plan:pulse_membership_plans(name), plans:pulse_member_plans(plan:pulse_membership_plans(name)))",
     )
     .eq("id", paymentId)
     .eq("gym_id", ctx.gymId)
@@ -84,11 +86,13 @@ export async function createInvoiceLink(
 
   const member = (payment as unknown as { member: MemberJoin | null }).member;
   const memberName = member?.full_name ?? "Member";
+  const memberNumber = member?.member_number ?? null;
+  const memberPhone = member?.phone ?? null;
   const planName = derivePlanName(payment as Payment, member);
 
   const { data: gym } = await admin
     .from("pulse_gyms")
-    .select("name,address,city,phone,ntn,report_settings")
+    .select("name,address,city,phone,email,ntn,report_settings")
     .eq("id", ctx.gymId)
     .single();
 
@@ -96,7 +100,7 @@ export async function createInvoiceLink(
   let bytes: Buffer;
   try {
     const doc = await buildInvoiceDoc(
-      { payment: payment as Payment, memberName, planName },
+      { payment: payment as Payment, memberName, memberPhone, memberNumber, planName },
       (gym as InvoiceGym | null) ?? null,
       formatPeriod((payment as Payment).for_period),
     );

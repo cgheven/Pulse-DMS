@@ -50,6 +50,7 @@ function revalidate(gymId: string) {
   revalidateTag(`reports-${gymId}`);
   revalidateTag(`smart-earn-${gymId}`);
   revalidateTag(`discounts-${gymId}`);
+  revalidateTag(`payments-${gymId}`);
 }
 
 // ── Mass-assignment whitelist ──────────────────────────────────────────────────
@@ -368,7 +369,7 @@ export async function markAsDefaulter(memberId: string) {
   const today = formatDateInput(new Date());
   const { error } = await admin
     .from("pulse_members")
-    .update({ status: "defaulter", defaulter_since: today, updated_at: new Date().toISOString() })
+    .update({ status: "defaulter", defaulter_since: today, defaulter_exempt: false, updated_at: new Date().toISOString() })
     .eq("id", memberId)
     .eq("gym_id", ctx.gymId);
   if (error) return { error: error.message };
@@ -398,7 +399,7 @@ export async function clearDefaulter(memberId: string) {
 
   const { error } = await admin
     .from("pulse_members")
-    .update({ status: "active", defaulter_since: null, updated_at: new Date().toISOString() })
+    .update({ status: "active", defaulter_since: null, defaulter_exempt: true, updated_at: new Date().toISOString() })
     .eq("id", memberId)
     .eq("gym_id", ctx.gymId);
   if (error) return { error: error.message };
@@ -436,11 +437,13 @@ export async function updateMember(memberId: string, payload: Record<string, unk
   if (!ctx) return { error: "Unauthorized" };
   const admin = createAdminClient();
 
-  // Fetch current assigned_trainer_id before the update so we can recalc the
-  // old trainer if the assignment changes.
+  // Fetch current status + trainer + name before the update:
+  // - status: detect expired/cancelled → active reactivation transition
+  // - assigned_trainer_id: recalc old trainer salary if assignment changes
+  // - full_name: needed for the reactivation audit log meta
   const { data: existing } = await admin
     .from("pulse_members")
-    .select("assigned_trainer_id")
+    .select("status, assigned_trainer_id, full_name, plan_expiry_date")
     .eq("id", memberId)
     .eq("gym_id", ctx.gymId)
     .single();
@@ -480,6 +483,25 @@ export async function updateMember(memberId: string, payload: Record<string, unk
 
   update.updated_at = new Date().toISOString();
 
+  // Detect expired/cancelled → active transition so we can apply reactivation
+  // side-effects atomically in the same update (no second round-trip).
+  const oldStatus = existing?.status as string | undefined;
+  const newStatus = update.status as string | undefined;
+  const isReactivation = (oldStatus === "expired" || oldStatus === "cancelled") && newStatus === "active";
+  if (isReactivation) {
+    // Reject reactivation with a past expiry — auto_expire_members would
+    // immediately re-expire the member on the very next _fetchMembers call.
+    const incomingExpiry = (update.plan_expiry_date ?? existing?.plan_expiry_date) as string | null | undefined;
+    const today = formatDateInput(new Date());
+    if (!incomingExpiry || incomingExpiry <= today) {
+      return { error: "Set a future expiry date before reactivating this member." };
+    }
+    // Clear stale defaulter state and exempt from auto-flag so check_defaulters
+    // won't immediately re-flag on the next _fetchMembers reload.
+    (update as Record<string, unknown>).defaulter_since = null;
+    (update as Record<string, unknown>).defaulter_exempt = true;
+  }
+
   const { error } = await admin
     .from("pulse_members")
     .update(update)
@@ -488,22 +510,34 @@ export async function updateMember(memberId: string, payload: Record<string, unk
 
   if (error) return { error: error.message };
 
-  // Recalculate pending salary for affected trainer(s) when the trainer field
-  // was part of the payload. Fire-and-forget — errors are swallowed inside
-  // recalcPendingSalary so they never block the response.
+  // Write reactivation audit log — distinct from the generic member.update so
+  // it surfaces correctly in the member timeline.
+  if (isReactivation) {
+    const newExpiry = update.plan_expiry_date as string | undefined;
+    await writeAuditLog({
+      actor_id: ctx.user.id, actor_email: ctx.user.email ?? "",
+      action: "member.reactivate", entity: "member", entity_id: memberId,
+      meta: { full_name: (update.full_name ?? existing?.full_name) as string, new_expiry: newExpiry ?? null },
+    });
+  }
+
+  // Recalculate pending salary for affected trainer(s).
+  // - If trainer changed: recalc old + new trainer (covers trainer swap).
+  // - If reactivated with same trainer: recalc existing trainer (member now
+  //   counts toward their active roster again).
+  const recalcTasks: Promise<void>[] = [];
   if ("assigned_trainer_id" in update) {
     const newTrainerId = update.assigned_trainer_id as string | null;
     const oldTrainerId = existing?.assigned_trainer_id as string | null | undefined;
-    const recalcTasks: Promise<void>[] = [];
     if (newTrainerId) recalcTasks.push(recalcPendingSalary(newTrainerId, ctx.gymId));
-    if (oldTrainerId && oldTrainerId !== newTrainerId) {
-      recalcTasks.push(recalcPendingSalary(oldTrainerId, ctx.gymId));
-    }
-    try {
-      await Promise.all(recalcTasks);
-    } catch (err) {
-      console.error("[updateMember] recalcPendingSalary failed:", err);
-    }
+    if (oldTrainerId && oldTrainerId !== newTrainerId) recalcTasks.push(recalcPendingSalary(oldTrainerId, ctx.gymId));
+  } else if (isReactivation) {
+    const trainerId = existing?.assigned_trainer_id as string | null | undefined;
+    if (trainerId) recalcTasks.push(recalcPendingSalary(trainerId, ctx.gymId));
+  }
+  if (recalcTasks.length > 0) {
+    try { await Promise.all(recalcTasks); }
+    catch (err) { console.error("[updateMember] recalcPendingSalary failed:", err); }
   }
 
   // Sync the member's full plan set (multi-plan support). The primary plan

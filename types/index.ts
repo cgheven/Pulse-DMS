@@ -106,6 +106,7 @@ export interface Gym {
   } | null;
   reminder_template: string | null;
   payment_methods: PaymentMethodAccount[];
+  payment_overdue_grace_days: number;
   device_serial: string | null;
   device_last_seen: string | null;
   created_at: string;

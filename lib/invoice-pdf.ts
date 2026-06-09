@@ -6,11 +6,13 @@ import { formatDate } from "@/lib/utils";
 import type { jsPDF } from "jspdf";
 import type { Gym, Payment, PaymentMethod } from "@/types";
 
-export type InvoiceGym = Pick<Gym, "name" | "address" | "city" | "phone" | "ntn" | "report_settings">;
+export type InvoiceGym = Pick<Gym, "name" | "address" | "city" | "phone" | "email" | "ntn" | "report_settings">;
 
 export interface InvoicePdfData {
   payment: Payment;
   memberName: string;
+  memberPhone?: string | null;
+  memberNumber?: string | null;
   planName?: string | null;
 }
 
@@ -59,7 +61,7 @@ export function amountInWords(n: number): string {
 }
 
 export function pkr(n: number): string {
-  return `PKR ${Number(n).toLocaleString("en-PK")}`;
+  return `PKR ${Number(n).toLocaleString("en-US")}`;
 }
 
 // Itemized plan lines for the receipt. Uses the plan_breakdown snapshotted on
@@ -79,14 +81,14 @@ export function planLineItems(payment: Payment): { name: string; price: number }
 
 // Resolve the jsPDF constructor across environments: bundlers expose it as the
 // default export, Node's ESM interop exposes it as a named `jsPDF` export.
-async function newDoc(): Promise<jsPDF> {
+async function newDoc(format: [number, number] | "a4" = "a4"): Promise<jsPDF> {
   const mod = (await import("jspdf")) as unknown as {
     jsPDF?: new (o?: object) => jsPDF;
     default?: (new (o?: object) => jsPDF) & { jsPDF?: new (o?: object) => jsPDF };
   };
   const Ctor = mod.jsPDF ?? mod.default?.jsPDF ?? mod.default;
   if (!Ctor) throw new Error("jsPDF constructor not found");
-  return new Ctor({ unit: "pt", format: "a4", orientation: "portrait" });
+  return new Ctor({ unit: "pt", format, orientation: "portrait" });
 }
 
 /**
@@ -99,216 +101,283 @@ export async function buildInvoiceDoc(
   gym: InvoiceGym | null,
   formattedPeriod: string,
 ): Promise<jsPDF> {
-  const doc = await newDoc();
+  const ML = 14;    // left margin
+  const MR = 236;   // right margin
+  const CX = (ML + MR) / 2;  // center = 125
+  const KV = ML + 55;         // key-value colon column
 
-  const ML = 48;
-  const MR = 547;
+  const BLACK: [number, number, number] = [0, 0, 0];
+  const GRAY: [number, number, number] = [40, 40, 40];
+  const LGRAY: [number, number, number] = [130, 130, 130];
 
-  const DARK: [number, number, number] = [15, 17, 38];
-  const GRAY: [number, number, number] = [120, 125, 148];
-  const LGRAY: [number, number, number] = [210, 213, 228];
-
-  const { payment, memberName, planName } = data;
+  const { payment, memberName, memberPhone, memberNumber, planName } = data;
   const gymName = gym?.name ?? "Gym";
   const taxRate = gym?.report_settings?.taxRate ?? 0;
   const taxInc = gym?.report_settings?.taxInclusive ?? false;
   const taxLabel = gym?.report_settings?.taxLabel ?? "Tax";
   const showTax = taxRate > 0 && !taxInc;
+  const taxAmt = showTax ? Math.round((Number(payment.total_amount) * taxRate) / 100) : 0;
   const methodLabel = payment.payment_method ? methodLabels[payment.payment_method] : "—";
   const receiptNo = payment.receipt_number ?? payment.id.slice(0, 8);
   const dateStr = payment.payment_date
     ? formatDate(payment.payment_date)
     : formatDate(new Date().toISOString());
-  const notes = payment.notes ?? "Thank you for training with us.";
+  const statusText = payment.status.charAt(0).toUpperCase() + payment.status.slice(1);
+  const isAdmission = payment.for_period === "admission";
+
+  // Pre-calculate items so we can size the page dynamically
+  const items = isAdmission
+    ? [{ name: "Admission / Signup Fee", price: Number(payment.amount) }]
+    : planLineItems(payment);
+
+  // Height grows with extra plan items (~43pt each beyond the first)
+  const pageHeight = 555 + Math.max(0, items.length - 1) * 43;
+  const doc = await newDoc([250, pageHeight]);
+
+  // Format number with commas (no currency prefix — used in table rows)
+  function num(n: number | string): string {
+    return Number(n).toLocaleString("en-US");
+  }
 
   let y = 0;
 
-  function divider() {
+  // Dashed divider
+  function dashed() {
+    y += 8;
     doc.setDrawColor(...LGRAY);
-    doc.setLineWidth(0.5);
+    doc.setLineWidth(0.7);
+    (doc as unknown as { setLineDash: (pattern: number[], phase?: number) => void })
+      .setLineDash([2, 3], 0);
     doc.line(ML, y, MR, y);
-    y += 14;
-  }
-
-  function sectionLabel(text: string, x = ML) {
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(7);
-    doc.setTextColor(...GRAY);
-    doc.text(text, x, y);
+    (doc as unknown as { setLineDash: (pattern: number[], phase?: number) => void })
+      .setLineDash([], 0);
     y += 15;
   }
 
-  function sectionValue(text: string, size = 12, x = ML, color: [number, number, number] = DARK) {
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(size);
-    doc.setTextColor(...color);
-    doc.text(text, x, y);
+  // Left-aligned key : value row
+  function kv(label: string, value: string) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(...BLACK);
+    doc.text(label, ML, y);
+    doc.text(`: ${value}`, KV, y);
+    y += 10;
   }
 
-  // ── HEADER ────────────────────────────────────────────────────────────────
-  y = 44;
+  // Label left, value right-aligned
+  function kvRight(label: string, value: string, bold = false) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(...GRAY);
+    doc.text(label, ML, y);
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setTextColor(...BLACK);
+    doc.text(value, MR, y, { align: "right" });
+    y += 10;
+  }
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7);
-  doc.setTextColor(190, 193, 210);
-  doc.text("Generated by Pulse GMS", MR, 22, { align: "right" });
+  // ── HEADER (centered) ──────────────────────────────────────────────────────
+  y = 20;
+
+  dashed();
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(22);
-  doc.setTextColor(...DARK);
-  doc.text(gymName, ML, y);
-  y += 15;
+  doc.setFontSize(13);
+  doc.setTextColor(...BLACK);
+  doc.text(gymName, CX, y, { align: "center" });
+  y += 12;
 
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
+  doc.setFontSize(8.5);
   doc.setTextColor(...GRAY);
+  doc.text("Membership Invoice", CX, y, { align: "center" });
+  y += 10;
+
+  if (gym?.email) {
+    doc.setFontSize(7.5);
+    doc.text(gym.email, CX, y, { align: "center" });
+    y += 9;
+  }
+
+  if (gym?.phone) {
+    doc.setFontSize(7.5);
+    doc.text(`Phone#: ${gym.phone}`, CX, y, { align: "center" });
+    y += 9;
+  }
+
+  if (gym?.ntn) {
+    doc.setFontSize(7.5);
+    doc.text(`NTN: ${gym.ntn}`, CX, y, { align: "center" });
+    y += 9;
+  }
+
   const addrParts = [gym?.address, gym?.city].filter(Boolean) as string[];
-  if (addrParts.length > 0) { doc.text(addrParts.join(", "), ML, y); y += 13; }
-  if (gym?.phone) { doc.text(gym.phone, ML, y); y += 13; }
-  if (gym?.ntn) { doc.text(`NTN: ${gym.ntn}`, ML, y); y += 13; }
+  if (addrParts.length > 0) {
+    doc.setFontSize(7.5);
+    doc.text(addrParts.join(", "), CX, y, { align: "center" });
+    y += 9;
+  }
 
-  y += 8;
-  divider();
+  y += 2;
+  dashed();
 
-  // ── RECEIPT ID / DATE (two columns) ──────────────────────────────────────
-  const MID = ML + (MR - ML) / 2 + 10;
+  // ── INVOICE INFO ───────────────────────────────────────────────────────────
+  kv("Invoice #", receiptNo);
+  kv("Date Time", dateStr);
+  if (memberPhone) kv("Phone", memberPhone);
+  kv("Member", memberName);
+  if (memberNumber) kv("MID", memberNumber);
 
-  sectionLabel("RECEIPT ID");
-  const labelY = y;
-  sectionValue(receiptNo, 12);
-  y = labelY - 15;
+  y += 2;
+  dashed();
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(7);
-  doc.setTextColor(...GRAY);
-  doc.text("DATE", MID, y);
-  y += 15;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.setTextColor(...DARK);
-  doc.text(dateStr, MID, y);
-
-  y += 16;
-  divider();
-
-  // ── MEMBER ────────────────────────────────────────────────────────────────
-  sectionLabel("MEMBER");
-  sectionValue(memberName, 13);
-  y += 16;
-  divider();
-
-  // ── PLAN DETAILS ──────────────────────────────────────────────────────────
-  sectionLabel("PLAN DETAILS");
+  // ── PLAN & LINE ITEMS ──────────────────────────────────────────────────────
   if (planName) {
-    sectionValue(planName, 13);
-    y += 15;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(...BLACK);
+    doc.text(planName, ML, y);
+    y += 11;
   }
-  if (formattedPeriod) {
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.setTextColor(...GRAY);
-    doc.text(`Period: ${formattedPeriod}`, ML, y);
-    y += 13;
-  }
-  y += 4;
-  divider();
 
-  // ── DESCRIPTION / AMOUNT ──────────────────────────────────────────────────
+  // Table header
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.setTextColor(...DARK);
-  doc.text("Description", ML, y);
-  doc.text("Amount", MR, y, { align: "right" });
-  y += 14;
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(...DARK);
-  for (const item of planLineItems(payment)) {
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(...DARK);
-    doc.text(item.name, ML, y);
-    doc.text(pkr(item.price), MR, y, { align: "right" });
-    y += 14;
-  }
-
-  if (Number(payment.discount) > 0) {
-    doc.setTextColor(...DARK);
-    doc.text("Discount", ML, y);
-    doc.setTextColor(22, 163, 74);
-    doc.text(`-${pkr(payment.discount)}`, MR, y, { align: "right" });
-    y += 14;
-  }
-  if (Number(payment.late_fee) > 0) {
-    doc.setTextColor(...DARK);
-    doc.text("Late Fee", ML, y);
-    doc.setTextColor(200, 45, 45);
-    doc.text(`+${pkr(payment.late_fee)}`, MR, y, { align: "right" });
-    y += 14;
-  }
-  if (showTax) {
-    const taxAmt = Math.round((payment.total_amount * taxRate) / 100);
-    doc.setTextColor(...DARK);
-    doc.text(`${taxLabel} (${taxRate}%)`, ML, y);
-    doc.setTextColor(...DARK);
-    doc.text(pkr(taxAmt), MR, y, { align: "right" });
-    y += 14;
-  }
-
-  y += 4;
-  divider();
-
-  // ── TOTAL PAID ────────────────────────────────────────────────────────────
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.setTextColor(...DARK);
-  doc.text("TOTAL PAID", ML, y + 4);
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
-  doc.setTextColor(...DARK);
-  doc.text(pkr(Number(payment.total_amount)), MR, y + 4, { align: "right" });
-
-  y += 22;
-  divider();
-
-  // ── AMOUNT IN WORDS ───────────────────────────────────────────────────────
-  sectionLabel("AMOUNT IN WORDS");
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(11);
-  doc.setTextColor(...DARK);
-  doc.text(amountInWords(Number(payment.total_amount)), ML, y);
-  y += 16;
-  divider();
-
-  // ── PAYMENT METHOD / STATUS (two columns) ────────────────────────────────
-  sectionLabel("PAYMENT METHOD");
-  const pmY = y;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.setTextColor(...DARK);
-  doc.text(methodLabel, ML, y);
-  y = pmY - 15;
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(7);
+  doc.setFontSize(7.5);
   doc.setTextColor(...GRAY);
-  doc.text("STATUS", MID, y);
-  y += 15;
+  doc.text("#", ML, y);
+  doc.text("Description", ML + 14, y);
+  doc.text("Amount", MR, y, { align: "right" });
+  y += 9;
+
+  // Max width for description text (leaves room for # col + amount col)
+  const DESC_MAX = MR - (ML + 14) - 32;
+
+  items.forEach((item, idx) => {
+    // Main row — wrap long plan names
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(...BLACK);
+    doc.text(String(idx + 1), ML, y);
+    const desc = (!isAdmission && formattedPeriod)
+      ? `${item.name} (${formattedPeriod})`
+      : item.name;
+    const descLines = doc.splitTextToSize(desc, DESC_MAX) as string[];
+    doc.text(descLines, ML + 14, y);
+    doc.text(num(item.price), MR, y, { align: "right" });
+    y += descLines.length > 1 ? descLines.length * 9 : 9;
+    y += 9;
+
+    // Sub-rows: Discount (only on first item to avoid double-counting)
+    if (idx === 0 && Number(payment.discount) > 0) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      doc.setTextColor(...GRAY);
+      doc.text("Discount", ML + 14, y);
+      doc.text(num(payment.discount), MR, y, { align: "right" });
+      y += 8;
+    }
+    if (idx === 0 && Number(payment.late_fee) > 0) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      doc.setTextColor(...GRAY);
+      doc.text("Late Fee", ML + 14, y);
+      doc.text(`+${num(payment.late_fee)}`, MR, y, { align: "right" });
+      y += 8;
+    }
+
+    // Total + Paid sub-rows
+    const itemTotal = idx === 0
+      ? Number(payment.total_amount)
+      : item.price;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(...GRAY);
+    doc.text("Total", ML + 14, y);
+    doc.text(num(itemTotal), MR, y, { align: "right" });
+    y += 8;
+    doc.text("Paid", ML + 14, y);
+    doc.text(num(itemTotal), MR, y, { align: "right" });
+    y += 10;
+  });
+
+  y += 2;
+  dashed();
+
+  // ── SUMMARY ────────────────────────────────────────────────────────────────
+  kvRight("Sub Total", num(Number(payment.amount)));
+  if (showTax) {
+    kvRight(`${taxLabel} (${taxRate}%)`, num(taxAmt));
+  } else {
+    kvRight("Tax", "0");
+  }
+  kvRight("Discount", Number(payment.discount) > 0 ? `-${num(Number(payment.discount))}` : "0");
+
+  y += 2;
+  dashed();
+
+  // Grand Total (bold)
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.setTextColor(...DARK);
-  const statusText = payment.status.charAt(0).toUpperCase() + payment.status.slice(1);
-  doc.text(statusText, MID, y);
+  doc.setFontSize(9.5);
+  doc.setTextColor(...BLACK);
+  doc.text("Grand Total", ML, y + 1);
+  doc.text(pkr(Number(payment.total_amount)), MR, y + 1, { align: "right" });
+  y += 13;
 
-  y += 16;
-  divider();
+  y += 2;
+  dashed();
 
-  // ── THANK YOU ─────────────────────────────────────────────────────────────
+  // ── PAYMENT BREAKDOWN ──────────────────────────────────────────────────────
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(...BLACK);
+  doc.text("PAYMENT BREAKDOWN", ML, y);
+  y += 10;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(...BLACK);
+  doc.text(`1. ${dateStr} - ${methodLabel}`, ML, y);
+  doc.text(num(Number(payment.total_amount)), MR, y, { align: "right" });
+  y += 10;
+
+  y += 2;
+  dashed();
+
+  // Paid Amount + Status
+  kvRight("Paid Amount", num(Number(payment.total_amount)));
+  kvRight("Payment Status", statusText, true);
+
+  y += 2;
+  dashed();
+
+  // ── AMOUNT IN WORDS ────────────────────────────────────────────────────────
+  const words = amountInWords(Number(payment.total_amount));
   doc.setFont("helvetica", "italic");
-  doc.setFontSize(10);
-  doc.setTextColor(160, 165, 185);
-  doc.text(notes, (ML + MR) / 2, y, { align: "center" });
+  doc.setFontSize(7.5);
+  doc.setTextColor(...BLACK);
+  // Wrap long words text to fit narrow column
+  const wordLines = doc.splitTextToSize(`Amount: ${words}`, MR - ML) as string[];
+  doc.text(wordLines, ML, y);
+  y += wordLines.length * 9 + 4;
+
+  dashed();
+
+  // ── THANK YOU ──────────────────────────────────────────────────────────────
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(...GRAY);
+  doc.text("Thank you for your business!", CX, y, { align: "center" });
+  y += 13;
+  doc.text("We appreciate your membership.", CX, y, { align: "center" });
+  y += 10;
+
+  dashed();
+
+  // ── FOOTER ─────────────────────────────────────────────────────────────────
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7);
+  doc.setTextColor(...LGRAY);
+  doc.text("Powered by Pulse GMS", CX, y, { align: "center" });
 
   return doc;
 }

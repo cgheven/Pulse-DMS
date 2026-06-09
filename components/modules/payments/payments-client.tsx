@@ -21,7 +21,7 @@ import { InvoiceDialog, type InvoiceData } from "@/components/modules/payments/i
 type MemberRow = Pick<Member,
   "id" | "full_name" | "member_number" | "phone" | "monthly_fee" | "plan_id" |
   "assigned_trainer_id" | "status" | "plan_expiry_date" | "outstanding_balance" |
-  "pending_signup_discount"
+  "pending_signup_discount" | "join_date"
 > & { plan?: { name: string } | null; plans?: { plan?: { id: string; name: string; color: string } | null }[] | null; trainer?: { full_name: string } | null };
 
 type PlanRow = Pick<MembershipPlan, "id" | "name" | "price" | "duration_type">;
@@ -283,6 +283,7 @@ export function PaymentsClient({ gymId, payments: initialPayments, members }: Pr
       payment,
       memberName: payment.member?.full_name ?? member?.full_name ?? "Member",
       memberPhone: member?.phone ?? null,
+      memberNumber: member?.member_number ?? null,
       planName: member ? (memberPlanLabel(member, "") || null) : null,
     })
   }
@@ -574,14 +575,16 @@ export function PaymentsClient({ gymId, payments: initialPayments, members }: Pr
                             {payment ? (
                               <StatusBadge status={payment.status} />
                             ) : (() => {
-                              const overdue = todayDayOfMonth >= 3;
+                              const joinedThisMonth = m.join_date?.startsWith(CURRENT_MONTH);
+                              const graceDays = gym?.payment_overdue_grace_days ?? 2;
+                              const overdue = !joinedThisMonth && todayDayOfMonth > graceDays;
                               return (
                                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${
                                   overdue
                                     ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
                                     : "bg-white/5 text-muted-foreground border-white/10"
                                 }`}>
-                                  {overdue ? `${todayDayOfMonth}d overdue` : "Not paid"}
+                                  {overdue ? `${todayDayOfMonth - graceDays}d overdue` : "Not paid"}
                                 </span>
                               );
                             })()}

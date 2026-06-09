@@ -14,12 +14,13 @@ export interface InvoiceData {
   payment: Payment;
   memberName: string;
   memberPhone?: string | null;
+  memberNumber?: string | null;
   planName?: string | null;
 }
 
 interface InvoiceDialogProps {
   data: InvoiceData | null;
-  gym: Pick<Gym, "name" | "address" | "city" | "phone" | "ntn" | "report_settings"> | null;
+  gym: Pick<Gym, "name" | "address" | "city" | "phone" | "email" | "ntn" | "report_settings"> | null;
   onClose: () => void;
 }
 
@@ -30,7 +31,7 @@ export function InvoiceDialog({ data, gym, onClose }: InvoiceDialogProps) {
 
   if (!data) return null;
 
-  const { payment, memberName, memberPhone, planName } = data;
+  const { payment, memberName, memberPhone, memberNumber, planName } = data;
   const formattedPeriod = formatPeriod(payment.for_period);
   const taxRate = gym?.report_settings?.taxRate ?? 0;
   const taxInc = gym?.report_settings?.taxInclusive ?? false;
@@ -51,7 +52,7 @@ export function InvoiceDialog({ data, gym, onClose }: InvoiceDialogProps) {
     : formatDate(new Date().toISOString());
 
   async function downloadPdf() {
-    const doc = await buildInvoiceDoc({ payment, memberName, planName }, gym, formattedPeriod);
+    const doc = await buildInvoiceDoc({ payment, memberName, memberPhone, memberNumber, planName }, gym, formattedPeriod);
     const blob = doc.output("blob");
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");

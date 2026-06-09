@@ -153,7 +153,7 @@ interface MemberTableProps {
   list: Member[];
   showExpired: boolean;
   planMap: Record<string, MembershipPlan>;
-  onEdit: (m: Member) => void;
+  onEdit?: (m: Member) => void;
   onDelete: (m: Member) => void;
   onView?: (m: Member) => void;
   selectedIds: Set<string>;
@@ -281,9 +281,11 @@ const MemberTable = memo(function MemberTable({ list, showExpired, planMap, onEd
                 <td className="px-3 sm:px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-0.5 sm:gap-1">
                     {extraActions?.(m)}
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(m)}>
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </Button>
+                    {onEdit && (
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(m)}>
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
                     <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => onDelete(m)}>
                       <Trash2 className="w-3.5 h-3.5" />
                     </Button>
@@ -1210,13 +1212,20 @@ export function MembersClient({
                 <p className="text-sm">{search ? "No members match your search" : "No expired or cancelled members"}</p>
               </div>
             ) : (
-              <MemberTable list={filteredExpired} showExpired={true} planMap={planMap} onEdit={openEdit} onDelete={setDeleteMember} onView={setTimelineMember}
+              <MemberTable list={filteredExpired} showExpired={true} planMap={planMap} onDelete={setDeleteMember} onView={setTimelineMember}
                 selectedIds={selectedIds} onToggle={toggleMember} onSelectAll={() => selectAll(filteredExpired)}
                 extraActions={(m) => (
-                  <Button variant="ghost" size="icon" title="History" className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                    onClick={() => setTimelineMember(m)}>
-                    <Clock className="w-3.5 h-3.5" />
-                  </Button>
+                  <>
+                    <Button variant="ghost" size="sm" title="Reactivate member"
+                      className="h-7 px-2 text-xs text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 gap-1"
+                      onClick={() => openEdit(m)}>
+                      <PlayCircle className="w-3.5 h-3.5" /> Reactivate
+                    </Button>
+                    <Button variant="ghost" size="icon" title="History" className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                      onClick={() => setTimelineMember(m)}>
+                      <Clock className="w-3.5 h-3.5" />
+                    </Button>
+                  </>
                 )} />
             )}
           </div>
@@ -1588,6 +1597,31 @@ function ValidatedInput({ value, onChange, validator, required, className, ...re
   );
 }
 
+function calcPlanExpiry(plan: MembershipPlan, startDateStr: string): string {
+  const [y, m, d] = (startDateStr || formatDateInput(new Date())).split("-").map(Number);
+  // m is 1-indexed from the date string. JS Date months are 0-indexed, so passing m
+  // directly as the month arg means "next month" — this is intentional.
+  //
+  // Clamp: when the start day exceeds the days in the target month, cap at the last
+  // valid day instead of overflowing (e.g. Jan 31 + monthly → Feb 28, not Mar 2).
+  // d=1 start uses day-0 trick (last day of previous month) which is intentional.
+  const clampDay = (offset: number) => {
+    if (d <= 1) return 0;
+    const last = new Date(y, m + offset + 1, 0).getDate();
+    return Math.min(d - 1, last);
+  };
+  switch (plan.duration_type) {
+    case "monthly":   return formatDateInput(new Date(y, m,     clampDay(0)));
+    case "quarterly": return formatDateInput(new Date(y, m + 2, clampDay(2)));
+    case "biannual":  return formatDateInput(new Date(y, m + 5, clampDay(5)));
+    case "annual":    return formatDateInput(new Date(y + 1, m - 1, d - 1));
+  }
+  if (plan.duration_days && plan.duration_days > 0) {
+    return formatDateInput(new Date(y, m - 1, d + plan.duration_days - 1));
+  }
+  return formatDateInput(new Date(y, m - 1, d));
+}
+
 // ─── Isolated form dialog ────────────────────────────────────────────────────
 // Owns its own state so typing doesn't re-render the parent's tables.
 
@@ -1624,6 +1658,7 @@ function MemberFormDialog({
   const [allowDuplicate, setAllowDuplicate] = useState(false);
   const [leadPickerOpen, setLeadPickerOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<UnmatchedLead | null>(null);
+  const [planPortalEl, setPlanPortalEl] = useState<HTMLElement | null>(null);
   const [unmatchedLeads, setUnmatchedLeads] = useState<UnmatchedLead[]>([]);
 
   // Detect a member with the same phone (ignoring the one being edited).
@@ -1704,8 +1739,18 @@ function MemberFormDialog({
         referrer_id: (editing as Member & { referrer_id?: string | null }).referrer_id ?? "",
         social_lead_id: "",
         join_date: editing.join_date,
-        plan_start_date: editing.plan_start_date ?? "",
-        plan_expiry_date: editing.plan_expiry_date ?? "",
+        plan_start_date: (() => {
+          if (editing.status === "expired" || editing.status === "cancelled") return formatDateInput(new Date());
+          return editing.plan_start_date ?? "";
+        })(),
+        plan_expiry_date: (() => {
+          if (editing.status === "expired" || editing.status === "cancelled") {
+            const today = formatDateInput(new Date());
+            const primaryPlan = editing.plan_id ? planMap[editing.plan_id] : null;
+            return primaryPlan ? calcPlanExpiry(primaryPlan, today) : "";
+          }
+          return editing.plan_expiry_date ?? "";
+        })(),
         admission_fee: editing.admission_fee > 0 ? editing.admission_fee.toString() : "",
         admission_fee_paid: false,
         discount: "0",
@@ -1721,29 +1766,7 @@ function MemberFormDialog({
     } else {
       setForm(makeEmptyForm(initialDeviceUserId ?? ""));
     }
-  }, [open, editing, initialDeviceUserId]);
-
-  function calcPlanExpiry(plan: MembershipPlan, startDateStr: string): string {
-    const [y, m, d] = (startDateStr || formatDateInput(new Date())).split("-").map(Number);
-
-    // Standard cycles always use CALENDAR MONTHS (duration_days is ignored for
-    // these — "quarterly" means 3 calendar months, not exactly 90 days).
-    // Last active day = (start + cycle) - 1 day. The Date constructor handles
-    // month-overflow automatically; m is 1-indexed so month m = start month + 1.
-    switch (plan.duration_type) {
-      case "monthly":   return formatDateInput(new Date(y, m,     d - 1));
-      case "quarterly": return formatDateInput(new Date(y, m + 2, d - 1));
-      case "biannual":  return formatDateInput(new Date(y, m + 5, d - 1));
-      case "annual":    return formatDateInput(new Date(y + 1, m - 1, d - 1));
-    }
-
-    // daily / dropin (or unknown): use duration_days as a literal day-count pass
-    // (e.g. a 7-day pass), start day counts as day 1. No duration_days → same day.
-    if (plan.duration_days && plan.duration_days > 0) {
-      return formatDateInput(new Date(y, m - 1, d + plan.duration_days - 1));
-    }
-    return formatDateInput(new Date(y, m - 1, d));
-  }
+  }, [open, editing, initialDeviceUserId, plans]);
 
   // Toggle a plan in the member's multi-plan set. The first selected plan is
   // the primary (member.plan_id) — it drives the billing cycle/expiry. The
@@ -1924,6 +1947,8 @@ function MemberFormDialog({
     <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        {/* Portal target for plan picker — keeps Popover inside Dialog DOM so react-remove-scroll allows wheel events */}
+        <div ref={(el) => setPlanPortalEl(el)} />
         <DialogHeader>
           <DialogTitle>{editing ? "Edit Member" : "Add Member"}</DialogTitle>
         </DialogHeader>
@@ -2089,11 +2114,17 @@ function MemberFormDialog({
                       <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent align="start" className="p-0 overflow-hidden w-[var(--radix-popover-trigger-width)] min-w-[260px]">
-                    <div className="max-h-64 overflow-y-auto divide-y divide-sidebar-border/50">
+                  <PopoverContent align="start" container={planPortalEl} className="p-0 max-h-64 overflow-y-auto w-[var(--radix-popover-trigger-width)] min-w-[260px]">
+                    <div className="divide-y divide-sidebar-border/50">
                       {plans.length === 0 ? (
                         <p className="px-3 py-3 text-sm text-muted-foreground text-center">No plans available</p>
-                      ) : plans.map((p) => {
+                      ) : [...plans].sort((a, b) => {
+                        const aSelected = form.plan_ids.includes(a.id);
+                        const bSelected = form.plan_ids.includes(b.id);
+                        if (aSelected && !bSelected) return -1;
+                        if (!aSelected && bSelected) return 1;
+                        return 0;
+                      }).map((p) => {
                         const idx = form.plan_ids.indexOf(p.id);
                         const selected = idx !== -1;
                         const isPrimary = idx === 0;
@@ -2400,7 +2431,7 @@ type TimelinePayment = Payment & { plan?: { name: string } | null; trainer?: { f
 type TimelineEvent = {
   id: string;
   date: string;
-  type: "joined" | "payment" | "freeze" | "unfreeze" | "hold" | "resume" | "defaulter" | "defaulter_cleared" | "status";
+  type: "joined" | "payment" | "freeze" | "unfreeze" | "hold" | "resume" | "defaulter" | "defaulter_cleared" | "reactivated" | "status";
   title: string;
   description: string;
   // Payment events render as stacked rows (amount, plan, trainer) instead of
@@ -2418,6 +2449,7 @@ const TIMELINE_ICONS: Record<TimelineEvent["type"], { icon: React.ElementType; c
   resume:            { icon: PlayCircle,  color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/30" },
   defaulter:         { icon: Ban,         color: "text-rose-400",    bg: "bg-rose-500/10 border-rose-500/30" },
   defaulter_cleared: { icon: UserCheck,   color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/30" },
+  reactivated:       { icon: PlayCircle,  color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/30" },
   status:            { icon: AlertCircle, color: "text-muted-foreground", bg: "bg-white/5 border-white/10" },
 };
 
@@ -2448,6 +2480,9 @@ function buildTimeline(member: Member, audits: AuditRow[], payments: TimelinePay
       events.push({ id: a.id, date: a.created_at, type: "defaulter", title: "Marked as Defaulter", description: `Flagged for non-payment${meta.defaulter_since ? ` · ${formatDate(meta.defaulter_since as string)}` : ""}` });
     } else if (a.action === "member.defaulter_cleared" || a.action === "member.defaulter_auto_cleared") {
       events.push({ id: a.id, date: a.created_at, type: "defaulter_cleared", title: "Defaulter Cleared", description: a.action === "member.defaulter_auto_cleared" ? "Auto-cleared — dues settled" : "Manually cleared by owner" });
+    } else if (a.action === "member.reactivate") {
+      const expiry = meta.new_expiry as string | undefined;
+      events.push({ id: a.id, date: a.created_at, type: "reactivated", title: "Reactivated", description: `Returned to active${expiry ? ` · new expiry ${formatDate(expiry)}` : ""}` });
     }
   }
 
