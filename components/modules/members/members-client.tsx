@@ -824,8 +824,8 @@ export function MembersClient({
         ))}
       </div>
 
-      {/* Search + trainer filter chips */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+      {/* Search + filters */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
         <div className="relative max-w-sm w-full sm:w-auto sm:flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
@@ -835,57 +835,38 @@ export function MembersClient({
             className="pl-9"
           />
         </div>
-        <div className="flex gap-1.5 flex-wrap">
-          <button type="button" onClick={() => setTrainerFilter("all")}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors inline-flex items-center gap-1.5 ${
-              trainerFilter === "all"
-                ? "bg-primary/15 border-primary/30 text-primary"
-                : "bg-white/[0.03] border-white/10 text-muted-foreground hover:border-white/20 hover:text-foreground"
-            }`}>
-            All <span className="text-[10px] opacity-70">{trainerCounts.all}</span>
-          </button>
-          {staff.map((t) => (
-            <button key={t.id} type="button"
-              onClick={() => setTrainerFilter(trainerFilter === t.id ? "all" : t.id)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors inline-flex items-center gap-1.5 ${
-                trainerFilter === t.id
-                  ? "bg-primary/15 border-primary/30 text-primary"
-                  : "bg-white/[0.03] border-white/10 text-muted-foreground hover:border-white/20 hover:text-foreground"
-              }`}>
-              {t.full_name} <span className="text-[10px] opacity-70">{trainerCounts[t.id] ?? 0}</span>
-            </button>
-          ))}
-          <button type="button"
-            onClick={() => setTrainerFilter(trainerFilter === "self" ? "all" : "self")}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors inline-flex items-center gap-1.5 ${
-              trainerFilter === "self"
-                ? "bg-primary/15 border-primary/30 text-primary"
-                : "bg-white/[0.03] border-white/10 text-muted-foreground hover:border-white/20 hover:text-foreground"
-            }`}>
-            SELF <span className="text-[10px] opacity-70">{trainerCounts.self}</span>
-          </button>
-        </div>
-        {hasShiftData && (
-          <div className="flex gap-1.5 flex-wrap items-center">
-            <span className="text-[11px] text-muted-foreground mr-0.5">Shift:</span>
-            <button type="button" onClick={() => setShiftFilter("all")}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                shiftFilter === "all"
-                  ? "bg-primary/15 border-primary/30 text-primary"
-                  : "bg-white/[0.03] border-white/10 text-muted-foreground hover:border-white/20 hover:text-foreground"
-              }`}>All</button>
-            {(["morning", "evening", "night"] as MemberShift[]).map((s) => (
-              <button key={s} type="button"
-                onClick={() => setShiftFilter(shiftFilter === s ? "all" : s)}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors inline-flex items-center gap-1.5 ${
-                  shiftFilter === s
-                    ? "bg-primary/15 border-primary/30 text-primary"
-                    : "bg-white/[0.03] border-white/10 text-muted-foreground hover:border-white/20 hover:text-foreground"
-                }`}>
-                {SHIFT_LABELS[s]} <span className="text-[10px] opacity-70">{shiftCounts[s]}</span>
-              </button>
+
+        {/* Trainer dropdown */}
+        <Select value={trainerFilter} onValueChange={setTrainerFilter}>
+          <SelectTrigger className="w-full sm:w-44 h-9 text-sm">
+            <SelectValue placeholder="All Trainers" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Trainers <span className="text-muted-foreground text-xs ml-1">({trainerCounts.all})</span></SelectItem>
+            {staff.map((t) => (
+              <SelectItem key={t.id} value={t.id}>
+                {t.full_name} <span className="text-muted-foreground text-xs ml-1">({trainerCounts[t.id] ?? 0})</span>
+              </SelectItem>
             ))}
-          </div>
+            <SelectItem value="self">No Trainer <span className="text-muted-foreground text-xs ml-1">({trainerCounts.self})</span></SelectItem>
+          </SelectContent>
+        </Select>
+
+        {/* Shift dropdown */}
+        {hasShiftData && (
+          <Select value={shiftFilter} onValueChange={(v) => setShiftFilter(v as "all" | MemberShift)}>
+            <SelectTrigger className="w-full sm:w-36 h-9 text-sm">
+              <SelectValue placeholder="All Shifts" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Shifts</SelectItem>
+              {(["morning", "evening", "night"] as MemberShift[]).map((s) => (
+                <SelectItem key={s} value={s}>
+                  {SHIFT_LABELS[s]} <span className="text-muted-foreground text-xs ml-1">({shiftCounts[s]})</span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         )}
       </div>
 
@@ -894,19 +875,19 @@ export function MembersClient({
         <div className="overflow-x-auto -mx-1 px-1 scrollbar-hide">
           <TabsList className="w-max">
             <TabsTrigger value="active" className="whitespace-nowrap">
-              <UserCheck className="w-3.5 h-3.5" /> Active ({active.length})
+              <UserCheck className="w-3.5 h-3.5" /> Active ({filteredActive.length})
             </TabsTrigger>
             <TabsTrigger value="frozen" className="whitespace-nowrap">
-              <Snowflake className="w-3.5 h-3.5" /> Frozen ({frozen.length})
+              <Snowflake className="w-3.5 h-3.5" /> Frozen ({filteredFrozen.length})
             </TabsTrigger>
             <TabsTrigger value="on_hold" className="whitespace-nowrap">
-              <PauseCircle className="w-3.5 h-3.5" /> On Hold ({onHold.length})
+              <PauseCircle className="w-3.5 h-3.5" /> On Hold ({filteredOnHold.length})
             </TabsTrigger>
             <TabsTrigger value="defaulters" className="whitespace-nowrap">
-              <Ban className="w-3.5 h-3.5" /> Defaulters ({defaulters.length})
+              <Ban className="w-3.5 h-3.5" /> Defaulters ({filteredDefaulters.length})
             </TabsTrigger>
             <TabsTrigger value="expired" className="whitespace-nowrap">
-              <CalendarX className="w-3.5 h-3.5" /> Expired ({expired.length})
+              <CalendarX className="w-3.5 h-3.5" /> Expired ({filteredExpired.length})
             </TabsTrigger>
             <TabsTrigger value="collect" className="whitespace-nowrap">
               <CreditCard className="w-3.5 h-3.5" /> Collect Fees
