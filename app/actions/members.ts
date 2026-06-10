@@ -413,6 +413,85 @@ export async function clearDefaulter(memberId: string) {
   return { success: true };
 }
 
+const ALLOWED_PAYMENT_METHODS = ["cash", "bank_transfer", "jazzcash", "easypaisa", "card", "other"] as const;
+
+export async function clearDefaulterWithPayment(
+  memberId: string,
+  payment: { amount: number; method: string; date: string; forPeriod: string },
+) {
+  const ctx = await requireOwnerOrPermission("members.freeze");
+  if (!ctx) return { error: "Unauthorized" };
+
+  // Server-side validation — client guards are not trusted
+  if (!Number.isFinite(payment.amount) || payment.amount <= 0)
+    return { error: "Payment amount must be greater than zero" };
+  if (!(ALLOWED_PAYMENT_METHODS as readonly string[]).includes(payment.method))
+    return { error: "Invalid payment method" };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(payment.date))
+    return { error: "Invalid payment date" };
+  const parsedDate = new Date(payment.date);
+  if (isNaN(parsedDate.getTime()))
+    return { error: "Invalid payment date" };
+  if (payment.date > formatDateInput(new Date()))
+    return { error: "Payment date cannot be in the future" };
+  if (!/^\d{4}-\d{2}$/.test(payment.forPeriod))
+    return { error: "Invalid period" };
+
+  const admin = createAdminClient();
+
+  const { data: member } = await admin
+    .from("pulse_members")
+    .select("full_name, status, defaulter_since, plan_id, monthly_fee, outstanding_balance")
+    .eq("id", memberId)
+    .eq("gym_id", ctx.gymId)
+    .single();
+  if (!member) return { error: "Member not found" };
+  if (member.status !== "defaulter") return { error: "Member is not a defaulter" };
+
+  // Snapshot the member's plan set for the payment receipt
+  const { data: memberPlans } = await admin
+    .from("pulse_member_plans")
+    .select("plan:pulse_membership_plans(name, price)")
+    .eq("member_id", memberId);
+  const planBreakdown = (memberPlans ?? [])
+    .map((r) => (r as unknown as { plan?: { name: string; price: number } | null }).plan)
+    .filter((p): p is { name: string; price: number } => !!p)
+    .map((p) => ({ name: p.name, price: Number(p.price) }));
+
+  const suffix = Math.floor(Math.random() * 900 + 100);
+  const receiptNo = `CLR-${payment.forPeriod.replace("-", "")}-${memberId.slice(0, 4).toUpperCase()}-${suffix}`;
+
+  // Single atomic Postgres call — row lock + member update + payment insert in one transaction.
+  // Balance is computed inside the RPC after acquiring a FOR UPDATE lock, eliminating TOCTOU.
+  // If either write fails the whole thing rolls back: no orphan payments, no stuck defaulters.
+  const { data: paymentId, error: rpcErr } = await admin.rpc("clear_defaulter_with_payment", {
+    p_gym_id:         ctx.gymId,
+    p_member_id:      memberId,
+    p_amount:         payment.amount,
+    p_method:         payment.method,
+    p_date:           payment.date,
+    p_for_period:     payment.forPeriod,
+    p_receipt_no:     receiptNo,
+    p_plan_id:        member.plan_id ?? null,
+    p_plan_breakdown: planBreakdown.length ? planBreakdown : null,
+  });
+  if (rpcErr) return { error: rpcErr.message };
+
+  await writeAuditLog({
+    actor_id: ctx.user.id, actor_email: ctx.user.email ?? "",
+    action: "member.defaulter_cleared", entity: "member", entity_id: memberId,
+    meta: {
+      full_name: member.full_name,
+      was_defaulter_since: member.defaulter_since,
+      payment_amount: payment.amount,
+      payment_method: payment.method,
+      for_period: payment.forPeriod,
+    },
+  });
+  revalidate(ctx.gymId);
+  return { success: true, paymentId: paymentId as string | null };
+}
+
 export async function checkAndClearDefaulter(memberId: string) {
   const ctx = await requireOwner();
   if (!ctx) return { cleared: false };

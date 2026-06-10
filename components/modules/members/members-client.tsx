@@ -27,7 +27,7 @@ import { buildReminderMessage, whatsappUrl } from "@/lib/whatsapp-reminder";
 import { validateFullName, validateCNIC, validatePakPhone, validateDOB, validateMoney, runValidators, type ValidationResult } from "@/lib/validation";
 import type { Member, MembershipPlan, MemberStatus, MemberGender, MemberShift, Staff, Payment, PaymentMethod, PaymentStatus, Referrer, SocialManager, SocialLead, TrainerShift } from "@/types";
 import { matchSocialLead } from "@/app/actions/social";
-import { freezeMember, unfreezeMember, putMemberOnHold, resumeMember, markAsDefaulter, clearDefaulter, checkAndClearDefaulter, updateMember, deleteMember as deleteMemberAction, createMember, bulkUpdateMembers, createReferralForMember, consumeUnlinkedPunch, reloadMembersData } from "@/app/actions/members";
+import { freezeMember, unfreezeMember, putMemberOnHold, resumeMember, markAsDefaulter, clearDefaulter, clearDefaulterWithPayment, checkAndClearDefaulter, updateMember, deleteMember as deleteMemberAction, createMember, bulkUpdateMembers, createReferralForMember, consumeUnlinkedPunch, reloadMembersData } from "@/app/actions/members";
 import { createPayment, updatePayment, listPaymentsForGym, listMemberTimeline } from "@/app/actions/payments";
 import { SmartAssignPanel } from "@/components/modules/profit-insights/smart-assign-panel";
 import { PhotoPicker } from "@/components/modules/members/photo-picker";
@@ -381,6 +381,10 @@ export function MembersClient({
   const [payForm, setPayForm] = useState({ amount: "", discount: "0", late_fee: "0", method: "cash" as PaymentMethod, date: formatDateInput(new Date()), receipt_number: "", notes: "" });
   const [paySaving, setPaySaving] = useState(false);
 
+  const [clearDialog, setClearDialog] = useState<Member | null>(null);
+  const [clearForm, setClearForm] = useState({ amount: "", method: "cash" as PaymentMethod, date: formatDateInput(new Date()), forPeriod: CURRENT_MONTH });
+  const [clearSaving, setClearSaving] = useState(false);
+
   async function loadPayments() {
     if (paymentsLoaded || !gymId) return;
     // Use a server action — direct client queries to pulse_payments are
@@ -571,13 +575,56 @@ export function MembersClient({
     await reload();
   }
 
-  async function handleClearDefaulter(m: Member) {
+  function handleClearDefaulter(m: Member) {
     if (isDemo) { toast({ title: "You're in demo mode", description: "Sign up to unlock editing →" }); return; }
-    setProcessing(m.id, true);
-    const result = await clearDefaulter(m.id);
-    setProcessing(m.id, false);
+    // Compute current month fresh at dialog-open time (not from module-level constant
+    // which is frozen at bundle load and would be wrong after a midnight session).
+    const now = new Date();
+    const todayMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const outstanding = Number(m.outstanding_balance ?? 0);
+    const defaulterMonth = m.defaulter_since ? m.defaulter_since.slice(0, 7) : todayMonth;
+    setClearDialog(m);
+    setClearForm({
+      amount: outstanding > 0 ? String(outstanding) : String(m.monthly_fee),
+      method: "cash",
+      date: formatDateInput(now),
+      forPeriod: defaulterMonth <= todayMonth ? defaulterMonth : todayMonth,
+    });
+  }
+
+  async function handleClearWithPayment() {
+    if (!clearDialog) return;
+    if (isDemo) { toast({ title: "You're in demo mode", description: "Sign up to unlock editing →" }); return; }
+    setClearSaving(true);
+    const amount = parseFloat(clearForm.amount) || 0;
+    if (amount <= 0) {
+      toast({ title: "Enter a valid amount", variant: "destructive" });
+      setClearSaving(false);
+      return;
+    }
+    const result = await clearDefaulterWithPayment(clearDialog.id, {
+      amount,
+      method: clearForm.method,
+      date: clearForm.date,
+      forPeriod: clearForm.forPeriod,
+    });
+    setClearSaving(false);
     if ("error" in result) { toast({ title: "Error", description: result.error, variant: "destructive" }); return; }
-    toast({ title: `${m.full_name} cleared — back to active` });
+    const name = clearDialog.full_name;
+    setClearDialog(null);
+    toast({ title: `Payment recorded — ${name} is back to active` });
+    await reload();
+  }
+
+  async function handleClearWithoutPayment() {
+    if (!clearDialog) return;
+    if (isDemo) { toast({ title: "You're in demo mode", description: "Sign up to unlock editing →" }); return; }
+    setClearSaving(true);
+    const result = await clearDefaulter(clearDialog.id);
+    setClearSaving(false);
+    if ("error" in result) { toast({ title: "Error", description: result.error, variant: "destructive" }); return; }
+    setClearDialog(null);
+    toast({ title: `${clearDialog.full_name} cleared — back to active` });
     await reload();
   }
 
@@ -1409,6 +1456,106 @@ export function MembersClient({
         onConfirm={() => { handleDelete(deleteMember!); setDeleteMember(null); }}
         onCancel={() => setDeleteMember(null)}
       />
+
+      {/* Clear defaulter — collect payment dialog */}
+      <Dialog open={!!clearDialog} onOpenChange={(o) => !o && !clearSaving && setClearDialog(null)}>
+        <DialogContent
+          className="sm:max-w-sm"
+          onInteractOutside={(e) => { if (clearSaving) e.preventDefault(); }}
+          onEscapeKeyDown={(e) => { if (clearSaving) e.preventDefault(); }}
+        >
+          <DialogHeader>
+            <DialogTitle>Clear {clearDialog?.full_name}</DialogTitle>
+          </DialogHeader>
+          {clearDialog && (() => {
+            const todayStr = formatDateInput(new Date());
+            const nowD = new Date();
+            const todayMonth = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, "0")}`;
+            const startKey = clearDialog.defaulter_since
+              ? clearDialog.defaulter_since.slice(0, 7)
+              : todayMonth;
+            const rangeStart = startKey <= todayMonth ? startKey : todayMonth;
+            const monthOpts: { value: string; label: string }[] = [];
+            let key = rangeStart;
+            while (key <= todayMonth && monthOpts.length < 24) {
+              monthOpts.push({ value: key, label: monthLabel(key) });
+              key = offsetMonth(key, 1);
+            }
+            const outstanding = Number(clearDialog.outstanding_balance ?? 0);
+            const enteredAmount = parseFloat(clearForm.amount) || 0;
+            const isOverpayment = outstanding > 0 && enteredAmount > outstanding;
+            return (
+              <div className="space-y-4 py-1">
+                {outstanding > 0 && (
+                  <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 px-4 py-3 text-sm text-amber-400">
+                    Outstanding balance: <span className="font-semibold">{formatCurrency(outstanding)}</span>
+                  </div>
+                )}
+                <div className="space-y-1.5">
+                  <Label>Amount Received (PKR)</Label>
+                  <Input
+                    type="number"
+                    placeholder="0"
+                    value={clearForm.amount}
+                    onChange={(e) => setClearForm((f) => ({ ...f, amount: e.target.value }))}
+                  />
+                  {isOverpayment && (
+                    <p className="text-xs text-amber-400">Amount is more than the outstanding balance — the extra will not be recorded as credit.</p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Payment For</Label>
+                  <Select value={clearForm.forPeriod} onValueChange={(v) => setClearForm((f) => ({ ...f, forPeriod: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {monthOpts.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Payment Method</Label>
+                  <Select value={clearForm.method} onValueChange={(v) => setClearForm((f) => ({ ...f, method: v as PaymentMethod }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {(Object.entries(methodLabels) as [PaymentMethod, string][]).map(([k, v]) => (
+                        <SelectItem key={k} value={k}>{v}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Date</Label>
+                  <Input
+                    type="date"
+                    max={todayStr}
+                    value={clearForm.date}
+                    onChange={(e) => setClearForm((f) => ({ ...f, date: e.target.value }))}
+                  />
+                </div>
+              </div>
+            );
+          })()}
+          <DialogFooter className="flex-col gap-2 sm:flex-col">
+            <Button
+              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+              disabled={clearSaving}
+              onClick={handleClearWithPayment}
+            >
+              {clearSaving ? "Saving…" : "Collect & Clear"}
+            </Button>
+            <button
+              type="button"
+              className="w-full text-xs text-muted-foreground hover:text-foreground py-1 transition-colors disabled:opacity-50"
+              disabled={clearSaving}
+              onClick={handleClearWithoutPayment}
+            >
+              Clear without payment
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Bulk Action Bar ─────────────────────────────────────────────────── */}
       {selectedIds.size > 0 && (
