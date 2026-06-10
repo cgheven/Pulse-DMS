@@ -382,7 +382,7 @@ export function MembersClient({
   const [paySaving, setPaySaving] = useState(false);
 
   const [clearDialog, setClearDialog] = useState<Member | null>(null);
-  const [clearForm, setClearForm] = useState({ amount: "", method: "cash" as PaymentMethod, date: formatDateInput(new Date()), forPeriod: CURRENT_MONTH });
+  const [clearForm, setClearForm] = useState({ amount: "", method: "cash" as PaymentMethod, date: formatDateInput(new Date()) });
   const [clearSaving, setClearSaving] = useState(false);
 
   async function loadPayments() {
@@ -580,15 +580,12 @@ export function MembersClient({
     // Compute current month fresh at dialog-open time (not from module-level constant
     // which is frozen at bundle load and would be wrong after a midnight session).
     const now = new Date();
-    const todayMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     const outstanding = Number(m.outstanding_balance ?? 0);
-    const defaulterMonth = m.defaulter_since ? m.defaulter_since.slice(0, 7) : todayMonth;
     setClearDialog(m);
     setClearForm({
       amount: outstanding > 0 ? String(outstanding) : String(m.monthly_fee),
       method: "cash",
       date: formatDateInput(now),
-      forPeriod: defaulterMonth <= todayMonth ? defaulterMonth : todayMonth,
     });
   }
 
@@ -606,7 +603,6 @@ export function MembersClient({
       amount,
       method: clearForm.method,
       date: clearForm.date,
-      forPeriod: clearForm.forPeriod,
     });
     setClearSaving(false);
     if ("error" in result) { toast({ title: "Error", description: result.error, variant: "destructive" }); return; }
@@ -1469,18 +1465,6 @@ export function MembersClient({
           </DialogHeader>
           {clearDialog && (() => {
             const todayStr = formatDateInput(new Date());
-            const nowD = new Date();
-            const todayMonth = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, "0")}`;
-            const startKey = clearDialog.defaulter_since
-              ? clearDialog.defaulter_since.slice(0, 7)
-              : todayMonth;
-            const rangeStart = startKey <= todayMonth ? startKey : todayMonth;
-            const monthOpts: { value: string; label: string }[] = [];
-            let key = rangeStart;
-            while (key <= todayMonth && monthOpts.length < 24) {
-              monthOpts.push({ value: key, label: monthLabel(key) });
-              key = offsetMonth(key, 1);
-            }
             const outstanding = Number(clearDialog.outstanding_balance ?? 0);
             const enteredAmount = parseFloat(clearForm.amount) || 0;
             const isOverpayment = outstanding > 0 && enteredAmount > outstanding;
@@ -1502,17 +1486,6 @@ export function MembersClient({
                   {isOverpayment && (
                     <p className="text-xs text-amber-400">Amount is more than the outstanding balance — the extra will not be recorded as credit.</p>
                   )}
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Payment For</Label>
-                  <Select value={clearForm.forPeriod} onValueChange={(v) => setClearForm((f) => ({ ...f, forPeriod: v }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {monthOpts.map((o) => (
-                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Payment Method</Label>

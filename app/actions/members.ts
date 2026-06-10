@@ -417,7 +417,7 @@ const ALLOWED_PAYMENT_METHODS = ["cash", "bank_transfer", "jazzcash", "easypaisa
 
 export async function clearDefaulterWithPayment(
   memberId: string,
-  payment: { amount: number; method: string; date: string; forPeriod: string },
+  payment: { amount: number; method: string; date: string },
 ) {
   const ctx = await requireOwnerOrPermission("members.freeze");
   if (!ctx) return { error: "Unauthorized" };
@@ -434,9 +434,6 @@ export async function clearDefaulterWithPayment(
     return { error: "Invalid payment date" };
   if (payment.date > formatDateInput(new Date()))
     return { error: "Payment date cannot be in the future" };
-  if (!/^\d{4}-\d{2}$/.test(payment.forPeriod))
-    return { error: "Invalid period" };
-
   const admin = createAdminClient();
 
   const { data: member } = await admin
@@ -458,8 +455,10 @@ export async function clearDefaulterWithPayment(
     .filter((p): p is { name: string; price: number } => !!p)
     .map((p) => ({ name: p.name, price: Number(p.price) }));
 
+  const now = new Date();
+  const forPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const suffix = Math.floor(Math.random() * 900 + 100);
-  const receiptNo = `CLR-${payment.forPeriod.replace("-", "")}-${memberId.slice(0, 4).toUpperCase()}-${suffix}`;
+  const receiptNo = `CLR-${forPeriod.replace("-", "")}-${memberId.slice(0, 4).toUpperCase()}-${suffix}`;
 
   // Single atomic Postgres call — row lock + member update + payment insert in one transaction.
   // Balance is computed inside the RPC after acquiring a FOR UPDATE lock, eliminating TOCTOU.
@@ -470,7 +469,7 @@ export async function clearDefaulterWithPayment(
     p_amount:         payment.amount,
     p_method:         payment.method,
     p_date:           payment.date,
-    p_for_period:     payment.forPeriod,
+    p_for_period:     forPeriod,
     p_receipt_no:     receiptNo,
     p_plan_id:        member.plan_id ?? null,
     p_plan_breakdown: planBreakdown.length ? planBreakdown : null,
@@ -485,7 +484,7 @@ export async function clearDefaulterWithPayment(
       was_defaulter_since: member.defaulter_since,
       payment_amount: payment.amount,
       payment_method: payment.method,
-      for_period: payment.forPeriod,
+      for_period: forPeriod,
     },
   });
   revalidate(ctx.gymId);
