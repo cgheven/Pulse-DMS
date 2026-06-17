@@ -2,22 +2,20 @@
 
 import { useState, useTransition } from "react";
 import { Settings, Save, Mail, Calendar } from "lucide-react";
-import type { Shop, Profile } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { updateShopName } from "@/app/actions/shop";
+import { useShopContext } from "@/contexts/shop-context";
 
-interface Props {
-  shop: Shop;
-  profile: Profile | null;
-}
-
-export function SettingsClient({ shop, profile }: Props) {
+export function SettingsClient() {
+  const { shop, profile } = useShopContext();
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [shopName, setShopName] = useState(shop.shop_name);
+  const [shopName, setShopName] = useState(shop?.shop_name ?? "");
+
+  if (!shop) return null;
 
   function handleSave() {
     if (!shopName.trim()) {
@@ -25,7 +23,7 @@ export function SettingsClient({ shop, profile }: Props) {
       return;
     }
     startTransition(async () => {
-      const res = await updateShopName(shop.id, shopName.trim());
+      const res = await updateShopName(shop!.id, shopName.trim());
       if (res?.error) {
         toast({ title: res.error, variant: "destructive" });
         return;

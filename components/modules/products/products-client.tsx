@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useMemo } from "react";
+import { useState, useTransition, useMemo, useEffect, useCallback } from "react";
 import { Pencil, Trash2, Plus, Package, Users } from "lucide-react";
 import type { Product, Supplier } from "@/types";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -31,6 +31,8 @@ import {
   editSupplier,
   deleteSupplier,
 } from "@/app/actions/products";
+import { useShopContext } from "@/contexts/shop-context";
+import { createClient } from "@/lib/supabase/client";
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
@@ -46,12 +48,6 @@ function margin(cost: number, sale: number) {
 const PRESET_UNITS = ["piece", "box", "kg", "litre", "dozen"];
 
 // ─── types ─────────────────────────────────────────────────────────────────
-
-interface Props {
-  products: Product[];
-  suppliers: Supplier[];
-  shopId: string;
-}
 
 interface ProductForm {
   name: string;
@@ -85,12 +81,55 @@ const emptySupplierForm = (): SupplierForm => ({
   contact: "",
 });
 
+// ─── skeleton ──────────────────────────────────────────────────────────────
+
+function ProductsSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <div className="animate-pulse bg-muted rounded-xl h-9 w-48" />
+        <div className="animate-pulse bg-muted rounded-xl h-4 w-36" />
+      </div>
+      <div className="animate-pulse bg-muted rounded-xl h-10 w-48" />
+      <div className="animate-pulse bg-muted rounded-xl h-64" />
+    </div>
+  );
+}
+
 // ─── main component ────────────────────────────────────────────────────────
 
-export function ProductsClient({ products: initialProducts, suppliers: initialSuppliers, shopId }: Props) {
-  // We use local state optimistically; actions trigger revalidation for fresh data
-  const [products, setProducts] = useState<Product[]>(initialProducts);
-  const [suppliers, setSuppliers] = useState<Supplier[]>(initialSuppliers);
+export function ProductsClient() {
+  const { shopId } = useShopContext();
+
+  const [products, setProducts] = useState<Product[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchData = useCallback(async () => {
+    if (!shopId) return;
+    const supabase = createClient();
+    const [{ data: productsData }, { data: suppliersData }] = await Promise.all([
+      supabase
+        .from("dms_products")
+        .select("*, supplier:dms_suppliers(id,name,brand)")
+        .eq("shop_id", shopId)
+        .order("name"),
+      supabase
+        .from("dms_suppliers")
+        .select("*")
+        .eq("shop_id", shopId)
+        .order("name"),
+    ]);
+    setProducts((productsData as Product[]) ?? []);
+    setSuppliers((suppliersData as Supplier[]) ?? []);
+    setLoading(false);
+  }, [shopId]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  if (loading) return <ProductsSkeleton />;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -116,8 +155,8 @@ export function ProductsClient({ products: initialProducts, suppliers: initialSu
           <ProductsTab
             products={products}
             suppliers={suppliers}
-            shopId={shopId}
-            onProductsChange={setProducts}
+            shopId={shopId!}
+            onRefresh={fetchData}
           />
         </TabsContent>
 
@@ -125,8 +164,8 @@ export function ProductsClient({ products: initialProducts, suppliers: initialSu
           <SuppliersTab
             suppliers={suppliers}
             products={products}
-            shopId={shopId}
-            onSuppliersChange={setSuppliers}
+            shopId={shopId!}
+            onRefresh={fetchData}
           />
         </TabsContent>
       </Tabs>
@@ -140,12 +179,12 @@ function ProductsTab({
   products,
   suppliers,
   shopId,
-  onProductsChange,
+  onRefresh,
 }: {
   products: Product[];
   suppliers: Supplier[];
   shopId: string;
-  onProductsChange: (p: Product[]) => void;
+  onRefresh: () => Promise<void>;
 }) {
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -210,6 +249,7 @@ function ProductsTab({
 
       toast({ title: editingProduct ? "Product updated" : "Product added" });
       setDialogOpen(false);
+      await onRefresh();
     });
   }
 
@@ -220,8 +260,8 @@ function ProductsTab({
         toast({ title: res.error, variant: "destructive" });
         return;
       }
-      onProductsChange(products.filter((p) => p.id !== id));
       toast({ title: "Product deleted" });
+      await onRefresh();
     });
     setDeleteId(null);
   }
@@ -447,12 +487,12 @@ function SuppliersTab({
   suppliers,
   products,
   shopId,
-  onSuppliersChange,
+  onRefresh,
 }: {
   suppliers: Supplier[];
   products: Product[];
   shopId: string;
-  onSuppliersChange: (s: Supplier[]) => void;
+  onRefresh: () => Promise<void>;
 }) {
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -507,6 +547,7 @@ function SuppliersTab({
 
       toast({ title: editingSupplier ? "Supplier updated" : "Supplier added" });
       setDialogOpen(false);
+      await onRefresh();
     });
   }
 
@@ -517,8 +558,8 @@ function SuppliersTab({
         toast({ title: res.error, variant: "destructive" });
         return;
       }
-      onSuppliersChange(suppliers.filter((s) => s.id !== id));
       toast({ title: "Supplier deleted" });
+      await onRefresh();
     });
     setDeleteId(null);
   }

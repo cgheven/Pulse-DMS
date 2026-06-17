@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   ShoppingCart,
@@ -13,17 +14,71 @@ import {
   Wallet,
   BarChart2,
 } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { useShopContext } from "@/contexts/shop-context";
 import type { DashboardStats } from "@/types";
 
 function formatPKR(amount: number) {
   return `PKR ${amount.toLocaleString("en-PK")}`;
 }
 
-interface Props {
-  stats: DashboardStats;
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <div className="space-y-2">
+        <div className="animate-pulse bg-muted rounded-xl h-9 w-48" />
+        <div className="animate-pulse bg-muted rounded-xl h-4 w-36" />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="animate-pulse bg-muted rounded-xl h-28" />
+        ))}
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {Array.from({ length: 2 }).map((_, i) => (
+          <div key={i} className="animate-pulse bg-muted rounded-xl h-28" />
+        ))}
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="animate-pulse bg-muted rounded-xl h-20" />
+        ))}
+      </div>
+    </div>
+  );
 }
 
-export function DashboardClient({ stats }: Props) {
+export function DashboardClient() {
+  const { shopId } = useShopContext();
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!shopId) return;
+
+    const supabase = createClient();
+
+    async function fetchStats() {
+      setLoading(true);
+      try {
+        const { data, error } = await supabase.rpc("get_dashboard_stats", {
+          p_shop_id: shopId,
+        });
+        if (!error && data) {
+          setStats(Array.isArray(data) ? data[0] : data);
+        }
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchStats();
+  }, [shopId]);
+
+  if (loading || !stats) {
+    return <DashboardSkeleton />;
+  }
+
   const grossProfit = stats.month_sales - stats.month_cogs;
   const netProfit = stats.month_sales - stats.month_cogs - stats.month_expenses;
   const isNetPositive = netProfit >= 0;

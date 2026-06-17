@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useCallback, useMemo } from "react";
+import { useState, useTransition, useCallback, useMemo, useEffect } from "react";
 import {
   BookOpen,
   TrendingDown,
@@ -41,7 +41,17 @@ function fmtDate(dateStr: string) {
   }).format(new Date(dateStr));
 }
 
-// ── Skeleton ──────────────────────────────────────────────────────────────────
+// ── Skeletons ─────────────────────────────────────────────────────────────────
+
+function BalanceListSkeleton() {
+  return (
+    <div className="space-y-2 animate-pulse">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div key={i} className="h-20 bg-white/5 rounded-xl" />
+      ))}
+    </div>
+  );
+}
 
 function LedgerTableSkeleton() {
   return (
@@ -53,19 +63,14 @@ function LedgerTableSkeleton() {
   );
 }
 
-// ── Props ─────────────────────────────────────────────────────────────────────
-
-interface Props {
-  initialBalances: SupplierBalance[];
-}
-
 // ── Main Component ────────────────────────────────────────────────────────────
 
-export function SupplierLedgerClient({ initialBalances }: Props) {
+export function SupplierLedgerClient() {
   const { shopId } = useShopContext();
 
   // ── State ─────────────────────────────────────────────────────────────────
-  const [balances, setBalances] = useState<SupplierBalance[]>(initialBalances);
+  const [balances, setBalances] = useState<SupplierBalance[]>([]);
+  const [balancesLoading, setBalancesLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [ledger, setLedger] = useState<SupplierLedgerEntry[]>([]);
   const [ledgerLoading, setLedgerLoading] = useState(false);
@@ -161,7 +166,14 @@ export function SupplierLedgerClient({ initialBalances }: Props) {
       return { supplier: s, total_purchased, total_paid, balance: total_purchased - total_paid };
     });
     setBalances(newBalances);
+    setBalancesLoading(false);
   }, [shopId]);
+
+  // ── Load on mount ─────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    refreshBalances();
+  }, [refreshBalances]);
 
   // ── Select supplier ───────────────────────────────────────────────────────
 
@@ -276,7 +288,9 @@ export function SupplierLedgerClient({ initialBalances }: Props) {
 
           {/* Supplier list */}
           <div className="flex-1 overflow-y-auto space-y-2 pr-0.5 scrollbar-hide">
-            {balances.length === 0 ? (
+            {balancesLoading ? (
+              <BalanceListSkeleton />
+            ) : balances.length === 0 ? (
               <div className="rounded-xl border border-sidebar-border bg-card p-6 text-center">
                 <BookOpen className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
                 <p className="text-sm font-medium text-foreground mb-1">No suppliers yet.</p>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import {
   ShoppingCart, Plus, Pencil, Trash2, Search, Calendar,
   CreditCard, Banknote,
@@ -20,6 +20,8 @@ import { toast } from "@/hooks/use-toast";
 import { formatDateInput } from "@/lib/utils";
 import { addSale, editSale, deleteSale } from "@/app/actions/sales";
 import { fetchSales } from "@/app/actions/sales-data";
+import { createClient } from "@/lib/supabase/client";
+import { useShopContext } from "@/contexts/shop-context";
 import type { Sale, Product } from "@/types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -74,12 +76,20 @@ interface EditFormState {
   saleDate: string;
 }
 
-// ─── Props ────────────────────────────────────────────────────────────────────
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
 
-interface Props {
-  initialSales: Sale[];
-  initialProducts: Product[];
-  shopId: string;
+function PageSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <div className="animate-pulse bg-muted rounded-xl h-9 w-48" />
+        <div className="animate-pulse bg-muted rounded-xl h-4 w-36" />
+      </div>
+      <div className="animate-pulse bg-muted rounded-xl h-28" />
+      <div className="animate-pulse bg-muted rounded-xl h-64" />
+      <div className="animate-pulse bg-muted rounded-xl h-80" />
+    </div>
+  );
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -149,11 +159,49 @@ function SkeletonRows() {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export function SalesClient({ initialSales, initialProducts, shopId }: Props) {
+export function SalesClient() {
+  const { shopId } = useShopContext();
+
   // ── Data state ──────────────────────────────────────────────────────────────
-  const [sales, setSales] = useState<Sale[]>(initialSales);
-  const [products] = useState<Product[]>(initialProducts);
+  const [sales, setSales] = useState<Sale[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [loadingSales, setLoadingSales] = useState(false);
+
+  // ── Initial data fetch ───────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!shopId) return;
+
+    const supabase = createClient();
+    const today = new Date().toISOString().slice(0, 10);
+
+    async function loadInitialData() {
+      setInitialLoading(true);
+      try {
+        const [salesRes, productsRes] = await Promise.all([
+          supabase
+            .from("dms_sales")
+            .select("*, product:dms_products(id,name,unit)")
+            .eq("shop_id", shopId)
+            .eq("sale_date", today)
+            .order("created_at", { ascending: false })
+            .limit(50),
+          supabase
+            .from("dms_products")
+            .select("*")
+            .eq("shop_id", shopId)
+            .order("name"),
+        ]);
+
+        if (salesRes.data) setSales(salesRes.data as Sale[]);
+        if (productsRes.data) setProducts(productsRes.data as Product[]);
+      } finally {
+        setInitialLoading(false);
+      }
+    }
+
+    loadInitialData();
+  }, [shopId]);
 
   // ── Date filter state ────────────────────────────────────────────────────────
   const [dateFilter, setDateFilter] = useState<DateFilter>("today");
@@ -223,6 +271,7 @@ export function SalesClient({ initialSales, initialProducts, shopId }: Props) {
   // ── Reload sales for current date range ─────────────────────────────────────
   const reloadSales = useCallback(
     async (f: string, t: string) => {
+      if (!shopId) return;
       setLoadingSales(true);
       try {
         const result = await fetchSales(shopId, f, t);
@@ -235,6 +284,11 @@ export function SalesClient({ initialSales, initialProducts, shopId }: Props) {
     },
     [shopId]
   );
+
+  // ── Early return while initial data loads ────────────────────────────────────
+  if (initialLoading) {
+    return <PageSkeleton />;
+  }
 
   // ── Handle date filter tab change ────────────────────────────────────────────
   async function handleDateFilterChange(filter: DateFilter) {
@@ -263,6 +317,7 @@ export function SalesClient({ initialSales, initialProducts, shopId }: Props) {
   // ── Submit add form ──────────────────────────────────────────────────────────
   async function handleAddSale(e: React.FormEvent) {
     e.preventDefault();
+    if (!shopId) return;
     if (!addForm.productId) {
       toast({ title: "Select a product", variant: "destructive" });
       return;
@@ -326,7 +381,7 @@ export function SalesClient({ initialSales, initialProducts, shopId }: Props) {
 
   // ── Submit edit ──────────────────────────────────────────────────────────────
   async function handleEditSave() {
-    if (!editSaleRow || !editForm) return;
+    if (!editSaleRow || !editForm || !shopId) return;
     const quantity = parseFloat(editForm.quantity);
     const unitPrice = parseFloat(editForm.unitPrice);
     if (!quantity || quantity <= 0) {
@@ -356,7 +411,7 @@ export function SalesClient({ initialSales, initialProducts, shopId }: Props) {
 
   // ── Delete ───────────────────────────────────────────────────────────────────
   async function handleDelete() {
-    if (!deleteId) return;
+    if (!deleteId || !shopId) return;
     setDeleteSubmitting(true);
     const result = await deleteSale(deleteId, shopId);
     setDeleteSubmitting(false);

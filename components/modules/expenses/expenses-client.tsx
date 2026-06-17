@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useMemo, useTransition } from "react";
+import { useState, useMemo, useTransition, useEffect } from "react";
 import {
   Home, Zap, Users, MoreHorizontal, Trash2, Plus, Receipt,
 } from "lucide-react";
 import { addExpense, deleteExpense, fetchExpenses } from "@/app/actions/expenses";
+import { createClient } from "@/lib/supabase/client";
+import { useShopContext } from "@/contexts/shop-context";
 import { toast } from "@/hooks/use-toast";
 import type { Expense } from "@/types";
 
@@ -94,22 +96,43 @@ function CategoryBadge({ category }: { category: Category }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-interface Props {
-  shopId: string;
-  initialExpenses: Expense[];
-  defaultFrom: string;
-  defaultTo: string;
+function getThisMonthRange() {
+  const now = new Date();
+  const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  const to = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+  return { from, to };
 }
 
-export function ExpensesClient({ shopId, initialExpenses, defaultFrom, defaultTo }: Props) {
-  const [expenses, setExpenses] = useState<Expense[]>(initialExpenses);
+export function ExpensesClient() {
+  const { shopId } = useShopContext();
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [loading, setLoading] = useState(true);
 
   // ── Date filter ───────────────────────────────────────────────────────────
   type FilterMode = "this_month" | "last_month" | "custom";
   const [filterMode, setFilterMode] = useState<FilterMode>("this_month");
-  const [customFrom, setCustomFrom] = useState(defaultFrom);
-  const [customTo, setCustomTo] = useState(defaultTo);
+  const { from: initialFrom, to: initialTo } = getThisMonthRange();
+  const [customFrom, setCustomFrom] = useState(initialFrom);
+  const [customTo, setCustomTo] = useState(initialTo);
   const [loadingFilter, setLoadingFilter] = useState(false);
+
+  useEffect(() => {
+    if (!shopId) return;
+    const { from, to } = getThisMonthRange();
+    const supabase = createClient();
+    supabase
+      .from("dms_expenses")
+      .select("*")
+      .eq("shop_id", shopId)
+      .gte("expense_date", from)
+      .lte("expense_date", to)
+      .order("expense_date", { ascending: false })
+      .limit(200)
+      .then(({ data }) => {
+        if (data) setExpenses(data as Expense[]);
+        setLoading(false);
+      });
+  }, [shopId]);
 
   // ── Form state ────────────────────────────────────────────────────────────
   const [category, setCategory] = useState<Category>("misc");
@@ -143,6 +166,7 @@ export function ExpensesClient({ shopId, initialExpenses, defaultFrom, defaultTo
 
   // ─── Load expenses for a date range ───────────────────────────────────────
   async function loadExpenses(from: string, to: string) {
+    if (!shopId) return;
     setLoadingFilter(true);
     const result = await fetchExpenses(shopId, from, to);
     if (result.error) {
@@ -175,6 +199,7 @@ export function ExpensesClient({ shopId, initialExpenses, defaultFrom, defaultTo
   // ─── Add expense ───────────────────────────────────────────────────────────
   function handleAdd() {
     const amountNum = parseFloat(amount);
+    if (!shopId) return;
     if (!amount || isNaN(amountNum) || amountNum <= 0) {
       toast({ title: "Enter a valid amount", variant: "destructive" });
       return;
@@ -202,6 +227,7 @@ export function ExpensesClient({ shopId, initialExpenses, defaultFrom, defaultTo
 
   // ─── Delete expense ────────────────────────────────────────────────────────
   function handleDelete(id: string) {
+    if (!shopId) return;
     startDeleteTransition(async () => {
       const res = await deleteExpense(id, shopId);
       if (res?.error) {
@@ -215,6 +241,21 @@ export function ExpensesClient({ shopId, initialExpenses, defaultFrom, defaultTo
   }
 
   // ─── Render ────────────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="h-8 w-48 bg-muted animate-pulse rounded-lg" />
+        <div className="h-20 bg-muted animate-pulse rounded-xl" />
+        <div className="h-48 bg-muted animate-pulse rounded-xl" />
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="h-12 bg-muted animate-pulse rounded-lg" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 pb-10">
 

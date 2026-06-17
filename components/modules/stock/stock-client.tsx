@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useMemo, useTransition, useRef } from "react";
+import { useState, useMemo, useTransition, useRef, useEffect } from "react";
 import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
+import { useShopContext } from "@/contexts/shop-context";
 import {
   Boxes, ArrowDown, ArrowUp, AlertTriangle, Package,
   Plus, History, Check, Loader2, Filter,
@@ -568,25 +570,70 @@ function MovementHistoryTab({
 
 // ─── Root Client Component ────────────────────────────────────────────────────
 
-interface Props {
-  shopId: string;
-  initialStockLevels: StockLevel[];
-  initialMovements: StockMovement[];
-}
-
-export function StockClient({ shopId, initialStockLevels, initialMovements }: Props) {
-  const [stockLevels, setStockLevels] = useState<StockLevel[]>(
-    // Sort: low stock first (by urgency score ascending)
-    [...initialStockLevels].sort((a, b) => urgencyScore(a) - urgencyScore(b))
-  );
-  const [movements, setMovements] = useState<StockMovement[]>(initialMovements);
+export function StockClient() {
+  const { shopId } = useShopContext();
+  const [stockLevels, setStockLevels] = useState<StockLevel[]>([]);
+  const [movements, setMovements] = useState<StockMovement[]>([]);
+  const [loading, setLoading] = useState(true);
   const [dialog, setDialog] = useState<MovementDialogState>(emptyDialog);
+
+  async function fetchData() {
+    if (!shopId) return;
+    const supabase = createClient();
+    const [levelsRes, movementsRes] = await Promise.all([
+      supabase
+        .from("dms_stock_levels")
+        .select("*")
+        .eq("shop_id", shopId)
+        .order("product_name"),
+      supabase
+        .from("dms_stock_movements")
+        .select("*, product:dms_products(id,name,unit)")
+        .eq("shop_id", shopId)
+        .order("created_at", { ascending: false })
+        .limit(50),
+    ]);
+    if (levelsRes.data) {
+      setStockLevels(
+        [...(levelsRes.data as StockLevel[])].sort(
+          (a, b) => urgencyScore(a) - urgencyScore(b)
+        )
+      );
+    }
+    if (movementsRes.data) {
+      setMovements(movementsRes.data as StockMovement[]);
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shopId]);
 
   // Summary counts
   const totalProducts = stockLevels.length;
   const lowStockCount = stockLevels.filter(
     (s) => s.current_stock <= s.low_stock_threshold
   ).length;
+
+  if (loading || !shopId) {
+    return (
+      <div className="space-y-6">
+        <div className="h-8 w-48 bg-muted animate-pulse rounded-lg" />
+        <div className="grid grid-cols-2 gap-4">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <div key={i} className="h-16 bg-muted animate-pulse rounded-xl" />
+          ))}
+        </div>
+        <div className="space-y-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="h-14 bg-muted animate-pulse rounded-lg" />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   function openDialog(type: "in" | "out", productId: string) {
     setDialog({ open: true, type, productId });
@@ -606,7 +653,7 @@ export function StockClient({ shopId, initialStockLevels, initialMovements }: Pr
   }
 
   function handleMovementSuccess(movement: StockMovement) {
-    // Optimistically update stock levels
+    // Optimistically update stock levels and prepend to movements log
     setStockLevels((prev) => {
       const updated = prev.map((s) => {
         if (s.product_id !== movement.product_id) return s;
@@ -615,9 +662,10 @@ export function StockClient({ shopId, initialStockLevels, initialMovements }: Pr
       });
       return [...updated].sort((a, b) => urgencyScore(a) - urgencyScore(b));
     });
-
-    // Prepend to movements log
     setMovements((prev) => [movement, ...prev].slice(0, 50));
+
+    // Re-fetch to sync with server
+    fetchData();
   }
 
   return (
