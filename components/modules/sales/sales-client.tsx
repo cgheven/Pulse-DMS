@@ -268,6 +268,12 @@ export function SalesClient() {
     }
   }, [dateFilter, customFrom, customTo]);
 
+  // ── Computed total in edit form ──────────────────────────────────────────────
+  const editFormTotal = useMemo(() => {
+    if (!editForm) return 0;
+    return (parseFloat(editForm.quantity) || 0) * (parseFloat(editForm.unitPrice) || 0);
+  }, [editForm]);
+
   // ── Reload sales for current date range ─────────────────────────────────────
   const reloadSales = useCallback(
     async (f: string, t: string) => {
@@ -372,12 +378,6 @@ export function SalesClient() {
     setEditSaleRow(null);
     setEditForm(null);
   }
-
-  // ── Computed total in edit form ──────────────────────────────────────────────
-  const editFormTotal = useMemo(() => {
-    if (!editForm) return 0;
-    return (parseFloat(editForm.quantity) || 0) * (parseFloat(editForm.unitPrice) || 0);
-  }, [editForm]);
 
   // ── Submit edit ──────────────────────────────────────────────────────────────
   async function handleEditSave() {
