@@ -1,46 +1,47 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
-import { getAuthContext, getDashboardData, getLeadsSummary, getStaffSession } from "@/lib/data";
+import { getAuthContext, getDashboardStats } from "@/lib/data";
 import { DashboardClient } from "@/components/modules/dashboard/dashboard-client";
-import { NoAccess } from "@/components/no-access";
-import DashboardLoading from "./loading";
 
 export default function DashboardPage() {
   return (
-    <Suspense fallback={<DashboardLoading />}>
+    <Suspense fallback={<DashboardSkeleton />}>
       <DashboardData />
     </Suspense>
   );
 }
 
 async function DashboardData() {
-  // Dashboard is OWNER-only (shows financial KPIs, profit/loss, full gym
-  // overview). Staff sessions are redirected to /members — their primary
-  // work area. Staff who don't have members.view_all fall through to
-  // /leads, then /check-ins. Staff with ZERO permissions land on a
-  // friendly NoAccess page instead of looping through Forbidden.
-  const owner = await getAuthContext();
-  if (!owner?.gymId) {
-    const staff = await getStaffSession();
-    if (!staff) redirect("/login");
-    // Route staff to their landing page based on permissions
-    if (staff.permissions.includes("members.view_all") || staff.permissions.includes("members.add")) {
-      redirect("/members");
-    }
-    if (staff.permissions.includes("leads.view")) {
-      redirect("/leads");
-    }
-    if (staff.permissions.includes("checkins.record")) {
-      redirect("/check-ins");
-    }
-    // Empty-perms staff (cook / other / freshly-added without configured
-    // perms). Don't redirect to login — they ARE authenticated; just have
-    // nothing to do. Show friendly landing instead of redirect loop.
-    return <NoAccess fullName={staff.fullName} gymName={staff.gymName} />;
-  }
-  const [data, leadsSummary] = await Promise.all([
-    getDashboardData(),
-    getLeadsSummary(),
-  ]);
-  return <DashboardClient data={data} leadsSummary={leadsSummary} />;
+  const ctx = await getAuthContext();
+  if (!ctx?.user) redirect("/login");
+  if (!ctx.shop) redirect("/onboarding");
+
+  const stats = await getDashboardStats(ctx.shop.id);
+  return <DashboardClient stats={stats} />;
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <div className="animate-pulse bg-muted rounded-xl h-9 w-48" />
+        <div className="animate-pulse bg-muted rounded-xl h-4 w-36" />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="animate-pulse bg-muted rounded-xl h-28" />
+        ))}
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {Array.from({ length: 2 }).map((_, i) => (
+          <div key={i} className="animate-pulse bg-muted rounded-xl h-28" />
+        ))}
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="animate-pulse bg-muted rounded-xl h-20" />
+        ))}
+      </div>
+    </div>
+  );
 }

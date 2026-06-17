@@ -1,361 +1,500 @@
 "use client";
-import { useState, useMemo } from "react";
-import { Plus, Receipt, Search, Edit2, Trash2, TrendingDown, Filter } from "lucide-react";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { createClient } from "@/lib/supabase/client";
-import { revalidateDashboard } from "@/app/actions/revalidate";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+
+import { useState, useMemo, useTransition } from "react";
+import {
+  Home, Zap, Users, MoreHorizontal, Trash2, Plus, Receipt,
+} from "lucide-react";
+import { addExpense, deleteExpense, fetchExpenses } from "@/app/actions/expenses";
 import { toast } from "@/hooks/use-toast";
-import { useGymContext } from "@/contexts/gym-context";
-import { formatCurrency, formatDate, formatDateInput } from "@/lib/utils";
-import type { Expense, ExpenseCategory } from "@/types";
+import type { Expense } from "@/types";
 
-const categories: ExpenseCategory[] = [
-  "equipment", "maintenance", "cleaning", "marketing",
-  "supplements", "utilities", "rent", "security", "other",
+// ─── Types & constants ────────────────────────────────────────────────────────
+
+type Category = Expense["category"];
+
+const CATEGORIES: { value: Category; label: string; Icon: typeof Home; color: string; badge: string }[] = [
+  {
+    value: "rent",
+    label: "Rent",
+    Icon: Home,
+    color: "text-blue-400",
+    badge: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+  },
+  {
+    value: "utilities",
+    label: "Utilities",
+    Icon: Zap,
+    color: "text-yellow-400",
+    badge: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
+  },
+  {
+    value: "salary",
+    label: "Salary",
+    Icon: Users,
+    color: "text-purple-400",
+    badge: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+  },
+  {
+    value: "misc",
+    label: "Misc",
+    Icon: MoreHorizontal,
+    color: "text-zinc-400",
+    badge: "bg-zinc-500/10 text-zinc-400 border-zinc-500/20",
+  },
 ];
 
-const categoryColors: Record<ExpenseCategory, "info" | "warning" | "success" | "secondary" | "default" | "outline"> = {
-  equipment:   "info",
-  maintenance: "warning",
-  cleaning:    "success",
-  marketing:   "info",
-  supplements: "default",
-  utilities:   "secondary",
-  rent:        "warning",
-  security:    "secondary",
-  other:       "outline",
-};
+const CAT_MAP = Object.fromEntries(CATEGORIES.map((c) => [c.value, c])) as Record<
+  Category,
+  (typeof CATEGORIES)[number]
+>;
 
-const emptyForm = {
-  title: "", amount: "", category: "other" as ExpenseCategory,
-  date: formatDateInput(new Date()), notes: "",
-};
-
-const QUICK_ITEMS: { label: string; category: ExpenseCategory }[] = [
-  // Equipment
-  { label: "Dumbbell Set",        category: "equipment"   },
-  { label: "Treadmill Repair",    category: "equipment"   },
-  { label: "Resistance Bands",    category: "equipment"   },
-  { label: "Gym Mats",            category: "equipment"   },
-  // Maintenance
-  { label: "AC Service",          category: "maintenance" },
-  { label: "Electrical Work",     category: "maintenance" },
-  { label: "Plumbing",            category: "maintenance" },
-  { label: "Paint / Repair",      category: "maintenance" },
-  // Cleaning
-  { label: "Cleaning Supplies",   category: "cleaning"    },
-  { label: "Detergent",           category: "cleaning"    },
-  { label: "Disinfectant",        category: "cleaning"    },
-  // Supplements
-  { label: "Protein Powder",      category: "supplements" },
-  { label: "Supplement Stock",    category: "supplements" },
-  // Marketing
-  { label: "Social Media Ads",    category: "marketing"   },
-  { label: "Flyers / Printing",   category: "marketing"   },
-  // Utilities
-  { label: "Generator Fuel",      category: "utilities"   },
-  { label: "UPS Battery",         category: "utilities"   },
-  { label: "Water Supply",        category: "utilities"   },
-  // Rent
-  { label: "Monthly Rent",        category: "rent"        },
-  // Security
-  { label: "CCTV",                category: "security"    },
-  { label: "Lock / Keys",         category: "security"    },
-  // Other
-  { label: "Miscellaneous",       category: "other"       },
-];
-
-const CHIP_STYLES: Record<ExpenseCategory, string> = {
-  equipment:   "bg-blue-500/10   border-blue-500/25   text-blue-400   hover:bg-blue-500/20",
-  maintenance: "bg-primary/10    border-primary/25    text-primary    hover:bg-primary/20",
-  cleaning:    "bg-emerald-500/10 border-emerald-500/25 text-emerald-400 hover:bg-emerald-500/20",
-  marketing:   "bg-purple-500/10 border-purple-500/25 text-purple-400 hover:bg-purple-500/20",
-  supplements: "bg-cyan-500/10   border-cyan-500/25   text-cyan-400   hover:bg-cyan-500/20",
-  utilities:   "bg-slate-500/10  border-slate-500/25  text-slate-400  hover:bg-slate-500/20",
-  rent:        "bg-orange-500/10 border-orange-500/25 text-orange-400 hover:bg-orange-500/20",
-  security:    "bg-rose-500/10   border-rose-500/25   text-rose-400   hover:bg-rose-500/20",
-  other:       "bg-white/5       border-white/10      text-muted-foreground hover:bg-white/10",
-};
-
-// Module-level cache — persists across month switches within the session
-const expenseCache = new Map<string, Expense[]>();
-
-interface Props {
-  gymId: string | null;
-  expenses: Expense[];
-  monthFilter: string;
+function formatPKR(amount: number) {
+  return `PKR ${amount.toLocaleString("en-PK")}`;
 }
 
-export function ExpensesClient({ gymId, expenses: initialExpenses, monthFilter: defaultMonth }: Props) {
-  const { isDemo } = useGymContext();
+function todayStr() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
+}
+
+function groupByDate(expenses: Expense[]) {
+  const map = new Map<string, Expense[]>();
+  for (const e of expenses) {
+    const key = e.expense_date;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(e);
+  }
+  return Array.from(map.entries()).sort(([a], [b]) => b.localeCompare(a));
+}
+
+function prettyDate(dateStr: string) {
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-PK", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+}
+
+// ─── Category badge ───────────────────────────────────────────────────────────
+
+function CategoryBadge({ category }: { category: Category }) {
+  const cat = CAT_MAP[category];
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${cat.badge}`}
+    >
+      <cat.Icon className="w-3 h-3" />
+      {cat.label}
+    </span>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
+interface Props {
+  shopId: string;
+  initialExpenses: Expense[];
+  defaultFrom: string;
+  defaultTo: string;
+}
+
+export function ExpensesClient({ shopId, initialExpenses, defaultFrom, defaultTo }: Props) {
   const [expenses, setExpenses] = useState<Expense[]>(initialExpenses);
-  const [search, setSearch] = useState("");
-  const [filterCat, setFilterCat] = useState("all");
-  const [monthFilter, setMonthFilter] = useState(defaultMonth);
-  const [loadingMonth, setLoadingMonth] = useState(false);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<Expense | null>(null);
-  const [form, setForm] = useState(emptyForm);
-  const [saving, setSaving] = useState(false);
-  const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  const filtered = useMemo(() => {
-    let list = expenses;
-    if (search) list = list.filter((e) => e.title.toLowerCase().includes(search.toLowerCase()));
-    if (filterCat !== "all") list = list.filter((e) => e.category === filterCat);
-    return list;
-  }, [search, filterCat, expenses]);
+  // ── Date filter ───────────────────────────────────────────────────────────
+  type FilterMode = "this_month" | "last_month" | "custom";
+  const [filterMode, setFilterMode] = useState<FilterMode>("this_month");
+  const [customFrom, setCustomFrom] = useState(defaultFrom);
+  const [customTo, setCustomTo] = useState(defaultTo);
+  const [loadingFilter, setLoadingFilter] = useState(false);
 
-  async function loadMonth(month: string) {
-    if (!gymId) return;
-    const cacheKey = `${gymId}:${month}`;
-    if (expenseCache.has(cacheKey)) {
-      setExpenses(expenseCache.get(cacheKey)!);
+  // ── Form state ────────────────────────────────────────────────────────────
+  const [category, setCategory] = useState<Category>("misc");
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const [date, setDate] = useState(todayStr());
+  const [isPending, startTransition] = useTransition();
+
+  // ── Delete confirm ────────────────────────────────────────────────────────
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [isDeleting, startDeleteTransition] = useTransition();
+
+  // ─── Derived ───────────────────────────────────────────────────────────────
+  const total = useMemo(
+    () => expenses.reduce((s, e) => s + Number(e.amount), 0),
+    [expenses]
+  );
+
+  const catTotals = useMemo(
+    () =>
+      Object.fromEntries(
+        CATEGORIES.map((c) => [
+          c.value,
+          expenses.filter((e) => e.category === c.value).reduce((s, e) => s + Number(e.amount), 0),
+        ])
+      ) as Record<Category, number>,
+    [expenses]
+  );
+
+  const grouped = useMemo(() => groupByDate(expenses), [expenses]);
+
+  // ─── Load expenses for a date range ───────────────────────────────────────
+  async function loadExpenses(from: string, to: string) {
+    setLoadingFilter(true);
+    const result = await fetchExpenses(shopId, from, to);
+    if (result.error) {
+      toast({ title: "Failed to load", description: result.error, variant: "destructive" });
+    } else {
+      setExpenses(result.expenses as Expense[]);
+    }
+    setLoadingFilter(false);
+  }
+
+  function applyFilter(mode: FilterMode) {
+    setFilterMode(mode);
+    const now = new Date();
+    let from: string;
+    let to: string;
+    if (mode === "this_month") {
+      from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+      to = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+    } else if (mode === "last_month") {
+      const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      from = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+      to = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
+    } else {
+      from = customFrom;
+      to = customTo;
+    }
+    loadExpenses(from, to);
+  }
+
+  // ─── Add expense ───────────────────────────────────────────────────────────
+  function handleAdd() {
+    const amountNum = parseFloat(amount);
+    if (!amount || isNaN(amountNum) || amountNum <= 0) {
+      toast({ title: "Enter a valid amount", variant: "destructive" });
       return;
     }
-    setLoadingMonth(true);
-    const supabase = createClient();
-    const [year, m] = month.split("-");
-    const start = `${year}-${m}-01`;
-    const end = formatDateInput(new Date(parseInt(year), parseInt(m), 0));
-    const { data, error } = await supabase.from("pulse_expenses").select("*").eq("gym_id", gymId).gte("date", start).lte("date", end).order("date", { ascending: false });
-    if (error) toast({ title: "Failed to load", description: error.message, variant: "destructive" });
-    else {
-      const rows = (data as Expense[]) ?? [];
-      expenseCache.set(cacheKey, rows);
-      setExpenses(rows);
-    }
-    setLoadingMonth(false);
+    startTransition(async () => {
+      const res = await addExpense({
+        shopId,
+        category,
+        amount: amountNum,
+        note: note.trim() || undefined,
+        expenseDate: date,
+      });
+      if (res?.error) {
+        toast({ title: "Error", description: res.error, variant: "destructive" });
+      } else {
+        toast({ title: "Expense added" });
+        setAmount("");
+        setNote("");
+        setDate(todayStr());
+        // Re-fetch current filter range
+        applyFilter(filterMode);
+      }
+    });
   }
 
-  async function reload() {
-    if (!gymId) return;
-    expenseCache.delete(`${gymId}:${monthFilter}`);
-    await loadMonth(monthFilter);
+  // ─── Delete expense ────────────────────────────────────────────────────────
+  function handleDelete(id: string) {
+    startDeleteTransition(async () => {
+      const res = await deleteExpense(id, shopId);
+      if (res?.error) {
+        toast({ title: "Error", description: res.error, variant: "destructive" });
+      } else {
+        toast({ title: "Deleted" });
+        setExpenses((prev) => prev.filter((e) => e.id !== id));
+      }
+      setConfirmDelete(null);
+    });
   }
 
-  async function handleSave() {
-    if (isDemo) { toast({ title: "You're in demo mode", description: "Sign up to unlock editing →" }); return; }
-    if (!gymId || !form.title || !form.amount) return;
-    setSaving(true);
-    const supabase = createClient();
-    const payload = {
-      gym_id: gymId,
-      title: form.title,
-      amount: parseFloat(form.amount),
-      category: form.category,
-      date: form.date,
-      notes: form.notes || null,
-    };
-    const { error } = editing
-      ? await supabase.from("pulse_expenses").update(payload).eq("id", editing.id)
-      : await supabase.from("pulse_expenses").insert(payload);
-    if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
-    else {
-      toast({ title: editing ? "Updated" : "Added" });
-      setDialogOpen(false);
-      reload();
-      revalidateDashboard().catch(() => {});
-    }
-    setSaving(false);
-  }
-
-  function quickAdd(item: { label: string; category: ExpenseCategory }) {
-    setEditing(null);
-    setForm({ ...emptyForm, title: item.label, category: item.category });
-    setDialogOpen(true);
-  }
-
-  async function handleDelete(id: string) {
-    if (isDemo) { toast({ title: "You're in demo mode", description: "Sign up to unlock editing →" }); return; }
-    const supabase = createClient();
-    const { error } = await supabase.from("pulse_expenses").delete().eq("id", id);
-    if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
-    else {
-      toast({ title: "Deleted" });
-      reload();
-      revalidateDashboard().catch(() => {});
-    }
-  }
-
-  const total = useMemo(() => filtered.reduce((s, e) => s + Number(e.amount), 0), [filtered]);
-
+  // ─── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-serif font-normal tracking-tight">Expenses</h1>
-          <p className="text-muted-foreground text-sm mt-1">Track gym expenditures</p>
+    <div className="space-y-6 pb-10">
+
+      {/* ── Page header ─────────────────────────────────────────────────────── */}
+      <div>
+        <h1 className="text-3xl font-serif font-normal tracking-tight text-foreground">Expenses</h1>
+        <p className="text-muted-foreground text-sm mt-1">Track and manage shop expenses</p>
+      </div>
+
+      {/* ── Summary bar ─────────────────────────────────────────────────────── */}
+      <div className="rounded-xl border border-sidebar-border bg-card p-5 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-end gap-3 sm:gap-6">
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+              Total this period
+            </p>
+            <p className="text-3xl font-bold tracking-tight text-foreground">
+              {formatPKR(total)}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {CATEGORIES.map((c) => (
+              <span
+                key={c.value}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${c.badge}`}
+              >
+                <c.Icon className="w-3 h-3" />
+                {c.label}
+                <span className="font-bold">{formatPKR(catTotals[c.value])}</span>
+              </span>
+            ))}
+          </div>
         </div>
-        <Button onClick={() => { setEditing(null); setForm(emptyForm); setDialogOpen(true); }} className="gap-2 w-full sm:w-auto">
-          <Plus className="w-4 h-4" /> Add Expense
-        </Button>
+
+        {/* Category breakdown bars */}
+        {total > 0 && (
+          <div className="space-y-1.5 pt-1">
+            {CATEGORIES.filter((c) => catTotals[c.value] > 0).map((c) => {
+              const pct = Math.round((catTotals[c.value] / total) * 100);
+              return (
+                <div key={c.value} className="flex items-center gap-2">
+                  <span className={`w-16 text-xs ${c.color}`}>{c.label}</span>
+                  <div className="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${
+                        c.value === "rent"
+                          ? "bg-blue-500"
+                          : c.value === "utilities"
+                          ? "bg-yellow-500"
+                          : c.value === "salary"
+                          ? "bg-purple-500"
+                          : "bg-zinc-500"
+                      }`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-muted-foreground w-8 text-right">{pct}%</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {[
-          { label: "Total This Month", value: formatCurrency(total),                                        icon: TrendingDown, color: "text-rose-400",   bg: "bg-rose-500/10 border border-rose-500/20" },
-          { label: "Total Entries",    value: filtered.length,                                              icon: Receipt,      color: "text-blue-400",   bg: "bg-blue-500/10 border border-blue-500/20" },
-          { label: "Average",          value: filtered.length ? formatCurrency(total / filtered.length) : "—", icon: Filter,  color: "text-purple-400", bg: "bg-purple-500/10 border border-purple-500/20" },
-        ].map(({ label, value, icon: Icon, color, bg }) => (
-          <Card key={label}>
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className={`p-2 rounded-lg ${bg}`}><Icon className={`w-4 h-4 ${color}`} /></div>
-              <div><p className="text-xs text-muted-foreground">{label}</p><p className="text-xl font-bold">{value}</p></div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {/* Quick Add */}
-      <div className="rounded-2xl border border-sidebar-border bg-card p-4 space-y-3">
+      {/* ── Quick Add Form ───────────────────────────────────────────────────── */}
+      <div className="rounded-xl border border-sidebar-border bg-card p-5 space-y-4">
         <div className="flex items-center gap-2">
           <Plus className="w-3.5 h-3.5 text-muted-foreground" />
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Quick Add</p>
-          <span className="text-xs text-muted-foreground/50">— tap to pre-fill the form</span>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Add Expense
+          </p>
         </div>
+
+        {/* Category selector — button tabs */}
         <div className="flex flex-wrap gap-2">
-          {QUICK_ITEMS.map((item) => (
-            <button
-              key={item.label}
-              onClick={() => quickAdd(item)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${CHIP_STYLES[item.category]}`}
-            >
-              {item.label}
-            </button>
-          ))}
+          {CATEGORIES.map((c) => {
+            const active = category === c.value;
+            return (
+              <button
+                key={c.value}
+                type="button"
+                onClick={() => setCategory(c.value)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  active
+                    ? `${c.badge} border-current`
+                    : "border-sidebar-border text-muted-foreground hover:bg-white/5"
+                }`}
+              >
+                <c.Icon className="w-3.5 h-3.5" />
+                {c.label}
+              </button>
+            );
+          })}
         </div>
-      </div>
 
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
-        </div>
-        <Input type="month" value={monthFilter} onChange={(e) => { setMonthFilter(e.target.value); loadMonth(e.target.value); }} className="w-auto" />
-        <Select value={filterCat} onValueChange={setFilterCat}>
-          <SelectTrigger className="w-full sm:w-44"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Categories</SelectItem>
-            {categories.map((c) => <SelectItem key={c} value={c} className="capitalize">{c}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <Card>
-        <CardContent className="p-0">
-          {loadingMonth ? (
-            <div className="p-8 space-y-3">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-12 bg-muted rounded animate-pulse" />)}</div>
-          ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-              <Receipt className="w-10 h-10 mb-3 opacity-30" />
-              <p className="font-medium">No expenses found</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b bg-muted/30">
-                    <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3">Title</th>
-                    <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3 hidden sm:table-cell">Category</th>
-                    <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3 hidden md:table-cell">Date</th>
-                    <th className="text-right text-xs font-medium text-muted-foreground px-4 py-3">Amount</th>
-                    <th className="text-right text-xs font-medium text-muted-foreground px-4 py-3">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {filtered.map((exp) => (
-                    <tr key={exp.id} className="hover:bg-muted/20 transition-colors">
-                      <td className="px-4 py-3">
-                        <p className="font-medium text-sm">{exp.title}</p>
-                        {exp.notes && <p className="text-xs text-muted-foreground truncate max-w-[200px]">{exp.notes}</p>}
-                      </td>
-                      <td className="px-4 py-3 hidden sm:table-cell">
-                        <Badge variant={categoryColors[exp.category]} className="capitalize text-xs">{exp.category}</Badge>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground hidden md:table-cell">{formatDate(exp.date)}</td>
-                      <td className="px-4 py-3 text-right font-semibold text-sm">{formatCurrency(exp.amount)}</td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditing(exp); setForm({ title: exp.title, amount: exp.amount.toString(), category: exp.category, date: exp.date, notes: exp.notes ?? "" }); setDialogOpen(true); }}>
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(exp.id)}>
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t bg-muted/30">
-                    <td colSpan={3} className="px-4 py-3 text-sm font-semibold">Total</td>
-                    <td className="px-4 py-3 text-right font-bold">{formatCurrency(total)}</td>
-                    <td />
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <ConfirmDialog
-        open={!!deleteId}
-        description="This expense entry will be permanently deleted."
-        onConfirm={() => { handleDelete(deleteId!); setDeleteId(null); }}
-        onCancel={() => setDeleteId(null)}
-      />
-
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>{editing ? "Edit Expense" : "Add Expense"}</DialogTitle></DialogHeader>
-          <div className="grid gap-4 py-2">
-            <div className="space-y-1.5">
-              <Label>Title *</Label>
-              <Input placeholder="e.g. Treadmill belt replacement" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>Amount (PKR) *</Label>
-                <Input type="number" placeholder="0" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Category</Label>
-                <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v as ExpenseCategory })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {categories.map((c) => <SelectItem key={c} value={c} className="capitalize">{c}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Date</Label>
-              <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Notes</Label>
-              <Textarea placeholder="Optional..." value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={2} />
-            </div>
+        {/* Inputs row */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          {/* Amount */}
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none select-none">
+              PKR
+            </span>
+            <input
+              type="number"
+              min="1"
+              placeholder="0"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+              className="w-full sm:w-40 pl-10 pr-3 py-2 rounded-lg bg-background border border-sidebar-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            />
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={saving || !form.title || !form.amount}>
-              {saving ? "Saving..." : editing ? "Update" : "Add"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+
+          {/* Note */}
+          <input
+            type="text"
+            placeholder="Note (optional)"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+            className="flex-1 px-3 py-2 rounded-lg bg-background border border-sidebar-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+
+          {/* Date */}
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="px-3 py-2 rounded-lg bg-background border border-sidebar-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+
+          {/* Submit */}
+          <button
+            type="button"
+            onClick={handleAdd}
+            disabled={isPending || !amount}
+            className="inline-flex items-center justify-center gap-1.5 px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            {isPending ? "Adding…" : "Add Expense"}
+          </button>
+        </div>
+      </div>
+
+      {/* ── Date filter tabs ─────────────────────────────────────────────────── */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex rounded-lg border border-sidebar-border overflow-hidden">
+          {(["this_month", "last_month", "custom"] as FilterMode[]).map((mode) => {
+            const labels: Record<FilterMode, string> = {
+              this_month: "This Month",
+              last_month: "Last Month",
+              custom: "Custom Range",
+            };
+            return (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => {
+                  if (mode !== "custom") applyFilter(mode);
+                  else setFilterMode("custom");
+                }}
+                className={`px-4 py-2 text-xs font-semibold transition-colors ${
+                  filterMode === mode
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-white/5"
+                }`}
+              >
+                {labels[mode]}
+              </button>
+            );
+          })}
+        </div>
+
+        {filterMode === "custom" && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              type="date"
+              value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              className="px-3 py-2 rounded-lg bg-background border border-sidebar-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            <span className="text-muted-foreground text-xs">to</span>
+            <input
+              type="date"
+              value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)}
+              className="px-3 py-2 rounded-lg bg-background border border-sidebar-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            <button
+              type="button"
+              onClick={() => applyFilter("custom")}
+              className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
+            >
+              Apply
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── Expenses list ────────────────────────────────────────────────────── */}
+      <div className="rounded-xl border border-sidebar-border bg-card overflow-hidden">
+        {loadingFilter ? (
+          <div className="p-6 space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="h-12 rounded-lg bg-muted animate-pulse" />
+            ))}
+          </div>
+        ) : grouped.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
+            <Receipt className="w-10 h-10 opacity-20" />
+            <p className="text-sm">No expenses this period.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-sidebar-border">
+            {grouped.map(([date, items]) => (
+              <div key={date}>
+                {/* Date header */}
+                <div className="px-5 py-2.5 bg-muted/30 flex items-center justify-between">
+                  <p className="text-xs font-semibold text-muted-foreground">{prettyDate(date)}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatPKR(items.reduce((s, e) => s + Number(e.amount), 0))}
+                  </p>
+                </div>
+
+                {/* Items */}
+                <div className="divide-y divide-sidebar-border/50">
+                  {items.map((expense) => (
+                    <div
+                      key={expense.id}
+                      className="px-5 py-3.5 flex items-center gap-4 hover:bg-white/[0.02] transition-colors"
+                    >
+                      <CategoryBadge category={expense.category} />
+
+                      <div className="flex-1 min-w-0">
+                        {expense.note && (
+                          <p className="text-sm text-foreground/80 truncate">{expense.note}</p>
+                        )}
+                      </div>
+
+                      <p className="text-sm font-bold text-foreground tabular-nums shrink-0">
+                        {formatPKR(Number(expense.amount))}
+                      </p>
+
+                      {/* Delete */}
+                      {confirmDelete === expense.id ? (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(expense.id)}
+                            disabled={isDeleting}
+                            className="px-2.5 py-1 rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20 text-xs font-semibold hover:bg-rose-500/20 disabled:opacity-50 transition-colors"
+                          >
+                            {isDeleting ? "…" : "Confirm"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDelete(null)}
+                            className="px-2.5 py-1 rounded-md text-muted-foreground border border-sidebar-border text-xs hover:bg-white/5 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDelete(expense.id)}
+                          className="p-1.5 rounded-md text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 transition-colors shrink-0"
+                          aria-label="Delete"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

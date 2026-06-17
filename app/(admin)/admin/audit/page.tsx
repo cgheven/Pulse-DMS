@@ -1,19 +1,10 @@
-import { requireFullAdmin } from "@/lib/admin-scope";
-import { listAuditLogs, listLoginLogs } from "@/app/actions/admin-audit";
-import { AuditClient } from "@/components/modules/admin/audit-client";
-
 export const dynamic = "force-dynamic";
 
-export default async function AuditPage() {
-  await requireFullAdmin();
-  const [{ logs = [] }, { logs: loginLogs = [] }] = await Promise.all([
-    listAuditLogs(),
-    listLoginLogs(),
-  ]);
-
+export default function AdminAuditPage() {
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <AuditClient initialLogs={logs} initialLoginLogs={loginLogs} />
+    <div className="p-6 max-w-4xl mx-auto">
+      <h1 className="text-xl font-bold text-foreground mb-1">Audit Log</h1>
+      <p className="text-sm text-muted-foreground">Audit logging will be wired in v2.</p>
     </div>
   );
 }

@@ -3,37 +3,20 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Shield, Users, Building2, UserCog, LayoutDashboard,
-  Menu, X, LogOut, ClipboardList, Zap, CreditCard,
+  Shield, Users, Building2, LayoutDashboard,
+  Menu, X, LogOut, ClipboardList, Zap,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
-import type { AdminScope } from "@/types";
 
 const adminNav = [
-  { href: "/admin/users",     label: "User Management", icon: Users },
-  { href: "/admin/gyms",      label: "Gyms",            icon: Building2 },
-  { href: "/admin/plans",     label: "Default Plans",   icon: CreditCard },
-  { href: "/admin/prospects", label: "Gym Pipeline",    icon: UserCog },
-  { href: "/admin/audit",     label: "Audit Log",       icon: ClipboardList },
+  { href: "/admin/users",  label: "User Management", icon: Users },
+  { href: "/admin/gyms",   label: "Shops",           icon: Building2 },
+  { href: "/admin/audit",  label: "Audit Log",       icon: ClipboardList },
 ];
 
-function AdminSidebar({
-  open,
-  onClose,
-  email,
-  scope,
-}: {
-  open: boolean;
-  onClose: () => void;
-  email: string;
-  scope: AdminScope;
-}) {
+function AdminSidebar({ open, onClose, email }: { open: boolean; onClose: () => void; email: string }) {
   const pathname = usePathname();
-  // Prospects-scoped admins only see the Gym Pipeline link in the nav.
-  const visibleNav = scope === "prospects"
-    ? adminNav.filter((n) => n.href === "/admin/prospects")
-    : adminNav;
 
   async function handleSignOut() {
     const supabase = createClient();
@@ -46,7 +29,6 @@ function AdminSidebar({
       {open && (
         <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm lg:hidden" onClick={onClose} />
       )}
-
       <aside className={cn(
         "fixed inset-y-0 left-0 z-50 flex w-60 flex-col border-r border-sidebar-border bg-sidebar transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 lg:z-auto",
         open ? "translate-x-0" : "-translate-x-full"
@@ -58,7 +40,7 @@ function AdminSidebar({
             </div>
             <div>
               <p className="text-sm font-bold text-foreground leading-none">Admin Panel</p>
-              <p className="text-[11px] text-muted-foreground mt-0.5 tracking-wide uppercase font-medium">Pulse GMS</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5 tracking-wide uppercase font-medium">Pulse DMS</p>
             </div>
           </div>
           <button onClick={onClose} className="lg:hidden p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors">
@@ -69,7 +51,7 @@ function AdminSidebar({
         <nav className="flex-1 py-3 px-2.5 overflow-y-auto">
           <p className="text-[10px] font-semibold text-muted-foreground/40 uppercase tracking-widest px-3 mb-1.5">Management</p>
           <div className="space-y-0.5">
-            {visibleNav.map(({ href, label, icon: Icon }) => {
+            {adminNav.map(({ href, label, icon: Icon }) => {
               const active = pathname === href || pathname.startsWith(href);
               return (
                 <Link key={href} href={href} onClick={onClose}
@@ -102,7 +84,7 @@ function AdminSidebar({
           </button>
           <div className="px-3 pt-2">
             <div className="flex items-center gap-2 mb-1">
-              <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse shrink-0" />
+              <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shrink-0" />
               <p className="text-xs text-muted-foreground">Admin session</p>
             </div>
             <p className="text-xs text-muted-foreground/60 truncate">{email}</p>
@@ -113,20 +95,11 @@ function AdminSidebar({
   );
 }
 
-export function AdminShell({
-  children,
-  email,
-  scope,
-}: {
-  children: React.ReactNode;
-  email: string;
-  scope: AdminScope;
-}) {
+export function AdminShell({ children, email }: { children: React.ReactNode; email: string }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
   return (
     <div className="flex h-screen bg-background overflow-hidden">
-      <AdminSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} email={email} scope={scope} />
+      <AdminSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} email={email} />
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         <div className="lg:hidden flex items-center gap-3 px-4 h-14 border-b border-sidebar-border bg-sidebar/80 backdrop-blur-md shrink-0">
           <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors">

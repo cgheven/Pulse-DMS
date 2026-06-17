@@ -1,48 +1,11 @@
 "use server";
-import { revalidateTag } from "next/cache";
-import { getAuthContext, getTrainerContext, getStaffSession } from "@/lib/data";
+import { revalidateTag, revalidatePath } from "next/cache";
 
-// Cache tags used in lib/data.ts unstable_cache() wrappers.
-// Call the matching helper after a mutation so the next page load returns fresh data
-// instead of waiting for the TTL window to expire.
+export async function revalidateDashboard() { revalidatePath("/dashboard"); }
+export async function revalidateSales()     { revalidatePath("/sales"); }
+export async function revalidateStock()     { revalidatePath("/stock"); }
+export async function revalidateExpenses()  { revalidatePath("/expenses"); }
 
-async function gymTag(prefix: string) {
-  // Try owner context first (most common path)
-  const ownerCtx = await getAuthContext();
-  if (ownerCtx?.gymId) {
-    revalidateTag(`${prefix}-${ownerCtx.gymId}`);
-    return;
-  }
-  // Non-owner staff (manager / frontdesk / etc.) — their mutations also
-  // need to bust caches for the gym they belong to. Without this branch,
-  // staff actions would never invalidate unstable_cache wrappers and
-  // dashboards/reports would stay stale until TTL expired.
-  const staff = await getStaffSession();
-  if (staff?.gymId) {
-    revalidateTag(`${prefix}-${staff.gymId}`);
-    return;
-  }
-  // Fall back to trainer context — trainers can also trigger invalidations
-  // (e.g., recording a payment for one of their members affects owner's dashboard)
-  const trainerCtx = await getTrainerContext();
-  if (trainerCtx?.gymId) {
-    revalidateTag(`${prefix}-${trainerCtx.gymId}`);
-  }
-}
-
-export async function revalidateDashboard() { await gymTag("dashboard"); }
-export async function revalidateMembers()   { await gymTag("members"); }
-export async function revalidatePlans()     { await gymTag("plans"); }
-export async function revalidateStaff()     { await gymTag("staff"); }
-export async function revalidateReports()   { await gymTag("reports"); }
-export async function revalidateSmartEarn() { await gymTag("smart-earn"); }
-
-// Per-user cache invalidators — call after mutating pulse_profiles or pulse_gyms ownership.
-// Match the tags used in lib/data.ts → getAuthContext.
 export async function revalidateProfile(userId: string) {
   if (userId) revalidateTag(`profile-${userId}`);
-}
-
-export async function revalidateOwnerGyms(userId: string) {
-  if (userId) revalidateTag(`gyms-owner-${userId}`);
 }
