@@ -114,10 +114,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               <Zap className="w-4 h-4 text-primary" />
             </div>
             <div>
-              <p className="text-foreground font-bold text-sm tracking-tight leading-none">Pulse</p>
-              <p className="text-primary/60 text-[10px] mt-0.5 font-semibold tracking-[0.15em] uppercase">
-                DMS
-              </p>
+              <p className="text-foreground font-bold text-sm tracking-tight leading-none">Pulse DMS</p>
+              <p className="text-muted-foreground text-[10px] mt-0.5">Pulse of your business</p>
             </div>
           </Link>
           <button

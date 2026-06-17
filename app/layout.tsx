@@ -11,8 +11,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Pulse — Gym Management System",
-  description: "PULSE OF YOUR GYM",
+  title: "Pulse DMS",
+  description: "Pulse of your business",
 };
 
 export const viewport: Viewport = {
