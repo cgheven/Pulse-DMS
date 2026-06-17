@@ -232,7 +232,7 @@ export function SupplierLedgerClient({ initialBalances }: Props) {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="flex flex-col min-h-0">
       {/* Page header */}
       <div className="mb-6">
         <div className="flex items-center gap-3 mb-1">
@@ -247,7 +247,7 @@ export function SupplierLedgerClient({ initialBalances }: Props) {
       </div>
 
       {/* Two-pane layout */}
-      <div className="flex flex-1 min-h-0 gap-4">
+      <div className="flex flex-col md:flex-row flex-1 min-h-0 gap-4">
         {/* ── LEFT PANE: Supplier list ───────────────────────────── */}
         <div
           className={cn(
@@ -374,7 +374,7 @@ export function SupplierLedgerClient({ initialBalances }: Props) {
               </p>
             </div>
           ) : (
-            <div className="flex flex-col h-full gap-4">
+            <div className="flex flex-col gap-4">
               {/* Mobile back button */}
               <button
                 onClick={() => {
@@ -638,7 +638,7 @@ export function SupplierLedgerClient({ initialBalances }: Props) {
                               <button
                                 onClick={() => handleDelete(entry.id)}
                                 disabled={isPending}
-                                className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
+                                className="opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
                                 title="Delete entry"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />

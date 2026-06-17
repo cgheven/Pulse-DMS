@@ -98,7 +98,7 @@ function AdminSidebar({ open, onClose, email }: { open: boolean; onClose: () => 
 export function AdminShell({ children, email }: { children: React.ReactNode; email: string }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
+    <div className="flex h-dvh bg-background overflow-hidden">
       <AdminSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} email={email} />
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         <div className="lg:hidden flex items-center gap-3 px-4 h-14 border-b border-sidebar-border bg-sidebar/80 backdrop-blur-md shrink-0">

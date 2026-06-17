@@ -343,7 +343,7 @@ export function ExpensesClient({ shopId, initialExpenses, defaultFrom, defaultTo
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="px-3 py-2 rounded-lg bg-background border border-sidebar-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full sm:w-auto px-3 py-2 rounded-lg bg-background border border-sidebar-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
           />
 
           {/* Submit */}

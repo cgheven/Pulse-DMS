@@ -250,12 +250,12 @@ function ProductsTab({
               <thead>
                 <tr className="border-b border-sidebar-border">
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Name</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Supplier</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Unit</th>
-                  <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Cost Price</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Supplier</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Unit</th>
+                  <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden md:table-cell">Cost Price</th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Sale Price</th>
-                  <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Margin%</th>
-                  <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Threshold</th>
+                  <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden md:table-cell">Margin%</th>
+                  <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden lg:table-cell">Threshold</th>
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
@@ -263,15 +263,15 @@ function ProductsTab({
                 {products.map((p) => (
                   <tr key={p.id} className="hover:bg-white/[0.02] transition-colors">
                     <td className="px-4 py-3 font-medium text-foreground">{p.name}</td>
-                    <td className="px-4 py-3 text-muted-foreground">
+                    <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">
                       {p.supplier_id
                         ? (supplierMap[p.supplier_id]?.name ?? <span className="italic text-xs">Unknown</span>)
                         : <span className="text-xs italic">—</span>}
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground capitalize">{p.unit}</td>
-                    <td className="px-4 py-3 text-right text-muted-foreground">{formatPKR(p.cost_price)}</td>
+                    <td className="px-4 py-3 text-muted-foreground capitalize hidden sm:table-cell">{p.unit}</td>
+                    <td className="px-4 py-3 text-right text-muted-foreground hidden md:table-cell">{formatPKR(p.cost_price)}</td>
                     <td className="px-4 py-3 text-right text-foreground font-medium">{formatPKR(p.sale_price)}</td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-4 py-3 text-right hidden md:table-cell">
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                         p.sale_price > p.cost_price
                           ? "bg-emerald-500/10 text-emerald-400"
@@ -280,7 +280,7 @@ function ProductsTab({
                         {margin(p.cost_price, p.sale_price)}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right text-muted-foreground">{p.low_stock_threshold}</td>
+                    <td className="px-4 py-3 text-right text-muted-foreground hidden lg:table-cell">{p.low_stock_threshold}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
                         <button
@@ -547,8 +547,8 @@ function SuppliersTab({
               <thead>
                 <tr className="border-b border-sidebar-border">
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Name</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Brand</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Contact</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Brand</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden md:table-cell">Contact</th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Products</th>
                   <th className="px-4 py-3" />
                 </tr>
@@ -557,8 +557,8 @@ function SuppliersTab({
                 {suppliers.map((s) => (
                   <tr key={s.id} className="hover:bg-white/[0.02] transition-colors">
                     <td className="px-4 py-3 font-medium text-foreground">{s.name}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{s.brand ?? <span className="text-xs italic">—</span>}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{s.contact ?? <span className="text-xs italic">—</span>}</td>
+                    <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{s.brand ?? <span className="text-xs italic">—</span>}</td>
+                    <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">{s.contact ?? <span className="text-xs italic">—</span>}</td>
                     <td className="px-4 py-3 text-right">
                       <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-2 rounded-full bg-primary/10 text-primary text-xs font-semibold">
                         {productCounts[s.id] ?? 0}
