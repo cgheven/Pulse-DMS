@@ -81,7 +81,7 @@ export type Sale = {
 export type Expense = {
   id: string;
   shop_id: string;
-  category: "rent" | "utilities" | "salary" | "misc";
+  category: "rent" | "electricity" | "internet" | "water" | "gas" | "phone" | "salary" | "misc";
   amount: number;
   note: string | null;
   expense_date: string;

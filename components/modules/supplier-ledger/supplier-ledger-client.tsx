@@ -530,23 +530,26 @@ export function SupplierLedgerClient() {
                   </div>
                 </div>
 
-                <Button
+                <button
+                  type="button"
                   onClick={handleAddEntry}
                   disabled={isPending || !amount}
-                  className="mt-4 bg-amber-500 hover:bg-amber-400 text-black font-semibold"
+                  className="mt-4 w-full inline-flex items-center justify-center gap-2 h-10 px-4 rounded-lg text-sm font-semibold transition-colors
+                    bg-amber-500 text-black hover:bg-amber-400
+                    disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
                 >
                   {isPending ? (
-                    <span className="flex items-center gap-2">
+                    <>
                       <span className="h-4 w-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
-                      Adding...
-                    </span>
+                      Adding…
+                    </>
                   ) : (
-                    <span className="flex items-center gap-2">
+                    <>
                       <Plus className="h-4 w-4" />
                       Add Entry
-                    </span>
+                    </>
                   )}
-                </Button>
+                </button>
               </div>
 
               {/* Transaction history */}

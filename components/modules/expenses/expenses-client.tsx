@@ -2,7 +2,8 @@
 
 import { useState, useMemo, useTransition, useEffect } from "react";
 import {
-  Home, Zap, Users, MoreHorizontal, Trash2, Plus, Receipt,
+  Home, Zap, Wifi, Droplets, Flame, Phone,
+  Users, MoreHorizontal, Trash2, Plus, Receipt,
 } from "lucide-react";
 import { addExpense, deleteExpense, fetchExpenses } from "@/app/actions/expenses";
 import { formatDateInput } from "@/lib/utils";
@@ -11,38 +12,99 @@ import { useShopContext } from "@/contexts/shop-context";
 import { toast } from "@/hooks/use-toast";
 import type { Expense } from "@/types";
 
-// ─── Types & constants ────────────────────────────────────────────────────────
+// ─── Category config ──────────────────────────────────────────────────────────
 
 type Category = Expense["category"];
 
-const CATEGORIES: { value: Category; label: string; Icon: typeof Home; color: string; badge: string }[] = [
+const CATEGORIES: {
+  value: Category;
+  label: string;
+  Icon: typeof Home;
+  badge: string;
+  noteLabel: string;
+  notePlaceholder: string;
+  noteRequired: boolean;
+  group: "bills" | "staff" | "other";
+}[] = [
+  {
+    value: "electricity",
+    label: "Electricity",
+    Icon: Zap,
+    badge: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
+    noteLabel: "Note",
+    notePlaceholder: "e.g. LESCO June bill",
+    noteRequired: false,
+    group: "bills",
+  },
+  {
+    value: "internet",
+    label: "Internet",
+    Icon: Wifi,
+    badge: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
+    noteLabel: "Note",
+    notePlaceholder: "e.g. PTCL Fiber, StormFiber",
+    noteRequired: false,
+    group: "bills",
+  },
+  {
+    value: "water",
+    label: "Water",
+    Icon: Droplets,
+    badge: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+    noteLabel: "Note",
+    notePlaceholder: "e.g. June water bill",
+    noteRequired: false,
+    group: "bills",
+  },
+  {
+    value: "gas",
+    label: "Gas",
+    Icon: Flame,
+    badge: "bg-orange-500/10 text-orange-400 border-orange-500/20",
+    noteLabel: "Note",
+    notePlaceholder: "e.g. SSGC June",
+    noteRequired: false,
+    group: "bills",
+  },
+  {
+    value: "phone",
+    label: "Phone",
+    Icon: Phone,
+    badge: "bg-violet-500/10 text-violet-400 border-violet-500/20",
+    noteLabel: "Note",
+    notePlaceholder: "e.g. Staff SIM recharge",
+    noteRequired: false,
+    group: "bills",
+  },
   {
     value: "rent",
     label: "Rent",
     Icon: Home,
-    color: "text-blue-400",
-    badge: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-  },
-  {
-    value: "utilities",
-    label: "Utilities",
-    Icon: Zap,
-    color: "text-yellow-400",
-    badge: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
+    badge: "bg-indigo-500/10 text-indigo-400 border-indigo-500/20",
+    noteLabel: "Period",
+    notePlaceholder: "e.g. June 2026",
+    noteRequired: false,
+    group: "other",
   },
   {
     value: "salary",
     label: "Salary",
     Icon: Users,
-    color: "text-purple-400",
     badge: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+    noteLabel: "Employee Name *",
+    notePlaceholder: "e.g. Ali Hassan – Sales Staff",
+    noteRequired: true,
+    group: "staff",
   },
   {
     value: "misc",
     label: "Misc",
     Icon: MoreHorizontal,
-    color: "text-zinc-400",
     badge: "bg-zinc-500/10 text-zinc-400 border-zinc-500/20",
+    noteLabel: "Description *",
+    notePlaceholder: "What was this expense for?",
+    noteRequired: true,
+    group: "other",
   },
 ];
 
@@ -51,72 +113,80 @@ const CAT_MAP = Object.fromEntries(CATEGORIES.map((c) => [c.value, c])) as Recor
   (typeof CATEGORIES)[number]
 >;
 
-function formatPKR(amount: number) {
-  return `PKR ${amount.toLocaleString("en-PK")}`;
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatPKR(n: number) {
+  return `PKR ${n.toLocaleString("en-PK")}`;
 }
 
 function todayStr() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${dd}`;
+  return formatDateInput(new Date());
+}
+
+function getThisMonthRange() {
+  const now = new Date();
+  return {
+    from: formatDateInput(new Date(now.getFullYear(), now.getMonth(), 1)),
+    to: formatDateInput(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
+  };
 }
 
 function groupByDate(expenses: Expense[]) {
   const map = new Map<string, Expense[]>();
   for (const e of expenses) {
-    const key = e.expense_date;
-    if (!map.has(key)) map.set(key, []);
-    map.get(key)!.push(e);
+    if (!map.has(e.expense_date)) map.set(e.expense_date, []);
+    map.get(e.expense_date)!.push(e);
   }
   return Array.from(map.entries()).sort(([a], [b]) => b.localeCompare(a));
 }
 
 function prettyDate(dateStr: string) {
   return new Date(dateStr + "T00:00:00").toLocaleDateString("en-PK", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
+    weekday: "short", day: "numeric", month: "short",
   });
 }
 
-// ─── Category badge ───────────────────────────────────────────────────────────
+// ─── Category Badge ───────────────────────────────────────────────────────────
 
 function CategoryBadge({ category }: { category: Category }) {
   const cat = CAT_MAP[category];
+  if (!cat) return null;
   return (
-    <span
-      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${cat.badge}`}
-    >
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${cat.badge}`}>
       <cat.Icon className="w-3 h-3" />
       {cat.label}
     </span>
   );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
+// ─── Main Component ───────────────────────────────────────────────────────────
 
-function getThisMonthRange() {
-  const now = new Date();
-  const from = formatDateInput(new Date(now.getFullYear(), now.getMonth(), 1));
-  const to = formatDateInput(new Date(now.getFullYear(), now.getMonth() + 1, 0));
-  return { from, to };
-}
+type FilterMode = "this_month" | "last_month" | "custom";
 
 export function ExpensesClient() {
   const { shopId } = useShopContext();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // ── Date filter ───────────────────────────────────────────────────────────
-  type FilterMode = "this_month" | "last_month" | "custom";
-  const [filterMode, setFilterMode] = useState<FilterMode>("this_month");
-  const { from: initialFrom, to: initialTo } = getThisMonthRange();
-  const [customFrom, setCustomFrom] = useState(initialFrom);
-  const [customTo, setCustomTo] = useState(initialTo);
   const [loadingFilter, setLoadingFilter] = useState(false);
 
+  // Date filter
+  const [filterMode, setFilterMode] = useState<FilterMode>("this_month");
+  const { from: initFrom, to: initTo } = getThisMonthRange();
+  const [customFrom, setCustomFrom] = useState(initFrom);
+  const [customTo, setCustomTo] = useState(initTo);
+
+  // Add form
+  const [category, setCategory] = useState<Category>("electricity");
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const [date, setDate] = useState(todayStr());
+  const [isPending, startTransition] = useTransition();
+
+  // Delete
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [isDeleting, startDeleteTransition] = useTransition();
+
+  // Load on mount
   useEffect(() => {
     if (!shopId) return;
     const { from, to } = getThisMonthRange();
@@ -135,22 +205,8 @@ export function ExpensesClient() {
       });
   }, [shopId]);
 
-  // ── Form state ────────────────────────────────────────────────────────────
-  const [category, setCategory] = useState<Category>("misc");
-  const [amount, setAmount] = useState("");
-  const [note, setNote] = useState("");
-  const [date, setDate] = useState(todayStr());
-  const [isPending, startTransition] = useTransition();
-
-  // ── Delete confirm ────────────────────────────────────────────────────────
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  const [isDeleting, startDeleteTransition] = useTransition();
-
-  // ─── Derived ───────────────────────────────────────────────────────────────
-  const total = useMemo(
-    () => expenses.reduce((s, e) => s + Number(e.amount), 0),
-    [expenses]
-  );
+  // Derived
+  const total = useMemo(() => expenses.reduce((s, e) => s + Number(e.amount), 0), [expenses]);
 
   const catTotals = useMemo(
     () =>
@@ -164,8 +220,9 @@ export function ExpensesClient() {
   );
 
   const grouped = useMemo(() => groupByDate(expenses), [expenses]);
+  const activeCat = CAT_MAP[category];
 
-  // ─── Load expenses for a date range ───────────────────────────────────────
+  // Load range
   async function loadExpenses(from: string, to: string) {
     if (!shopId) return;
     setLoadingFilter(true);
@@ -181,27 +238,29 @@ export function ExpensesClient() {
   function applyFilter(mode: FilterMode) {
     setFilterMode(mode);
     const now = new Date();
-    let from: string;
-    let to: string;
     if (mode === "this_month") {
-      from = formatDateInput(new Date(now.getFullYear(), now.getMonth(), 1));
-      to = formatDateInput(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+      const { from, to } = getThisMonthRange();
+      loadExpenses(from, to);
     } else if (mode === "last_month") {
-      from = formatDateInput(new Date(now.getFullYear(), now.getMonth() - 1, 1));
-      to = formatDateInput(new Date(now.getFullYear(), now.getMonth(), 0));
+      loadExpenses(
+        formatDateInput(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+        formatDateInput(new Date(now.getFullYear(), now.getMonth(), 0))
+      );
     } else {
-      from = customFrom;
-      to = customTo;
+      loadExpenses(customFrom, customTo);
     }
-    loadExpenses(from, to);
   }
 
-  // ─── Add expense ───────────────────────────────────────────────────────────
+  // Add
   function handleAdd() {
     const amountNum = parseFloat(amount);
     if (!shopId) return;
     if (!amount || isNaN(amountNum) || amountNum <= 0) {
       toast({ title: "Enter a valid amount", variant: "destructive" });
+      return;
+    }
+    if (activeCat.noteRequired && !note.trim()) {
+      toast({ title: `${activeCat.noteLabel.replace(" *", "")} is required`, variant: "destructive" });
       return;
     }
     startTransition(async () => {
@@ -219,13 +278,12 @@ export function ExpensesClient() {
         setAmount("");
         setNote("");
         setDate(todayStr());
-        // Re-fetch current filter range
         applyFilter(filterMode);
       }
     });
   }
 
-  // ─── Delete expense ────────────────────────────────────────────────────────
+  // Delete
   function handleDelete(id: string) {
     if (!shopId) return;
     startDeleteTransition(async () => {
@@ -240,297 +298,250 @@ export function ExpensesClient() {
     });
   }
 
-  // ─── Render ────────────────────────────────────────────────────────────────
+  // Loading skeleton
   if (loading) {
     return (
-      <div className="space-y-6">
-        <div className="h-8 w-48 bg-muted animate-pulse rounded-lg" />
-        <div className="h-20 bg-muted animate-pulse rounded-xl" />
-        <div className="h-48 bg-muted animate-pulse rounded-xl" />
-        <div className="space-y-2">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-12 bg-muted animate-pulse rounded-lg" />
-          ))}
-        </div>
+      <div className="space-y-4">
+        <div className="h-7 w-40 bg-muted animate-pulse rounded-lg" />
+        <div className="h-24 bg-muted animate-pulse rounded-xl" />
+        <div className="h-36 bg-muted animate-pulse rounded-xl" />
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-11 bg-muted animate-pulse rounded-lg" />
+        ))}
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 pb-10">
+    <div className="space-y-4 pb-8">
 
-      {/* ── Page header ─────────────────────────────────────────────────────── */}
-      <div>
-        <h1 className="text-3xl font-serif font-normal tracking-tight text-foreground">Expenses</h1>
-        <p className="text-muted-foreground text-sm mt-1">Track and manage shop expenses</p>
+      {/* ── Header + total ── */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Expenses</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">Track all shop costs</p>
+        </div>
+        <div className="text-right shrink-0">
+          <p className="text-2xl font-bold tabular-nums leading-none">{formatPKR(total)}</p>
+          <p className="text-xs text-muted-foreground mt-1">total this period</p>
+        </div>
       </div>
 
-      {/* ── Summary bar ─────────────────────────────────────────────────────── */}
-      <div className="rounded-xl border border-sidebar-border bg-card p-5 space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-end gap-3 sm:gap-6">
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-              Total this period
-            </p>
-            <p className="text-3xl font-bold tracking-tight text-foreground">
-              {formatPKR(total)}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {CATEGORIES.map((c) => (
-              <span
+      {/* ── Category breakdown (only if data) ── */}
+      {total > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {CATEGORIES.filter((c) => catTotals[c.value] > 0).map((c) => (
+            <div key={c.value} className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium ${c.badge}`}>
+              <c.Icon className="w-3.5 h-3.5 shrink-0" />
+              <span>{c.label}</span>
+              <span className="font-bold tabular-nums">{formatPKR(catTotals[c.value])}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Add Expense Form ── */}
+      <div className="rounded-xl border border-sidebar-border bg-card p-4 space-y-3">
+
+        {/* Category picker — grouped */}
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground font-medium">Utility Bills</p>
+          <div className="flex flex-wrap gap-1.5">
+            {CATEGORIES.filter((c) => c.group === "bills").map((c) => (
+              <button
                 key={c.value}
-                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${c.badge}`}
+                type="button"
+                onClick={() => { setCategory(c.value); setNote(""); }}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                  category === c.value ? `${c.badge}` : "border-sidebar-border text-muted-foreground hover:bg-muted/30"
+                }`}
               >
                 <c.Icon className="w-3 h-3" />
                 {c.label}
-                <span className="font-bold">{formatPKR(catTotals[c.value])}</span>
-              </span>
+              </button>
+            ))}
+          </div>
+
+          <p className="text-xs text-muted-foreground font-medium pt-1">Other</p>
+          <div className="flex flex-wrap gap-1.5">
+            {CATEGORIES.filter((c) => c.group !== "bills").map((c) => (
+              <button
+                key={c.value}
+                type="button"
+                onClick={() => { setCategory(c.value); setNote(""); }}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                  category === c.value ? `${c.badge}` : "border-sidebar-border text-muted-foreground hover:bg-muted/30"
+                }`}
+              >
+                <c.Icon className="w-3 h-3" />
+                {c.label}
+              </button>
             ))}
           </div>
         </div>
 
-        {/* Category breakdown bars */}
-        {total > 0 && (
-          <div className="space-y-1.5 pt-1">
-            {CATEGORIES.filter((c) => catTotals[c.value] > 0).map((c) => {
-              const pct = Math.round((catTotals[c.value] / total) * 100);
-              return (
-                <div key={c.value} className="flex items-center gap-2">
-                  <span className={`w-16 text-xs ${c.color}`}>{c.label}</span>
-                  <div className="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all duration-500 ${
-                        c.value === "rent"
-                          ? "bg-blue-500"
-                          : c.value === "utilities"
-                          ? "bg-yellow-500"
-                          : c.value === "salary"
-                          ? "bg-purple-500"
-                          : "bg-zinc-500"
-                      }`}
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                  <span className="text-xs text-muted-foreground w-8 text-right">{pct}%</span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* ── Quick Add Form ───────────────────────────────────────────────────── */}
-      <div className="rounded-xl border border-sidebar-border bg-card p-5 space-y-4">
-        <div className="flex items-center gap-2">
-          <Plus className="w-3.5 h-3.5 text-muted-foreground" />
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Add Expense
-          </p>
-        </div>
-
-        {/* Category selector — button tabs */}
-        <div className="flex flex-wrap gap-2">
-          {CATEGORIES.map((c) => {
-            const active = category === c.value;
-            return (
-              <button
-                key={c.value}
-                type="button"
-                onClick={() => setCategory(c.value)}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-                  active
-                    ? `${c.badge} border-current`
-                    : "border-sidebar-border text-muted-foreground hover:bg-white/5"
-                }`}
-              >
-                <c.Icon className="w-3.5 h-3.5" />
-                {c.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Inputs row */}
-        <div className="flex flex-col sm:flex-row gap-3">
+        {/* Inputs */}
+        <div className="flex flex-wrap items-end gap-2">
           {/* Amount */}
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none select-none">
-              PKR
-            </span>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Amount (PKR)</label>
+            <div className="relative">
+              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">PKR</span>
+              <input
+                type="number" min="1" placeholder="0"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+                className="w-36 pl-9 pr-3 h-9 rounded-md bg-background border border-sidebar-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+          </div>
+
+          {/* Dynamic note field */}
+          <div className="flex-1 min-w-[160px] space-y-1">
+            <label className="text-xs text-muted-foreground">{activeCat.noteLabel}</label>
             <input
-              type="number"
-              min="1"
-              placeholder="0"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              type="text"
+              placeholder={activeCat.notePlaceholder}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-              className="w-full sm:w-40 pl-10 pr-3 py-2 rounded-lg bg-background border border-sidebar-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              className="w-full h-9 px-3 rounded-md bg-background border border-sidebar-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             />
           </div>
 
-          {/* Note */}
-          <input
-            type="text"
-            placeholder="Note (optional)"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-            className="flex-1 px-3 py-2 rounded-lg bg-background border border-sidebar-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-          />
-
           {/* Date */}
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="w-full sm:w-auto px-3 py-2 rounded-lg bg-background border border-sidebar-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-          />
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Date</label>
+            <input
+              type="date" value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="h-9 px-3 rounded-md bg-background border border-sidebar-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
 
           {/* Submit */}
           <button
             type="button"
             onClick={handleAdd}
             disabled={isPending || !amount}
-            className="inline-flex items-center justify-center gap-1.5 px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="h-9 px-4 self-end inline-flex items-center gap-1.5 rounded-md text-sm font-semibold transition-colors
+              bg-primary text-primary-foreground hover:bg-primary/90
+              disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
           >
             <Plus className="w-4 h-4" />
-            {isPending ? "Adding…" : "Add Expense"}
+            {isPending ? "Adding…" : "Add"}
           </button>
         </div>
       </div>
 
-      {/* ── Date filter tabs ─────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="flex rounded-lg border border-sidebar-border overflow-hidden">
-          {(["this_month", "last_month", "custom"] as FilterMode[]).map((mode) => {
-            const labels: Record<FilterMode, string> = {
-              this_month: "This Month",
-              last_month: "Last Month",
-              custom: "Custom Range",
-            };
-            return (
+      {/* ── Date filter + list ── */}
+      <div className="rounded-xl border border-sidebar-border bg-card overflow-hidden">
+
+        {/* Filter toolbar */}
+        <div className="px-3 py-2 border-b border-sidebar-border flex flex-wrap items-center gap-2 justify-between">
+          <div className="flex items-center gap-0.5 bg-muted/20 rounded-lg p-0.5">
+            {(["this_month", "last_month", "custom"] as FilterMode[]).map((mode) => (
               <button
                 key={mode}
                 type="button"
-                onClick={() => {
-                  if (mode !== "custom") applyFilter(mode);
-                  else setFilterMode("custom");
-                }}
-                className={`px-4 py-2 text-xs font-semibold transition-colors ${
-                  filterMode === mode
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-white/5"
+                onClick={() => mode !== "custom" ? applyFilter(mode) : setFilterMode("custom")}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                  filterMode === mode ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {labels[mode]}
+                {mode === "this_month" ? "This Month" : mode === "last_month" ? "Last Month" : "Custom"}
               </button>
-            );
-          })}
+            ))}
+          </div>
+
+          {filterMode === "custom" && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
+                className="h-7 px-2 rounded-md bg-background border border-sidebar-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
+              <span className="text-xs text-muted-foreground">to</span>
+              <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
+                className="h-7 px-2 rounded-md bg-background border border-sidebar-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
+              <button onClick={() => applyFilter("custom")}
+                className="h-7 px-3 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors">
+                Apply
+              </button>
+            </div>
+          )}
         </div>
 
-        {filterMode === "custom" && (
-          <div className="flex items-center gap-2 flex-wrap">
-            <input
-              type="date"
-              value={customFrom}
-              onChange={(e) => setCustomFrom(e.target.value)}
-              className="px-3 py-2 rounded-lg bg-background border border-sidebar-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-            />
-            <span className="text-muted-foreground text-xs">to</span>
-            <input
-              type="date"
-              value={customTo}
-              onChange={(e) => setCustomTo(e.target.value)}
-              className="px-3 py-2 rounded-lg bg-background border border-sidebar-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-            />
-            <button
-              type="button"
-              onClick={() => applyFilter("custom")}
-              className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
-            >
-              Apply
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* ── Expenses list ────────────────────────────────────────────────────── */}
-      <div className="rounded-xl border border-sidebar-border bg-card overflow-hidden">
+        {/* List */}
         {loadingFilter ? (
-          <div className="p-6 space-y-3">
+          <div className="p-4 space-y-2">
             {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="h-12 rounded-lg bg-muted animate-pulse" />
+              <div key={i} className="h-11 rounded-lg bg-muted animate-pulse" />
             ))}
           </div>
         ) : grouped.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
-            <Receipt className="w-10 h-10 opacity-20" />
-            <p className="text-sm">No expenses this period.</p>
+          <div className="flex flex-col items-center justify-center py-14 text-muted-foreground gap-2">
+            <Receipt className="w-8 h-8 opacity-20" />
+            <p className="text-sm">No expenses this period</p>
           </div>
         ) : (
           <div className="divide-y divide-sidebar-border">
-            {grouped.map(([date, items]) => (
-              <div key={date}>
-                {/* Date header */}
-                <div className="px-5 py-2.5 bg-muted/30 flex items-center justify-between">
-                  <p className="text-xs font-semibold text-muted-foreground">{prettyDate(date)}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {formatPKR(items.reduce((s, e) => s + Number(e.amount), 0))}
-                  </p>
+            {grouped.map(([d, items]) => (
+              <div key={d}>
+                {/* Date row */}
+                <div className="px-4 py-2 bg-muted/20 flex items-center justify-between">
+                  <p className="text-xs font-semibold text-muted-foreground">{prettyDate(d)}</p>
+                  <p className="text-xs font-medium text-foreground">{formatPKR(items.reduce((s, e) => s + Number(e.amount), 0))}</p>
                 </div>
 
-                {/* Items */}
-                <div className="divide-y divide-sidebar-border/50">
-                  {items.map((expense) => (
-                    <div
-                      key={expense.id}
-                      className="px-5 py-3.5 flex items-center gap-4 hover:bg-white/[0.02] transition-colors"
-                    >
-                      <CategoryBadge category={expense.category} />
+                {/* Expense rows */}
+                {items.map((expense) => {
+                  const cat = CAT_MAP[expense.category];
+                  return (
+                    <div key={expense.id} className="px-4 py-2.5 flex items-center gap-3 hover:bg-muted/10 transition-colors group">
+                      {/* Icon */}
+                      <div className={`w-7 h-7 rounded-lg border flex items-center justify-center shrink-0 ${cat?.badge ?? "bg-zinc-500/10 border-zinc-500/20"}`}>
+                        {cat ? <cat.Icon className="w-3.5 h-3.5" /> : <MoreHorizontal className="w-3.5 h-3.5" />}
+                      </div>
 
+                      {/* Label + description */}
                       <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium leading-none">{cat?.label ?? expense.category}</p>
                         {expense.note && (
-                          <p className="text-sm text-foreground/80 truncate">{expense.note}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5 truncate">{expense.note}</p>
                         )}
                       </div>
 
-                      <p className="text-sm font-bold text-foreground tabular-nums shrink-0">
-                        {formatPKR(Number(expense.amount))}
-                      </p>
+                      {/* Amount */}
+                      <p className="text-sm font-bold tabular-nums shrink-0">{formatPKR(Number(expense.amount))}</p>
 
                       {/* Delete */}
                       {confirmDelete === expense.id ? (
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex items-center gap-1 shrink-0">
                           <button
-                            type="button"
                             onClick={() => handleDelete(expense.id)}
                             disabled={isDeleting}
-                            className="px-2.5 py-1 rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20 text-xs font-semibold hover:bg-rose-500/20 disabled:opacity-50 transition-colors"
+                            className="px-2 py-1 rounded text-xs font-semibold bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors"
                           >
-                            {isDeleting ? "…" : "Confirm"}
+                            {isDeleting ? "…" : "Delete"}
                           </button>
                           <button
-                            type="button"
                             onClick={() => setConfirmDelete(null)}
-                            className="px-2.5 py-1 rounded-md text-muted-foreground border border-sidebar-border text-xs hover:bg-white/5 transition-colors"
+                            className="px-2 py-1 rounded text-xs text-muted-foreground border border-sidebar-border hover:bg-muted/30 transition-colors"
                           >
                             Cancel
                           </button>
                         </div>
                       ) : (
                         <button
-                          type="button"
                           onClick={() => setConfirmDelete(expense.id)}
-                          className="p-1.5 rounded-md text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 transition-colors shrink-0"
+                          className="p-1.5 rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0 opacity-0 group-hover:opacity-100 sm:opacity-100"
                           aria-label="Delete"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       )}
                     </div>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
             ))}
           </div>

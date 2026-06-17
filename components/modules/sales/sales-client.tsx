@@ -428,60 +428,42 @@ export function SalesClient() {
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
 
-      {/* ── Header ── */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Sales</h1>
-        <p className="text-muted-foreground text-sm mt-1">Record and review sales transactions</p>
-      </div>
-
-      {/* ── Running Daily Total ── */}
-      <div className="rounded-xl border border-sidebar-border bg-card p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/20">
-            <ShoppingCart className="w-5 h-5 text-amber-400" />
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Today&apos;s Sales</p>
-            <p className="text-3xl font-bold text-amber-400 tabular-nums">{formatPKR(dailyTotal)}</p>
-          </div>
+      {/* ── Header + today's total ── */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Sales</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">Record and track daily transactions</p>
         </div>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <span className="text-xl font-semibold text-foreground">{dailyCount}</span>
-          <span>transaction{dailyCount !== 1 ? "s" : ""} today</span>
+        <div className="text-right shrink-0">
+          <p className="text-2xl font-bold text-amber-400 tabular-nums leading-none">{formatPKR(dailyTotal)}</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {dailyCount} transaction{dailyCount !== 1 ? "s" : ""} today
+          </p>
         </div>
       </div>
 
-      {/* ── Quick Add Form ── */}
-      <div className="rounded-xl border border-sidebar-border bg-card p-5 space-y-4">
-        <div className="flex items-center gap-2">
-          <Plus className="w-4 h-4 text-amber-400" />
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Quick Add Sale</h2>
-        </div>
+      {/* ── Add Sale Form ── */}
+      <div className="rounded-xl border border-sidebar-border bg-card p-4">
+        <form onSubmit={handleAddSale} className="space-y-3">
 
-        <form onSubmit={handleAddSale} className="space-y-4">
-          {/* Row 1: Product + Qty + Unit Price */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-            {/* Product dropdown — spans 2 cols on xl */}
-            <div className="space-y-1.5 xl:col-span-2">
-              <Label htmlFor="add-product">Product *</Label>
+          {/* Row 1: Product · Qty · Price · Total */}
+          <div className="grid grid-cols-12 gap-2 items-end">
+            <div className="col-span-12 sm:col-span-5 space-y-1">
+              <Label className="text-xs text-muted-foreground">Product</Label>
               <Select value={addForm.productId} onValueChange={handleAddProductChange}>
-                <SelectTrigger id="add-product" className="w-full">
-                  <SelectValue placeholder="Select product..." />
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="Select product…" />
                 </SelectTrigger>
                 <SelectContent>
                   {products.length === 0 ? (
-                    <div className="px-3 py-4 text-sm text-muted-foreground text-center">
-                      No products found
-                    </div>
+                    <div className="px-3 py-4 text-sm text-muted-foreground text-center">No products yet</div>
                   ) : (
                     products.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
-                        <span>{p.name}</span>
-                        <span className="ml-2 text-muted-foreground text-xs">
-                          — {formatPKR(p.sale_price)}/{p.unit}
-                        </span>
+                        {p.name}
+                        <span className="ml-1.5 text-muted-foreground text-xs">— {formatPKR(p.sale_price)}/{p.unit}</span>
                       </SelectItem>
                     ))
                   )}
@@ -489,86 +471,73 @@ export function SalesClient() {
               </Select>
             </div>
 
-            {/* Quantity */}
-            <div className="space-y-1.5">
-              <Label htmlFor="add-qty">Quantity *</Label>
+            <div className="col-span-4 sm:col-span-2 space-y-1">
+              <Label className="text-xs text-muted-foreground">Qty</Label>
               <Input
-                id="add-qty"
-                type="number"
-                min="0.001"
-                step="any"
-                placeholder="1"
+                type="number" min="0.001" step="any" placeholder="1"
                 value={addForm.quantity}
-                onChange={(e) => setAddForm((prev) => ({ ...prev, quantity: e.target.value }))}
+                onChange={(e) => setAddForm((p) => ({ ...p, quantity: e.target.value }))}
+                className="h-9"
               />
             </div>
 
-            {/* Unit Price */}
-            <div className="space-y-1.5">
-              <Label htmlFor="add-price">Unit Price (PKR) *</Label>
+            <div className="col-span-4 sm:col-span-3 space-y-1">
+              <Label className="text-xs text-muted-foreground">Price (PKR)</Label>
               <Input
-                id="add-price"
-                type="number"
-                min="0"
-                step="any"
-                placeholder="0"
+                type="number" min="0" step="any" placeholder="0"
                 value={addForm.unitPrice}
-                onChange={(e) => setAddForm((prev) => ({ ...prev, unitPrice: e.target.value }))}
+                onChange={(e) => setAddForm((p) => ({ ...p, unitPrice: e.target.value }))}
+                className="h-9"
               />
+            </div>
+
+            <div className="col-span-4 sm:col-span-2 space-y-1">
+              <Label className="text-xs text-muted-foreground">Total</Label>
+              <div className="h-9 px-3 flex items-center rounded-md border border-sidebar-border bg-muted/30 text-sm font-bold text-amber-400 tabular-nums">
+                {addFormTotal > 0 ? formatPKR(addFormTotal) : <span className="text-muted-foreground/40 font-normal">—</span>}
+              </div>
             </div>
           </div>
 
-          {/* Row 2: Total + Payment Mode + Customer + Date */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 items-end">
-            {/* Total (read-only) */}
-            <div className="space-y-1.5">
-              <Label>Total</Label>
-              <div className="h-9 px-3 flex items-center rounded-md border border-sidebar-border bg-muted/40 text-sm font-semibold text-amber-400 tabular-nums">
-                {formatPKR(addFormTotal)}
-              </div>
-            </div>
-
-            {/* Payment Mode */}
-            <div className="space-y-1.5">
-              <Label>Payment Mode</Label>
+          {/* Row 2: Payment · Customer · Date · Submit */}
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Payment</Label>
               <PaymentToggle
                 value={addForm.paymentMode}
-                onChange={(v) => setAddForm((prev) => ({ ...prev, paymentMode: v }))}
+                onChange={(v) => setAddForm((p) => ({ ...p, paymentMode: v }))}
               />
             </div>
 
-            {/* Customer Name */}
-            <div className="space-y-1.5">
-              <Label htmlFor="add-customer">Customer Name</Label>
+            <div className="flex-1 min-w-[130px] space-y-1">
+              <Label className="text-xs text-muted-foreground">Customer (optional)</Label>
               <Input
-                id="add-customer"
-                placeholder="Optional"
+                placeholder="Name…"
                 value={addForm.customerName}
-                onChange={(e) => setAddForm((prev) => ({ ...prev, customerName: e.target.value }))}
+                onChange={(e) => setAddForm((p) => ({ ...p, customerName: e.target.value }))}
+                className="h-9"
               />
             </div>
 
-            {/* Date */}
-            <div className="space-y-1.5">
-              <Label>Date</Label>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Date</Label>
               <DatePicker
                 value={addForm.saleDate}
-                onChange={(v) => setAddForm((prev) => ({ ...prev, saleDate: v }))}
+                onChange={(v) => setAddForm((p) => ({ ...p, saleDate: v }))}
                 maxDate={new Date()}
               />
             </div>
-          </div>
 
-          {/* Submit */}
-          <div className="flex justify-end">
-            <Button
+            <button
               type="submit"
               disabled={addSubmitting || !addForm.productId}
-              className="gap-2 bg-amber-500 hover:bg-amber-600 text-black font-semibold"
+              className="h-9 px-4 self-end inline-flex items-center gap-1.5 rounded-md text-sm font-semibold transition-colors
+                bg-amber-500 text-black hover:bg-amber-400
+                disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
             >
               <Plus className="w-4 h-4" />
-              {addSubmitting ? "Adding..." : "Add Sale"}
-            </Button>
+              {addSubmitting ? "Adding…" : "Add Sale"}
+            </button>
           </div>
         </form>
       </div>
@@ -576,167 +545,122 @@ export function SalesClient() {
       {/* ── Sales List ── */}
       <div className="rounded-xl border border-sidebar-border bg-card overflow-hidden">
 
-        {/* Filters toolbar */}
-        <div className="p-4 border-b border-sidebar-border flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-          {/* Date filter tabs */}
-          <div className="flex items-center gap-1 rounded-lg border border-sidebar-border p-1 bg-muted/10">
+        {/* Toolbar */}
+        <div className="px-3 py-2 border-b border-sidebar-border flex flex-wrap gap-2 items-center justify-between">
+          <div className="flex items-center gap-0.5 bg-muted/20 rounded-lg p-0.5">
             {(["today", "week", "month", "custom"] as DateFilter[]).map((f) => (
               <button
                 key={f}
                 type="button"
                 onClick={() => handleDateFilterChange(f)}
                 className={[
-                  "px-3 py-1 rounded-md text-xs font-medium transition-colors",
+                  "px-2.5 py-1 rounded-md text-xs font-medium transition-colors",
                   dateFilter === f
                     ? "bg-amber-500/20 text-amber-400"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted/30",
+                    : "text-muted-foreground hover:text-foreground",
                 ].join(" ")}
               >
-                {f === "week" ? "This Week" : f === "month" ? "This Month" : f === "custom" ? "Custom" : "Today"}
+                {f === "week" ? "Week" : f === "month" ? "Month" : f === "custom" ? "Custom" : "Today"}
               </button>
             ))}
           </div>
 
-          {/* Search */}
-          <div className="relative w-full sm:w-56">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
             <Input
-              placeholder="Search product, customer..."
+              placeholder="Search…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 h-8 text-sm"
+              className="pl-7 h-7 text-xs w-36"
             />
           </div>
         </div>
 
-        {/* Custom date range pickers */}
+        {/* Custom date range */}
         {dateFilter === "custom" && (
-          <div className="px-4 py-3 border-b border-sidebar-border flex flex-wrap items-end gap-3 bg-muted/10">
-            <div className="space-y-1">
-              <Label className="text-xs">From</Label>
-              <DatePicker
-                value={customFrom}
-                onChange={setCustomFrom}
-                maxDate={new Date()}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">To</Label>
-              <DatePicker
-                value={customTo}
-                onChange={setCustomTo}
-                minDate={new Date(customFrom)}
-                maxDate={new Date()}
-              />
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => reloadSales(customFrom, customTo)}
-              className="gap-1.5"
-            >
-              <Calendar className="w-3.5 h-3.5" />
-              Apply
+          <div className="px-3 py-2 border-b border-sidebar-border flex flex-wrap items-center gap-2 bg-muted/10">
+            <span className="text-xs text-muted-foreground">From</span>
+            <DatePicker value={customFrom} onChange={setCustomFrom} maxDate={new Date()} />
+            <span className="text-xs text-muted-foreground">to</span>
+            <DatePicker value={customTo} onChange={setCustomTo} minDate={new Date(customFrom)} maxDate={new Date()} />
+            <Button size="sm" variant="outline" onClick={() => reloadSales(customFrom, customTo)} className="h-7 text-xs gap-1 px-2.5">
+              <Calendar className="w-3 h-3" /> Apply
             </Button>
           </div>
         )}
 
         {/* Table */}
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-sidebar-border bg-muted/20">
-                <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3 whitespace-nowrap">Date</th>
-                <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3">Product</th>
-                <th className="text-right text-xs font-medium text-muted-foreground px-4 py-3">Qty</th>
-                <th className="text-right text-xs font-medium text-muted-foreground px-4 py-3 hidden sm:table-cell">Unit Price</th>
-                <th className="text-right text-xs font-medium text-muted-foreground px-4 py-3">Total</th>
-                <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3 hidden md:table-cell">Payment</th>
-                <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3 hidden lg:table-cell">Customer</th>
-                <th className="text-right text-xs font-medium text-muted-foreground px-4 py-3">Actions</th>
+              <tr className="border-b border-sidebar-border bg-muted/10">
+                <th className="text-left text-xs font-medium text-muted-foreground px-3 py-2 whitespace-nowrap">Date</th>
+                <th className="text-left text-xs font-medium text-muted-foreground px-3 py-2">Product</th>
+                <th className="text-right text-xs font-medium text-muted-foreground px-3 py-2 hidden sm:table-cell">Qty × Price</th>
+                <th className="text-right text-xs font-medium text-muted-foreground px-3 py-2">Total</th>
+                <th className="text-center text-xs font-medium text-muted-foreground px-3 py-2 hidden md:table-cell">Mode</th>
+                <th className="text-left text-xs font-medium text-muted-foreground px-3 py-2 hidden lg:table-cell">Customer</th>
+                <th className="px-3 py-2 w-16" />
               </tr>
             </thead>
 
-            <tbody className="divide-y divide-sidebar-border">
+            <tbody className="divide-y divide-sidebar-border/50">
               {loadingSales ? (
-                <SkeletonRows />
+                Array.from({ length: 4 }).map((_, i) => (
+                  <tr key={i}>
+                    {Array.from({ length: 5 }).map((__, j) => (
+                      <td key={j} className="px-3 py-2.5">
+                        <div className="h-3 bg-muted rounded animate-pulse" />
+                      </td>
+                    ))}
+                  </tr>
+                ))
               ) : filteredSales.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-16 text-center">
-                    <div className="flex flex-col items-center gap-3 text-muted-foreground">
-                      <ShoppingCart className="w-10 h-10 opacity-25" />
-                      <p className="font-medium text-sm">
-                        No sales recorded yet. Add your first sale above.
-                      </p>
-                    </div>
+                  <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
+                    <ShoppingCart className="w-8 h-8 opacity-20 mx-auto mb-2" />
+                    <p className="text-sm">No sales for this period</p>
                   </td>
                 </tr>
               ) : (
                 filteredSales.map((sale) => (
-                  <tr key={sale.id} className="hover:bg-muted/15 transition-colors group">
-                    {/* Date */}
-                    <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
+                  <tr key={sale.id} className="hover:bg-muted/10 transition-colors group">
+                    <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">
                       {new Date(sale.sale_date + "T00:00:00").toLocaleDateString("en-PK", {
-                        day: "2-digit", month: "short", year: "numeric",
+                        day: "2-digit", month: "short",
                       })}
                     </td>
-
-                    {/* Product */}
-                    <td className="px-4 py-3">
-                      <p className="text-sm font-medium">{sale.product?.name ?? "—"}</p>
-                      {sale.product?.unit && (
-                        <p className="text-xs text-muted-foreground">{sale.product.unit}</p>
-                      )}
+                    <td className="px-3 py-2 font-medium max-w-[180px] truncate">
+                      {sale.product?.name ?? "—"}
                     </td>
-
-                    {/* Qty */}
-                    <td className="px-4 py-3 text-right text-sm tabular-nums">
-                      {sale.quantity}
+                    <td className="px-3 py-2 text-right text-xs text-muted-foreground tabular-nums hidden sm:table-cell">
+                      {sale.quantity} × {formatPKR(sale.unit_price)}
                     </td>
-
-                    {/* Unit Price */}
-                    <td className="px-4 py-3 text-right text-sm tabular-nums text-muted-foreground hidden sm:table-cell">
-                      {formatPKR(sale.unit_price)}
-                    </td>
-
-                    {/* Total */}
-                    <td className="px-4 py-3 text-right text-sm font-semibold tabular-nums text-amber-400">
+                    <td className="px-3 py-2 text-right font-semibold tabular-nums text-amber-400">
                       {formatPKR(sale.total)}
                     </td>
-
-                    {/* Payment */}
-                    <td className="px-4 py-3 hidden md:table-cell">
+                    <td className="px-3 py-2 text-center hidden md:table-cell">
                       <PaymentBadge mode={sale.payment_mode} />
                     </td>
-
-                    {/* Customer */}
-                    <td className="px-4 py-3 text-sm text-muted-foreground hidden lg:table-cell">
-                      {sale.customer_name ?? (
-                        <span className="opacity-40">—</span>
-                      )}
+                    <td className="px-3 py-2 text-xs text-muted-foreground hidden lg:table-cell truncate max-w-[120px]">
+                      {sale.customer_name ?? <span className="opacity-30">—</span>}
                     </td>
-
-                    {/* Actions */}
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 opacity-60 group-hover:opacity-100 transition-opacity"
+                    <td className="px-3 py-2">
+                      <div className="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 sm:opacity-100 transition-opacity">
+                        <button
                           onClick={() => openEdit(sale)}
-                          title="Edit sale"
+                          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                          title="Edit"
                         >
                           <Pencil className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-destructive hover:text-destructive opacity-60 group-hover:opacity-100 transition-opacity"
+                        </button>
+                        <button
                           onClick={() => setDeleteId(sale.id)}
-                          title="Delete sale"
+                          className="p-1.5 rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                          title="Delete"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -744,17 +668,14 @@ export function SalesClient() {
               )}
             </tbody>
 
-            {/* Footer total row */}
             {!loadingSales && filteredSales.length > 0 && (
               <tfoot>
-                <tr className="border-t border-sidebar-border bg-muted/20">
-                  <td colSpan={4} className="px-4 py-3 text-sm font-semibold text-muted-foreground hidden sm:table-cell">
+                <tr className="border-t border-sidebar-border bg-muted/10">
+                  <td colSpan={2} className="px-3 py-2 text-xs text-muted-foreground">
                     {filteredSales.length} transaction{filteredSales.length !== 1 ? "s" : ""}
                   </td>
-                  <td colSpan={1} className="px-4 py-3 text-sm font-semibold text-muted-foreground sm:hidden">
-                    {filteredSales.length} txn{filteredSales.length !== 1 ? "s" : ""}
-                  </td>
-                  <td className="px-4 py-3 text-right font-bold text-amber-400 tabular-nums">
+                  <td className="px-3 py-2 hidden sm:table-cell" />
+                  <td className="px-3 py-2 text-right font-bold text-amber-400 tabular-nums">
                     {formatPKR(filteredSales.reduce((acc, s) => acc + s.total, 0))}
                   </td>
                   <td colSpan={3} />
@@ -766,141 +687,110 @@ export function SalesClient() {
       </div>
 
       {/* ── Edit Dialog ── */}
-      <Dialog
-        open={!!editSaleRow}
-        onOpenChange={(open) => { if (!open) closeEdit(); }}
-      >
-        <DialogContent className="sm:max-w-lg">
+      <Dialog open={!!editSaleRow} onOpenChange={(open) => { if (!open) closeEdit(); }}>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Edit Sale</DialogTitle>
           </DialogHeader>
 
           {editForm && (
-            <div className="space-y-4 py-2">
-              {/* Product */}
+            <div className="space-y-3 py-1">
               <div className="space-y-1.5">
-                <Label>Product *</Label>
+                <Label className="text-xs text-muted-foreground">Product</Label>
                 <Select
                   value={editForm.productId}
                   onValueChange={(v) => {
                     const p = productMap.get(v);
-                    setEditForm((prev) =>
-                      prev
-                        ? { ...prev, productId: v, unitPrice: p ? String(p.sale_price) : prev.unitPrice }
-                        : prev
-                    );
+                    setEditForm((prev) => prev ? { ...prev, productId: v, unitPrice: p ? String(p.sale_price) : prev.unitPrice } : prev);
                   }}
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select product..." />
+                    <SelectValue placeholder="Select product…" />
                   </SelectTrigger>
                   <SelectContent>
                     {products.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
                         {p.name}
-                        <span className="ml-2 text-muted-foreground text-xs">
-                          — {formatPKR(p.sale_price)}/{p.unit}
-                        </span>
+                        <span className="ml-1.5 text-muted-foreground text-xs">— {formatPKR(p.sale_price)}/{p.unit}</span>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
 
-              {/* Qty + Price */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-2">
                 <div className="space-y-1.5">
-                  <Label>Quantity *</Label>
+                  <Label className="text-xs text-muted-foreground">Qty</Label>
                   <Input
-                    type="number"
-                    min="0.001"
-                    step="any"
+                    type="number" min="0.001" step="any"
                     value={editForm.quantity}
-                    onChange={(e) =>
-                      setEditForm((prev) => prev ? { ...prev, quantity: e.target.value } : prev)
-                    }
+                    onChange={(e) => setEditForm((prev) => prev ? { ...prev, quantity: e.target.value } : prev)}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Unit Price (PKR) *</Label>
+                  <Label className="text-xs text-muted-foreground">Price (PKR)</Label>
                   <Input
-                    type="number"
-                    min="0"
-                    step="any"
+                    type="number" min="0" step="any"
                     value={editForm.unitPrice}
-                    onChange={(e) =>
-                      setEditForm((prev) => prev ? { ...prev, unitPrice: e.target.value } : prev)
-                    }
+                    onChange={(e) => setEditForm((prev) => prev ? { ...prev, unitPrice: e.target.value } : prev)}
                   />
                 </div>
-              </div>
-
-              {/* Total (read-only) */}
-              <div className="space-y-1.5">
-                <Label>Total</Label>
-                <div className="h-9 px-3 flex items-center rounded-md border border-sidebar-border bg-muted/40 text-sm font-semibold text-amber-400">
-                  {formatPKR(editFormTotal)}
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Total</Label>
+                  <div className="h-9 px-3 flex items-center rounded-md border border-sidebar-border bg-muted/30 text-sm font-bold text-amber-400 tabular-nums">
+                    {formatPKR(editFormTotal)}
+                  </div>
                 </div>
               </div>
 
-              {/* Payment Mode */}
               <div className="space-y-1.5">
-                <Label>Payment Mode</Label>
+                <Label className="text-xs text-muted-foreground">Payment</Label>
                 <PaymentToggle
                   value={editForm.paymentMode}
-                  onChange={(v) =>
-                    setEditForm((prev) => prev ? { ...prev, paymentMode: v } : prev)
-                  }
+                  onChange={(v) => setEditForm((prev) => prev ? { ...prev, paymentMode: v } : prev)}
                 />
               </div>
 
-              {/* Customer */}
-              <div className="space-y-1.5">
-                <Label>Customer Name</Label>
-                <Input
-                  placeholder="Optional"
-                  value={editForm.customerName}
-                  onChange={(e) =>
-                    setEditForm((prev) => prev ? { ...prev, customerName: e.target.value } : prev)
-                  }
-                />
-              </div>
-
-              {/* Date */}
-              <div className="space-y-1.5">
-                <Label>Sale Date</Label>
-                <DatePicker
-                  value={editForm.saleDate}
-                  onChange={(v) =>
-                    setEditForm((prev) => prev ? { ...prev, saleDate: v } : prev)
-                  }
-                  maxDate={new Date()}
-                />
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Customer</Label>
+                  <Input
+                    placeholder="Optional"
+                    value={editForm.customerName}
+                    onChange={(e) => setEditForm((prev) => prev ? { ...prev, customerName: e.target.value } : prev)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Date</Label>
+                  <DatePicker
+                    value={editForm.saleDate}
+                    onChange={(v) => setEditForm((prev) => prev ? { ...prev, saleDate: v } : prev)}
+                    maxDate={new Date()}
+                  />
+                </div>
               </div>
             </div>
           )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={closeEdit}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={closeEdit}>Cancel</Button>
             <Button
               onClick={handleEditSave}
               disabled={editSubmitting || !editForm?.productId}
-              className="bg-amber-500 hover:bg-amber-600 text-black font-semibold"
+              className="bg-amber-500 hover:bg-amber-400 text-black font-semibold"
             >
-              {editSubmitting ? "Saving..." : "Save Changes"}
+              {editSubmitting ? "Saving…" : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ── Delete Confirm Dialog ── */}
+      {/* ── Delete Confirm ── */}
       <ConfirmDialog
         open={!!deleteId}
         title="Delete Sale"
         description="This sale will be permanently deleted and stock will be restored."
-        confirmLabel={deleteSubmitting ? "Deleting..." : "Delete"}
+        confirmLabel={deleteSubmitting ? "Deleting…" : "Delete"}
         onConfirm={handleDelete}
         onCancel={() => setDeleteId(null)}
       />

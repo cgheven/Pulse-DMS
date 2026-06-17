@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 
 export async function addExpense(data: {
   shopId: string;
-  category: "rent" | "utilities" | "salary" | "misc";
+  category: "rent" | "electricity" | "internet" | "water" | "gas" | "phone" | "salary" | "misc";
   amount: number;
   note?: string;
   expenseDate?: string;
@@ -32,7 +32,7 @@ export async function editExpense(
   expenseId: string,
   shopId: string,
   data: {
-    category: "rent" | "utilities" | "salary" | "misc";
+    category: "rent" | "electricity" | "internet" | "water" | "gas" | "phone" | "salary" | "misc";
     amount: number;
     note?: string;
     expenseDate?: string;

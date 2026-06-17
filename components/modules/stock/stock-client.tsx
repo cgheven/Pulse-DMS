@@ -5,17 +5,12 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useShopContext } from "@/contexts/shop-context";
 import {
-  Boxes, ArrowDown, ArrowUp, AlertTriangle, Package,
-  Plus, History, Check, Loader2, Filter,
+  ArrowDown, ArrowUp, AlertTriangle, Package,
+  Plus, History, Check, Loader2,
 } from "lucide-react";
 
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import { cn, formatDate, formatDateInput } from "@/lib/utils";
@@ -23,51 +18,23 @@ import { cn, formatDate, formatDateInput } from "@/lib/utils";
 import { addStockMovement, updateLowStockThreshold } from "@/app/actions/stock";
 import type { StockLevel, StockMovement } from "@/types";
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function stockColor(level: StockLevel): string {
-  if (level.current_stock <= level.low_stock_threshold)
-    return "text-red-400";
-  if (level.current_stock <= level.low_stock_threshold * 2)
-    return "text-amber-400";
-  return "text-emerald-400";
-}
-
-function stockBg(level: StockLevel): string {
-  if (level.current_stock <= level.low_stock_threshold)
-    return "bg-red-500/10 border-red-500/20";
-  if (level.current_stock <= level.low_stock_threshold * 2)
-    return "bg-amber-500/10 border-amber-500/20";
-  return "bg-emerald-500/10 border-emerald-500/20";
+function stockStatus(level: StockLevel): "low" | "warn" | "ok" {
+  if (level.current_stock <= level.low_stock_threshold) return "low";
+  if (level.current_stock <= level.low_stock_threshold * 2) return "warn";
+  return "ok";
 }
 
 function urgencyScore(level: StockLevel): number {
-  if (level.low_stock_threshold === 0) return 0;
+  if (level.low_stock_threshold === 0) return 999;
   return level.current_stock / level.low_stock_threshold;
 }
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface MovementDialogState {
-  open: boolean;
-  type: "in" | "out";
-  productId: string;
-}
-
-const emptyDialog: MovementDialogState = { open: false, type: "in", productId: "" };
-
-const emptyMovementForm = {
-  quantity: "",
-  note: "",
-  date: formatDateInput(new Date()),
-};
 
 // ─── Inline threshold editor ──────────────────────────────────────────────────
 
 function ThresholdEditor({
-  level,
-  shopId,
-  onUpdated,
+  level, shopId, onUpdated,
 }: {
   level: StockLevel;
   shopId: string;
@@ -87,7 +54,7 @@ function ThresholdEditor({
   async function commit() {
     const num = parseInt(value, 10);
     if (isNaN(num) || num < 0) {
-      toast({ title: "Invalid threshold", description: "Must be a non-negative number.", variant: "destructive" });
+      toast({ title: "Must be a non-negative number", variant: "destructive" });
       return;
     }
     if (num === level.low_stock_threshold) { setEditing(false); return; }
@@ -98,7 +65,7 @@ function ThresholdEditor({
       toast({ title: "Error", description: res.error, variant: "destructive" });
     } else {
       onUpdated(level.product_id, num);
-      toast({ title: "Threshold updated" });
+      toast({ title: "Alert threshold updated" });
       setEditing(false);
     }
   }
@@ -108,23 +75,16 @@ function ThresholdEditor({
       <div className="flex items-center gap-1">
         <input
           ref={inputRef}
-          type="number"
-          min={0}
-          value={value}
+          type="number" min={0} value={value}
           onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commit();
-            if (e.key === "Escape") setEditing(false);
-          }}
+          onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setEditing(false); }}
           onBlur={commit}
-          className="w-16 h-7 rounded border border-input bg-background px-2 text-xs text-center focus:outline-none focus:ring-1 focus:ring-ring"
+          className="w-14 h-6 rounded border border-input bg-background px-2 text-xs text-center focus:outline-none focus:ring-1 focus:ring-ring"
         />
-        {saving && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
-        {!saving && (
-          <button onClick={commit} className="text-emerald-400 hover:text-emerald-300">
-            <Check className="w-3.5 h-3.5" />
-          </button>
-        )}
+        {saving
+          ? <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+          : <button onClick={commit} className="text-emerald-400 hover:text-emerald-300"><Check className="w-3 h-3" /></button>
+        }
       </div>
     );
   }
@@ -132,22 +92,56 @@ function ThresholdEditor({
   return (
     <button
       onClick={startEdit}
-      className="text-xs text-muted-foreground hover:text-foreground underline decoration-dotted underline-offset-2 transition-colors"
-      title="Click to edit"
+      className="text-xs text-muted-foreground hover:text-foreground underline decoration-dotted underline-offset-2 transition-colors tabular-nums"
+      title="Click to edit alert threshold"
     >
       {level.low_stock_threshold}
     </button>
   );
 }
 
+// ─── Stock bar ─────────────────────────────────────────────────────────────────
+
+function StockBar({ level }: { level: StockLevel }) {
+  const status = stockStatus(level);
+  const max = Math.max(level.current_stock, level.low_stock_threshold * 3, 1);
+  const fill = Math.min((level.current_stock / max) * 100, 100);
+  const thresholdPct = Math.min((level.low_stock_threshold / max) * 100, 100);
+
+  const barColor =
+    status === "low" ? "bg-red-500" :
+    status === "warn" ? "bg-amber-500" :
+    "bg-emerald-500";
+
+  return (
+    <div className="relative h-1.5 w-full rounded-full bg-muted overflow-visible">
+      <div
+        className={cn("h-full rounded-full transition-all duration-500", barColor)}
+        style={{ width: `${fill}%` }}
+      />
+      {level.low_stock_threshold > 0 && (
+        <div
+          className="absolute top-1/2 -translate-y-1/2 w-0.5 h-3 rounded-full bg-red-500/60"
+          style={{ left: `${thresholdPct}%` }}
+          title={`Alert at ${level.low_stock_threshold}`}
+        />
+      )}
+    </div>
+  );
+}
+
 // ─── Movement Dialog ──────────────────────────────────────────────────────────
 
+interface MovementDialogState {
+  open: boolean;
+  type: "in" | "out";
+  productId: string;
+}
+
+const emptyDialog: MovementDialogState = { open: false, type: "in", productId: "" };
+
 function MovementDialog({
-  state,
-  stockLevels,
-  shopId,
-  onClose,
-  onSuccess,
+  state, stockLevels, shopId, onClose, onSuccess,
 }: {
   state: MovementDialogState;
   stockLevels: StockLevel[];
@@ -155,37 +149,29 @@ function MovementDialog({
   onClose: () => void;
   onSuccess: (movement: StockMovement) => void;
 }) {
-  const [form, setForm] = useState(emptyMovementForm);
   const [productId, setProductId] = useState(state.productId);
+  const [quantity, setQuantity] = useState("");
+  const [note, setNote] = useState("");
   const [isPending, startTransition] = useTransition();
 
   const selectedProduct = stockLevels.find((s) => s.product_id === productId);
+  const isIn = state.type === "in";
 
   function handleClose() {
-    setForm(emptyMovementForm);
+    setQuantity(""); setNote("");
     onClose();
   }
 
   function handleSubmit() {
-    const qty = parseInt(form.quantity, 10);
-    if (!productId) {
-      toast({ title: "Select a product", variant: "destructive" });
-      return;
-    }
-    if (isNaN(qty) || qty <= 0) {
-      toast({ title: "Invalid quantity", description: "Must be a positive number.", variant: "destructive" });
-      return;
-    }
+    const qty = parseInt(quantity, 10);
+    if (!productId) { toast({ title: "Select a product", variant: "destructive" }); return; }
+    if (isNaN(qty) || qty <= 0) { toast({ title: "Enter a valid quantity", variant: "destructive" }); return; }
 
     startTransition(async () => {
       const res = await addStockMovement({
-        shopId,
-        productId,
-        type: state.type,
-        quantity: qty,
-        note: form.note.trim() || undefined,
+        shopId, productId, type: state.type, quantity: qty,
+        note: note.trim() || undefined,
       });
-
       if (res?.error) {
         toast({ title: "Error", description: res.error, variant: "destructive" });
       } else {
@@ -195,50 +181,42 @@ function MovementDialog({
           product_id: productId,
           type: state.type,
           quantity: qty,
-          note: form.note.trim() || null,
+          note: note.trim() || null,
           sale_id: null,
-          created_at: form.date ? `${form.date}T00:00:00.000Z` : new Date().toISOString(),
+          created_at: new Date().toISOString(),
           product: selectedProduct
             ? { id: selectedProduct.product_id, name: selectedProduct.product_name, unit: selectedProduct.unit }
             : null,
         };
         onSuccess(newMovement);
         toast({
-          title: state.type === "in" ? "Stock added" : "Stock recorded as out",
-          description: `${qty} ${selectedProduct?.unit ?? "units"} ${state.type === "in" ? "added" : "removed"}.`,
+          title: isIn ? "Stock added" : "Stock removed",
+          description: `${qty} ${selectedProduct?.unit ?? "units"} ${isIn ? "added to" : "removed from"} stock.`,
         });
         handleClose();
-        setForm(emptyMovementForm);
       }
     });
   }
 
-  const isIn = state.type === "in";
-  const title = isIn ? "Add Stock In" : "Record Stock Out";
-  const icon = isIn
-    ? <ArrowDown className="w-4 h-4 text-emerald-400" />
-    : <ArrowUp className="w-4 h-4 text-red-400" />;
-
   return (
     <Dialog open={state.open} onOpenChange={(open) => { if (!open) handleClose(); }}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            {icon}
-            {title}
+          <DialogTitle className="flex items-center gap-2 text-base">
+            {isIn
+              ? <><ArrowDown className="w-4 h-4 text-emerald-400" /> Stock In</>
+              : <><ArrowUp className="w-4 h-4 text-red-400" /> Stock Out</>
+            }
           </DialogTitle>
         </DialogHeader>
 
-        <div className="grid gap-4 py-2">
-          {/* Product selector */}
-          <div className="space-y-1.5">
-            <Label>Product *</Label>
-            <Select
-              value={productId || state.productId}
-              onValueChange={setProductId}
-            >
+        <div className="space-y-3 py-1">
+          {/* Product */}
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Product</label>
+            <Select value={productId || state.productId} onValueChange={setProductId}>
               <SelectTrigger>
-                <SelectValue placeholder="Select product..." />
+                <SelectValue placeholder="Select product…" />
               </SelectTrigger>
               <SelectContent>
                 {stockLevels.map((s) => (
@@ -251,8 +229,12 @@ function MovementDialog({
             </Select>
             {selectedProduct && (
               <p className="text-xs text-muted-foreground">
-                Current stock:{" "}
-                <span className={cn("font-semibold", stockColor(selectedProduct))}>
+                Current:{" "}
+                <span className={cn(
+                  "font-semibold",
+                  stockStatus(selectedProduct) === "low" ? "text-red-400" :
+                  stockStatus(selectedProduct) === "warn" ? "text-amber-400" : "text-emerald-400"
+                )}>
                   {selectedProduct.current_stock} {selectedProduct.unit}
                 </span>
               </p>
@@ -260,311 +242,55 @@ function MovementDialog({
           </div>
 
           {/* Quantity */}
-          <div className="space-y-1.5">
-            <Label>Quantity *</Label>
-            <Input
-              type="number"
-              min={1}
-              placeholder="e.g. 10"
-              value={form.quantity}
-              onChange={(e) => setForm({ ...form, quantity: e.target.value })}
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Quantity *</label>
+            <input
+              type="number" min={1} placeholder="e.g. 10"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+              className="w-full h-9 px-3 rounded-md bg-background border border-input text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             />
           </div>
 
           {/* Note */}
-          <div className="space-y-1.5">
-            <Label>
-              Note{" "}
-              {!isIn && (
-                <span className="text-muted-foreground text-xs font-normal">
-                  (e.g. damage, return, adjustment)
-                </span>
-              )}
-            </Label>
-            <Textarea
-              placeholder={isIn ? "Optional note..." : "Reason: damage / return / adjustment"}
-              value={form.note}
-              onChange={(e) => setForm({ ...form, note: e.target.value })}
-              rows={2}
-            />
-          </div>
-
-          {/* Date */}
-          <div className="space-y-1.5">
-            <Label>Date</Label>
-            <Input
-              type="date"
-              value={form.date}
-              onChange={(e) => setForm({ ...form, date: e.target.value })}
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">
+              Note {!isIn && <span className="opacity-60">(e.g. damage, return)</span>}
+            </label>
+            <input
+              type="text"
+              placeholder={isIn ? "Optional…" : "Reason: damage / return / adjustment"}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              className="w-full h-9 px-3 rounded-md bg-background border border-input text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             />
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={handleClose} disabled={isPending}>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={handleClose} disabled={isPending} className="h-9">
             Cancel
           </Button>
-          <Button
+          <button
             onClick={handleSubmit}
-            disabled={isPending || !productId || !form.quantity}
-            className={cn(isIn ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700")}
-          >
-            {isPending ? (
-              <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</>
-            ) : (
-              isIn ? "Add Stock" : "Record Out"
+            disabled={isPending || !productId || !quantity}
+            className={cn(
+              "h-9 px-4 inline-flex items-center gap-1.5 rounded-md text-sm font-semibold transition-colors",
+              isIn
+                ? "bg-emerald-500 text-black hover:bg-emerald-400"
+                : "bg-red-500 text-white hover:bg-red-400",
+              "disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
             )}
-          </Button>
+          >
+            {isPending
+              ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving…</>
+              : isIn ? <><ArrowDown className="w-4 h-4" /> Add Stock</> : <><ArrowUp className="w-4 h-4" /> Remove Stock</>
+            }
+          </button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-// ─── Stock Levels Tab ─────────────────────────────────────────────────────────
-
-function StockLevelsTab({
-  stockLevels,
-  shopId,
-  onThresholdUpdated,
-  onOpenDialog,
-}: {
-  stockLevels: StockLevel[];
-  shopId: string;
-  onThresholdUpdated: (productId: string, value: number) => void;
-  onOpenDialog: (type: "in" | "out", productId: string) => void;
-}) {
-  if (stockLevels.length === 0) {
-    return (
-      <div className="rounded-xl border border-sidebar-border bg-card p-12 flex flex-col items-center justify-center gap-3 text-center">
-        <Package className="w-10 h-10 text-muted-foreground/40" />
-        <p className="font-medium text-muted-foreground">No products yet.</p>
-        <p className="text-sm text-muted-foreground/70">Add products first to track stock levels.</p>
-        <Link href="/products">
-          <Button variant="outline" size="sm" className="mt-1">
-            <Plus className="w-3.5 h-3.5 mr-1.5" />
-            Go to Products
-          </Button>
-        </Link>
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-xl border border-sidebar-border bg-card overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-sidebar-border bg-white/[0.02]">
-              <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3">Product</th>
-              <th className="text-center text-xs font-medium text-muted-foreground px-4 py-3">Stock</th>
-              <th className="text-center text-xs font-medium text-muted-foreground px-4 py-3 hidden sm:table-cell">
-                Low Stock Alert
-              </th>
-              <th className="text-right text-xs font-medium text-muted-foreground px-4 py-3">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-sidebar-border">
-            {stockLevels.map((level) => {
-              const isLow = level.current_stock <= level.low_stock_threshold;
-              const isWarn = !isLow && level.current_stock <= level.low_stock_threshold * 2;
-              return (
-                <tr
-                  key={level.product_id}
-                  className={cn(
-                    "transition-colors hover:bg-white/[0.025]",
-                    isLow && "bg-red-500/5"
-                  )}
-                >
-                  {/* Product info */}
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      {isLow && (
-                        <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
-                      )}
-                      {isWarn && (
-                        <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                      )}
-                      <div>
-                        <p className="font-medium text-sm leading-tight">{level.product_name}</p>
-                        <p className="text-xs text-muted-foreground">{level.unit}</p>
-                      </div>
-                    </div>
-                  </td>
-
-                  {/* Current stock — prominent & colored */}
-                  <td className="px-4 py-3 text-center">
-                    <span
-                      className={cn(
-                        "inline-flex items-center justify-center rounded-lg border px-2.5 py-0.5 text-sm font-bold tabular-nums",
-                        stockBg(level),
-                        stockColor(level)
-                      )}
-                    >
-                      {level.current_stock}
-                    </span>
-                  </td>
-
-                  {/* Threshold — click to edit */}
-                  <td className="px-4 py-3 text-center hidden sm:table-cell">
-                    <ThresholdEditor
-                      level={level}
-                      shopId={shopId}
-                      onUpdated={onThresholdUpdated}
-                    />
-                  </td>
-
-                  {/* Actions */}
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-1.5">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 px-2.5 text-xs gap-1 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
-                        onClick={() => onOpenDialog("in", level.product_id)}
-                      >
-                        <ArrowDown className="w-3 h-3" />
-                        <span className="hidden xs:inline">In</span>
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 px-2.5 text-xs gap-1 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300"
-                        onClick={() => onOpenDialog("out", level.product_id)}
-                      >
-                        <ArrowUp className="w-3 h-3" />
-                        <span className="hidden xs:inline">Out</span>
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-// ─── Movement History Tab ────────────────────────────────────────────────────
-
-function MovementHistoryTab({
-  movements,
-  stockLevels,
-}: {
-  movements: StockMovement[];
-  stockLevels: StockLevel[];
-}) {
-  const [filterProductId, setFilterProductId] = useState("all");
-
-  const filtered = useMemo(() => {
-    if (filterProductId === "all") return movements;
-    return movements.filter((m) => m.product_id === filterProductId);
-  }, [movements, filterProductId]);
-
-  if (movements.length === 0) {
-    return (
-      <div className="rounded-xl border border-sidebar-border bg-card p-12 flex flex-col items-center justify-center gap-3 text-center">
-        <History className="w-10 h-10 text-muted-foreground/40" />
-        <p className="font-medium text-muted-foreground">No movements yet.</p>
-        <p className="text-sm text-muted-foreground/70">Add or record stock to see history here.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      {/* Filter row */}
-      <div className="flex items-center gap-3">
-        <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
-        <Select value={filterProductId} onValueChange={setFilterProductId}>
-          <SelectTrigger className="w-48 h-8 text-xs">
-            <SelectValue placeholder="All products" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All products</SelectItem>
-            {stockLevels.map((s) => (
-              <SelectItem key={s.product_id} value={s.product_id}>
-                {s.product_name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <p className="text-xs text-muted-foreground ml-auto">
-          Showing last {movements.length} movements
-        </p>
-      </div>
-
-      {/* Table */}
-      <div className="rounded-xl border border-sidebar-border bg-card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-sidebar-border bg-white/[0.02]">
-                <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3 hidden sm:table-cell">Date</th>
-                <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3">Product</th>
-                <th className="text-center text-xs font-medium text-muted-foreground px-4 py-3">Type</th>
-                <th className="text-center text-xs font-medium text-muted-foreground px-4 py-3">Qty</th>
-                <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3 hidden md:table-cell">Note</th>
-                <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3 hidden lg:table-cell">Source</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-sidebar-border">
-              {filtered.map((m) => {
-                const isIn = m.type === "in";
-                const source = m.sale_id ? `Sale #${m.sale_id.slice(-6).toUpperCase()}` : "Manual";
-                return (
-                  <tr key={m.id} className="hover:bg-white/[0.025] transition-colors">
-                    <td className="px-4 py-3 text-xs text-muted-foreground hidden sm:table-cell whitespace-nowrap">
-                      {formatDate(m.created_at)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <p className="text-sm font-medium leading-tight">{m.product?.name ?? "Unknown"}</p>
-                      <p className="text-xs text-muted-foreground sm:hidden">
-                        {formatDate(m.created_at)}
-                      </p>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <Badge
-                        className={cn(
-                          "text-xs border font-semibold",
-                          isIn
-                            ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/25"
-                            : "bg-red-500/15 text-red-400 border-red-500/25"
-                        )}
-                      >
-                        {isIn ? "In" : "Out"}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={cn("text-sm font-bold tabular-nums", isIn ? "text-emerald-400" : "text-red-400")}>
-                        {isIn ? "+" : "-"}{m.quantity}
-                      </span>
-                      <span className="text-xs text-muted-foreground ml-0.5">{m.product?.unit}</span>
-                    </td>
-                    <td className="px-4 py-3 hidden md:table-cell">
-                      <p className="text-xs text-muted-foreground truncate max-w-[180px]">
-                        {m.note ? m.note : <span className="opacity-40">—</span>}
-                      </p>
-                    </td>
-                    <td className="px-4 py-3 hidden lg:table-cell">
-                      <span className="text-xs text-muted-foreground">{source}</span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        {filtered.length === 0 && (
-          <div className="py-10 text-center text-sm text-muted-foreground">
-            No movements for this product.
-          </div>
-        )}
-      </div>
-    </div>
   );
 }
 
@@ -576,172 +302,302 @@ export function StockClient() {
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialog, setDialog] = useState<MovementDialogState>(emptyDialog);
+  const [historyFilter, setHistoryFilter] = useState("all");
 
   async function fetchData() {
     if (!shopId) return;
     const supabase = createClient();
     const [levelsRes, movementsRes] = await Promise.all([
-      supabase
-        .from("dms_stock_levels")
-        .select("*")
-        .eq("shop_id", shopId)
-        .order("product_name"),
+      supabase.from("dms_stock_levels").select("*").eq("shop_id", shopId).order("product_name"),
       supabase
         .from("dms_stock_movements")
         .select("*, product:dms_products(id,name,unit)")
         .eq("shop_id", shopId)
         .order("created_at", { ascending: false })
-        .limit(50),
+        .limit(60),
     ]);
     if (levelsRes.data) {
-      setStockLevels(
-        [...(levelsRes.data as StockLevel[])].sort(
-          (a, b) => urgencyScore(a) - urgencyScore(b)
-        )
-      );
+      setStockLevels([...(levelsRes.data as StockLevel[])].sort((a, b) => urgencyScore(a) - urgencyScore(b)));
     }
-    if (movementsRes.data) {
-      setMovements(movementsRes.data as StockMovement[]);
-    }
+    if (movementsRes.data) setMovements(movementsRes.data as StockMovement[]);
     setLoading(false);
   }
 
-  useEffect(() => {
-    fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shopId]);
+  useEffect(() => { fetchData(); }, [shopId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Summary counts
-  const totalProducts = stockLevels.length;
-  const lowStockCount = stockLevels.filter(
-    (s) => s.current_stock <= s.low_stock_threshold
-  ).length;
+  const lowStockCount = useMemo(() => stockLevels.filter((s) => s.current_stock <= s.low_stock_threshold).length, [stockLevels]);
 
-  if (loading || !shopId) {
-    return (
-      <div className="space-y-6">
-        <div className="h-8 w-48 bg-muted animate-pulse rounded-lg" />
-        <div className="grid grid-cols-2 gap-4">
-          {Array.from({ length: 2 }).map((_, i) => (
-            <div key={i} className="h-16 bg-muted animate-pulse rounded-xl" />
-          ))}
-        </div>
-        <div className="space-y-2">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-14 bg-muted animate-pulse rounded-lg" />
-          ))}
-        </div>
-      </div>
-    );
-  }
+  const filteredMovements = useMemo(() =>
+    historyFilter === "all" ? movements : movements.filter((m) => m.product_id === historyFilter),
+    [movements, historyFilter]
+  );
 
   function openDialog(type: "in" | "out", productId: string) {
     setDialog({ open: true, type, productId });
   }
 
-  function closeDialog() {
-    setDialog((prev) => ({ ...prev, open: false }));
-  }
-
   function handleThresholdUpdated(productId: string, value: number) {
-    setStockLevels((prev) => {
-      const updated = prev.map((s) =>
-        s.product_id === productId ? { ...s, low_stock_threshold: value } : s
-      );
-      return [...updated].sort((a, b) => urgencyScore(a) - urgencyScore(b));
-    });
+    setStockLevels((prev) =>
+      [...prev.map((s) => s.product_id === productId ? { ...s, low_stock_threshold: value } : s)]
+        .sort((a, b) => urgencyScore(a) - urgencyScore(b))
+    );
   }
 
   function handleMovementSuccess(movement: StockMovement) {
-    // Optimistically update stock levels and prepend to movements log
-    setStockLevels((prev) => {
-      const updated = prev.map((s) => {
+    setStockLevels((prev) =>
+      [...prev.map((s) => {
         if (s.product_id !== movement.product_id) return s;
         const delta = movement.type === "in" ? movement.quantity : -movement.quantity;
         return { ...s, current_stock: Math.max(0, s.current_stock + delta) };
-      });
-      return [...updated].sort((a, b) => urgencyScore(a) - urgencyScore(b));
-    });
-    setMovements((prev) => [movement, ...prev].slice(0, 50));
-
-    // Re-fetch to sync with server
+      })].sort((a, b) => urgencyScore(a) - urgencyScore(b))
+    );
+    setMovements((prev) => [movement, ...prev].slice(0, 60));
     fetchData();
   }
 
+  if (loading || !shopId) {
+    return (
+      <div className="space-y-4">
+        <div className="h-7 w-40 bg-muted animate-pulse rounded-lg" />
+        <div className="h-10 bg-muted animate-pulse rounded-xl" />
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="h-12 bg-muted animate-pulse rounded-lg" />
+        ))}
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
-      {/* ── Page header ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-4 pb-8">
+
+      {/* ── Header + stats ── */}
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Boxes className="w-6 h-6 text-primary" />
-            Stock
-          </h1>
-          <p className="text-muted-foreground text-sm mt-1">Manage inventory levels and movements</p>
+          <h1 className="text-2xl font-bold tracking-tight">Stock</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">Inventory levels and movements</p>
         </div>
-        <Button
-          onClick={() => openDialog("in", "")}
-          className="gap-2 w-full sm:w-auto"
-        >
-          <ArrowDown className="w-4 h-4" />
-          Add Stock In
-        </Button>
+        <div className="text-right shrink-0">
+          <p className="text-2xl font-bold tabular-nums leading-none">{stockLevels.length}</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {lowStockCount > 0
+              ? <span className="text-red-400 font-medium">{lowStockCount} low stock</span>
+              : "all stocked up"}
+          </p>
+        </div>
       </div>
 
-      {/* ── Summary row ── */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="rounded-xl border border-sidebar-border bg-card px-4 py-3 flex items-center gap-3">
-          <div className="p-1.5 rounded-lg bg-primary/10 border border-primary/20">
-            <Package className="w-4 h-4 text-primary" />
+      {/* ── Stock Levels ── */}
+      <div className="rounded-xl border border-sidebar-border bg-card overflow-hidden">
+
+        {/* Section toolbar */}
+        <div className="px-4 py-2.5 border-b border-sidebar-border flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Package className="w-3.5 h-3.5 text-muted-foreground" />
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Stock Levels</span>
           </div>
-          <div>
-            <p className="text-xs text-muted-foreground">In stock</p>
-            <p className="text-xl font-bold tabular-nums">{totalProducts}</p>
-          </div>
+          <button
+            onClick={() => openDialog("in", "")}
+            className="inline-flex items-center gap-1.5 h-7 px-3 rounded-md text-xs font-semibold
+              bg-emerald-500 text-black hover:bg-emerald-400 transition-colors"
+          >
+            <ArrowDown className="w-3 h-3" />
+            Stock In
+          </button>
         </div>
 
-        {lowStockCount > 0 && (
-          <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 flex items-center gap-3">
-            <div className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
-              <AlertTriangle className="w-4 h-4 text-amber-400" />
-            </div>
-            <div>
-              <p className="text-xs text-amber-400/80">Low on stock</p>
-              <p className="text-xl font-bold text-amber-400 tabular-nums">{lowStockCount}</p>
-            </div>
+        {stockLevels.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-14 text-muted-foreground gap-2">
+            <Package className="w-8 h-8 opacity-20" />
+            <p className="text-sm">No products yet.</p>
+            <Link href="/products" className="text-xs text-primary hover:underline">Add products first →</Link>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-sidebar-border bg-muted/10">
+                  <th className="text-left text-xs font-medium text-muted-foreground px-4 py-2">Product</th>
+                  <th className="text-xs font-medium text-muted-foreground px-4 py-2 hidden sm:table-cell w-32">Level</th>
+                  <th className="text-center text-xs font-medium text-muted-foreground px-4 py-2 w-16">Stock</th>
+                  <th className="text-center text-xs font-medium text-muted-foreground px-4 py-2 hidden sm:table-cell w-20">Alert at</th>
+                  <th className="px-4 py-2 w-24" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-sidebar-border/50">
+                {stockLevels.map((level) => {
+                  const status = stockStatus(level);
+                  const countColor =
+                    status === "low" ? "text-red-400" :
+                    status === "warn" ? "text-amber-400" :
+                    "text-emerald-400";
+                  return (
+                    <tr key={level.product_id} className={cn(
+                      "hover:bg-muted/10 transition-colors group",
+                      status === "low" && "bg-red-500/[0.04]"
+                    )}>
+                      {/* Product name */}
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-2">
+                          {status === "low" && <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />}
+                          {status === "warn" && <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+                          <div>
+                            <p className="font-medium leading-none">{level.product_name}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">{level.unit}</p>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Visual bar */}
+                      <td className="px-4 py-2.5 hidden sm:table-cell">
+                        <StockBar level={level} />
+                      </td>
+
+                      {/* Stock count */}
+                      <td className="px-4 py-2.5 text-center">
+                        <span className={cn("text-base font-bold tabular-nums", countColor)}>
+                          {level.current_stock}
+                        </span>
+                      </td>
+
+                      {/* Alert threshold (click to edit) */}
+                      <td className="px-4 py-2.5 text-center hidden sm:table-cell">
+                        <ThresholdEditor level={level} shopId={shopId} onUpdated={handleThresholdUpdated} />
+                      </td>
+
+                      {/* In / Out buttons */}
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => openDialog("in", level.product_id)}
+                            className="inline-flex items-center gap-1 h-7 px-2 rounded-md text-xs font-semibold
+                              bg-emerald-500/10 text-emerald-400 border border-emerald-500/20
+                              hover:bg-emerald-500/20 transition-colors"
+                            title="Add stock in"
+                          >
+                            <ArrowDown className="w-3 h-3" />
+                            <span className="hidden sm:inline">In</span>
+                          </button>
+                          <button
+                            onClick={() => openDialog("out", level.product_id)}
+                            className="inline-flex items-center gap-1 h-7 px-2 rounded-md text-xs font-semibold
+                              bg-red-500/10 text-red-400 border border-red-500/20
+                              hover:bg-red-500/20 transition-colors"
+                            title="Record stock out"
+                          >
+                            <ArrowUp className="w-3 h-3" />
+                            <span className="hidden sm:inline">Out</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Legend */}
+        {stockLevels.length > 0 && (
+          <div className="px-4 py-2 border-t border-sidebar-border/50 flex items-center gap-4 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500" />Good</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-500" />Low</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500" />Critical</span>
+            <span className="ml-auto opacity-60">Click "Alert at" value to change threshold</span>
           </div>
         )}
       </div>
 
-      {/* ── Tabs ── */}
-      <Tabs defaultValue="levels" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="levels" className="gap-1.5">
-            <Package className="w-3.5 h-3.5" />
-            Stock Levels
-          </TabsTrigger>
-          <TabsTrigger value="history" className="gap-1.5">
-            <History className="w-3.5 h-3.5" />
-            Movement History
-          </TabsTrigger>
-        </TabsList>
+      {/* ── Movement History ── */}
+      <div className="rounded-xl border border-sidebar-border bg-card overflow-hidden">
 
-        <TabsContent value="levels">
-          <StockLevelsTab
-            stockLevels={stockLevels}
-            shopId={shopId}
-            onThresholdUpdated={handleThresholdUpdated}
-            onOpenDialog={openDialog}
-          />
-        </TabsContent>
+        {/* Section toolbar */}
+        <div className="px-4 py-2.5 border-b border-sidebar-border flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <History className="w-3.5 h-3.5 text-muted-foreground" />
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Movement History</span>
+          </div>
+          <Select value={historyFilter} onValueChange={setHistoryFilter}>
+            <SelectTrigger className="w-40 h-7 text-xs">
+              <SelectValue placeholder="All products" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All products</SelectItem>
+              {stockLevels.map((s) => (
+                <SelectItem key={s.product_id} value={s.product_id}>{s.product_name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
-        <TabsContent value="history">
-          <MovementHistoryTab
-            movements={movements}
-            stockLevels={stockLevels}
-          />
-        </TabsContent>
-      </Tabs>
+        {movements.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
+            <History className="w-7 h-7 opacity-20" />
+            <p className="text-sm">No movements yet</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-sidebar-border bg-muted/10">
+                  <th className="text-left text-xs font-medium text-muted-foreground px-4 py-2 hidden sm:table-cell">Date</th>
+                  <th className="text-left text-xs font-medium text-muted-foreground px-4 py-2">Product</th>
+                  <th className="text-center text-xs font-medium text-muted-foreground px-4 py-2 w-16">Type</th>
+                  <th className="text-center text-xs font-medium text-muted-foreground px-4 py-2 w-16">Qty</th>
+                  <th className="text-left text-xs font-medium text-muted-foreground px-4 py-2 hidden md:table-cell">Note / Source</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-sidebar-border/50">
+                {filteredMovements.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      No movements for this product
+                    </td>
+                  </tr>
+                ) : (
+                  filteredMovements.map((m) => {
+                    const isIn = m.type === "in";
+                    const source = m.sale_id ? "Sale" : "Manual";
+                    return (
+                      <tr key={m.id} className="hover:bg-muted/10 transition-colors">
+                        <td className="px-4 py-2.5 text-xs text-muted-foreground hidden sm:table-cell whitespace-nowrap">
+                          {formatDate(m.created_at)}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <p className="font-medium leading-none">{m.product?.name ?? "—"}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5 sm:hidden">{formatDate(m.created_at)}</p>
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          <span className={cn(
+                            "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-semibold border",
+                            isIn
+                              ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                              : "bg-red-500/10 text-red-400 border-red-500/20"
+                          )}>
+                            {isIn ? <ArrowDown className="w-2.5 h-2.5" /> : <ArrowUp className="w-2.5 h-2.5" />}
+                            {isIn ? "In" : "Out"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          <span className={cn("font-bold tabular-nums", isIn ? "text-emerald-400" : "text-red-400")}>
+                            {isIn ? "+" : "−"}{m.quantity}
+                          </span>
+                          <span className="text-xs text-muted-foreground ml-0.5">{m.product?.unit}</span>
+                        </td>
+                        <td className="px-4 py-2.5 hidden md:table-cell">
+                          <span className="text-xs text-muted-foreground">
+                            {m.note ? m.note : <span className="opacity-40">{source}</span>}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {/* ── Movement Dialog ── */}
       {dialog.open && (
@@ -750,7 +606,7 @@ export function StockClient() {
           state={dialog}
           stockLevels={stockLevels}
           shopId={shopId}
-          onClose={closeDialog}
+          onClose={() => setDialog((p) => ({ ...p, open: false }))}
           onSuccess={handleMovementSuccess}
         />
       )}
