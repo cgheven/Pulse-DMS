@@ -61,8 +61,11 @@ export function DashboardClient() {
     async function fetchStats() {
       setLoading(true);
       try {
+        const today = new Date();
+        const p_today = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
         const { data, error } = await supabase.rpc("get_dashboard_stats", {
           p_shop_id: shopId,
+          p_today,
         });
         if (!error && data) {
           setStats(Array.isArray(data) ? data[0] : data);
