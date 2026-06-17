@@ -5,6 +5,7 @@ import {
   Home, Zap, Users, MoreHorizontal, Trash2, Plus, Receipt,
 } from "lucide-react";
 import { addExpense, deleteExpense, fetchExpenses } from "@/app/actions/expenses";
+import { formatDateInput } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { useShopContext } from "@/contexts/shop-context";
 import { toast } from "@/hooks/use-toast";
@@ -98,8 +99,8 @@ function CategoryBadge({ category }: { category: Category }) {
 
 function getThisMonthRange() {
   const now = new Date();
-  const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-  const to = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+  const from = formatDateInput(new Date(now.getFullYear(), now.getMonth(), 1));
+  const to = formatDateInput(new Date(now.getFullYear(), now.getMonth() + 1, 0));
   return { from, to };
 }
 
@@ -183,12 +184,11 @@ export function ExpensesClient() {
     let from: string;
     let to: string;
     if (mode === "this_month") {
-      from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-      to = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+      from = formatDateInput(new Date(now.getFullYear(), now.getMonth(), 1));
+      to = formatDateInput(new Date(now.getFullYear(), now.getMonth() + 1, 0));
     } else if (mode === "last_month") {
-      const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      from = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
-      to = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
+      from = formatDateInput(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+      to = formatDateInput(new Date(now.getFullYear(), now.getMonth(), 0));
     } else {
       from = customFrom;
       to = customTo;

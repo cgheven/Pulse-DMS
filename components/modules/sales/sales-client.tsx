@@ -173,7 +173,7 @@ export function SalesClient() {
     if (!shopId) return;
 
     const supabase = createClient();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayStr();
 
     async function loadInitialData() {
       setInitialLoading(true);
