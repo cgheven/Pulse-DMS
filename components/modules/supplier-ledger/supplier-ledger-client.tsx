@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useTransition, useCallback, useMemo, useEffect } from "react";
+import { useState, useTransition, useCallback, useMemo, useEffect, Fragment } from "react";
 import {
   BookOpen,
-  TrendingDown,
-  TrendingUp,
   ChevronLeft,
+  ChevronDown,
   Trash2,
   Plus,
   Phone,
@@ -14,17 +13,21 @@ import {
   CheckCircle2,
   Receipt,
   Wallet,
+  CreditCard,
+  Clock,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import { cn, formatDateInput } from "@/lib/utils";
 import { useShopContext } from "@/contexts/shop-context";
 import { createClient } from "@/lib/supabase/client";
-import { addLedgerEntry, deleteLedgerEntry } from "@/app/actions/supplier-ledger";
-import type { SupplierBalance, SupplierLedgerEntry } from "@/types";
+import { addInvoice, recordPayment, deleteLedgerEntry } from "@/app/actions/supplier-ledger";
+import type { SupplierBalance, SupplierLedgerEntry, SupplierPayment } from "@/types";
 import Link from "next/link";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -38,7 +41,36 @@ function fmtDate(dateStr: string) {
     day: "2-digit",
     month: "short",
     year: "numeric",
-  }).format(new Date(dateStr));
+  }).format(new Date(dateStr + "T00:00:00"));
+}
+
+type InvoiceStatus = "paid" | "partial" | "unpaid";
+
+function getStatus(entry: SupplierLedgerEntry): InvoiceStatus {
+  const paid = Number(entry.paid_amount);
+  if (paid >= entry.amount) return "paid";
+  if (paid > 0) return "partial";
+  return "unpaid";
+}
+
+function StatusBadge({ status }: { status: InvoiceStatus }) {
+  if (status === "paid")
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+        <CheckCircle2 className="h-3 w-3" /> Paid
+      </span>
+    );
+  if (status === "partial")
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+        <Clock className="h-3 w-3" /> Partial
+      </span>
+    );
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-red-500/10 text-red-400 border border-red-500/20">
+      <AlertCircle className="h-3 w-3" /> Unpaid
+    </span>
+  );
 }
 
 // ── Skeletons ─────────────────────────────────────────────────────────────────
@@ -53,13 +85,133 @@ function BalanceListSkeleton() {
   );
 }
 
-function LedgerTableSkeleton() {
+function InvoiceListSkeleton() {
   return (
     <div className="space-y-2 animate-pulse">
       {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="h-12 bg-white/5 rounded-lg" />
+        <div key={i} className="h-16 bg-white/5 rounded-lg" />
       ))}
     </div>
+  );
+}
+
+// ── Pay Dialog ────────────────────────────────────────────────────────────────
+
+interface PayDialogProps {
+  invoice: SupplierLedgerEntry;
+  shopId: string;
+  onClose: () => void;
+  onSuccess: () => void;
+}
+
+function PayDialog({ invoice, shopId, onClose, onSuccess }: PayDialogProps) {
+  const remaining = Math.max(0, invoice.amount - Number(invoice.paid_amount));
+  const [amount, setAmount] = useState(String(remaining));
+  const [payDate, setPayDate] = useState(formatDateInput(new Date()));
+  const [note, setNote] = useState("");
+  const [isPending, startTransition] = useTransition();
+
+  function handlePay() {
+    const parsed = parseFloat(amount);
+    if (!parsed || parsed <= 0) {
+      toast({ title: "Enter a valid amount", variant: "destructive" });
+      return;
+    }
+    startTransition(async () => {
+      const result = await recordPayment({
+        shopId,
+        invoiceId: invoice.id,
+        amount: parsed,
+        paymentDate: payDate,
+        note: note.trim() || undefined,
+      });
+      if (result?.error) {
+        toast({ title: "Failed to record payment", description: result.error, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Payment recorded", description: `${pkr(parsed)} on ${fmtDate(payDate)}.` });
+      onSuccess();
+      onClose();
+    });
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Record Payment</DialogTitle>
+          {invoice.invoice_number && (
+            <p className="text-xs text-muted-foreground">Invoice #{invoice.invoice_number}</p>
+          )}
+        </DialogHeader>
+
+        <div className="space-y-2 bg-muted/20 rounded-lg p-3">
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">Invoice total</span>
+            <span className="font-medium">{pkr(invoice.amount)}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">Already paid</span>
+            <span className="font-medium text-emerald-400">{pkr(Number(invoice.paid_amount))}</span>
+          </div>
+          <div className="flex justify-between text-sm border-t border-sidebar-border/50 pt-2">
+            <span className="text-muted-foreground font-medium">Remaining</span>
+            <span className="font-bold text-red-400">{pkr(remaining)}</span>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Payment Amount (PKR)</Label>
+            <Input
+              type="number" min="1" step="1"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              autoFocus
+              className="bg-background border-sidebar-border"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Payment Date</Label>
+            <Input
+              type="date" value={payDate}
+              onChange={(e) => setPayDate(e.target.value)}
+              className="bg-background border-sidebar-border"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Note (optional)</Label>
+            <Input
+              placeholder="e.g. Bank transfer, Cash"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handlePay()}
+              className="bg-background border-sidebar-border"
+            />
+          </div>
+        </div>
+
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={onClose}
+            className="flex-1 h-10 rounded-lg border border-sidebar-border text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handlePay}
+            disabled={isPending}
+            className="flex-1 h-10 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {isPending ? (
+              <span className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : (
+              <><CreditCard className="h-4 w-4" /> Record Payment</>
+            )}
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -68,21 +220,23 @@ function LedgerTableSkeleton() {
 export function SupplierLedgerClient() {
   const { shopId } = useShopContext();
 
-  // ── State ─────────────────────────────────────────────────────────────────
   const [balances, setBalances] = useState<SupplierBalance[]>([]);
   const [balancesLoading, setBalancesLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [ledger, setLedger] = useState<SupplierLedgerEntry[]>([]);
-  const [ledgerLoading, setLedgerLoading] = useState(false);
-
-  // On mobile, show full-screen ledger pane when a supplier is selected
+  const [invoices, setInvoices] = useState<SupplierLedgerEntry[]>([]);
+  const [invoicesLoading, setInvoicesLoading] = useState(false);
+  const [payments, setPayments] = useState<SupplierPayment[]>([]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [mobileView, setMobileView] = useState<"list" | "ledger">("list");
 
-  // Entry form
-  const [entryType, setEntryType] = useState<"purchase" | "payment">("purchase");
-  const [amount, setAmount] = useState("");
-  const [note, setNote] = useState("");
-  const [txDate, setTxDate] = useState(formatDateInput(new Date()));
+  // Add invoice form
+  const [invAmount, setInvAmount] = useState("");
+  const [invNumber, setInvNumber] = useState("");
+  const [invNote, setInvNote] = useState("");
+  const [invDate, setInvDate] = useState(formatDateInput(new Date()));
+
+  // Pay dialog
+  const [payTarget, setPayTarget] = useState<SupplierLedgerEntry | null>(null);
 
   // Delete confirm
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -101,47 +255,60 @@ export function SupplierLedgerClient() {
     [balances]
   );
 
-  // Ledger sorted by date desc; running balance computed ascending then reversed
-  const ledgerWithBalance = useMemo(() => {
-    const ascending = [...ledger].sort(
-      (a, b) =>
-        new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime() ||
-        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-    );
-    let running = 0;
-    const withBal = ascending.map((e) => {
-      running += e.type === "purchase" ? e.amount : -e.amount;
-      return { ...e, running };
-    });
-    return withBal.reverse(); // most recent first
-  }, [ledger]);
+  // Only show purchase invoices; sort newest first
+  const sortedInvoices = useMemo(
+    () =>
+      invoices
+        .filter((e) => e.type === "purchase")
+        .sort(
+          (a, b) =>
+            new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime() ||
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        ),
+    [invoices]
+  );
 
-  // ── Load ledger for a supplier ────────────────────────────────────────────
+  // ── Load invoices for a supplier ──────────────────────────────────────────
 
-  const loadLedger = useCallback(
+  const loadInvoices = useCallback(
     async (supplierId: string) => {
       if (!shopId) return;
-      setLedgerLoading(true);
+      setInvoicesLoading(true);
       const supabase = createClient();
-      const { data, error } = await supabase
+      const { data: invData, error: invErr } = await supabase
         .from("dms_supplier_ledger")
-        .select("*, supplier:dms_suppliers(id, name, brand)")
+        .select("*")
         .eq("shop_id", shopId)
         .eq("supplier_id", supplierId)
         .order("transaction_date", { ascending: false })
-        .order("created_at", { ascending: false })
-        .limit(200);
-      if (error) {
-        toast({ title: "Failed to load ledger", description: error.message, variant: "destructive" });
-      } else {
-        setLedger((data as SupplierLedgerEntry[]) ?? []);
+        .order("created_at", { ascending: false });
+      if (invErr) {
+        toast({ title: "Failed to load invoices", description: invErr.message, variant: "destructive" });
+        setInvoicesLoading(false);
+        return;
       }
-      setLedgerLoading(false);
+      const invoiceList = (invData as SupplierLedgerEntry[]) ?? [];
+      setInvoices(invoiceList);
+
+      // Fetch all payments for these invoices in one query
+      const invoiceIds = invoiceList.filter((e) => e.type === "purchase").map((e) => e.id);
+      if (invoiceIds.length > 0) {
+        const { data: payData } = await supabase
+          .from("dms_supplier_payments")
+          .select("*")
+          .eq("shop_id", shopId)
+          .in("invoice_id", invoiceIds)
+          .order("payment_date", { ascending: false });
+        setPayments((payData as SupplierPayment[]) ?? []);
+      } else {
+        setPayments([]);
+      }
+      setInvoicesLoading(false);
     },
     [shopId]
   );
 
-  // ── Refresh balances ──────────────────────────────────────────────────────
+  // ── Refresh supplier balances ─────────────────────────────────────────────
 
   const refreshBalances = useCallback(async () => {
     if (!shopId) return;
@@ -150,79 +317,78 @@ export function SupplierLedgerClient() {
       supabase.from("dms_suppliers").select("*").eq("shop_id", shopId).order("name"),
       supabase
         .from("dms_supplier_ledger")
-        .select("supplier_id, type, amount")
+        .select("supplier_id, type, amount, paid_amount")
         .eq("shop_id", shopId),
     ]);
     const rows = (suppliers ?? []) as SupplierBalance["supplier"][];
-    const entries = (ledgerAll ?? []) as { supplier_id: string; type: string; amount: number }[];
+    const entries = (ledgerAll ?? []) as { supplier_id: string; type: string; amount: number; paid_amount: number }[];
     const newBalances = rows.map((s) => {
       const mine = entries.filter((e) => e.supplier_id === s.id);
       const total_purchased = mine
         .filter((e) => e.type === "purchase")
         .reduce((a, e) => a + e.amount, 0);
-      const total_paid = mine
+      // Paid = old payment rows (legacy) + paid_amount on invoice rows
+      const legacy_paid = mine
         .filter((e) => e.type === "payment")
         .reduce((a, e) => a + e.amount, 0);
+      const invoice_paid = mine
+        .filter((e) => e.type === "purchase")
+        .reduce((a, e) => a + Number(e.paid_amount), 0);
+      const total_paid = legacy_paid + invoice_paid;
       return { supplier: s, total_purchased, total_paid, balance: total_purchased - total_paid };
     });
     setBalances(newBalances);
     setBalancesLoading(false);
   }, [shopId]);
 
-  // ── Load on mount ─────────────────────────────────────────────────────────
-
-  useEffect(() => {
-    refreshBalances();
-  }, [refreshBalances]);
+  useEffect(() => { refreshBalances(); }, [refreshBalances]);
 
   // ── Select supplier ───────────────────────────────────────────────────────
 
   function selectSupplier(id: string) {
     setSelectedId(id);
     setMobileView("ledger");
-    loadLedger(id);
-    // Reset form
-    setEntryType("purchase");
-    setAmount("");
-    setNote("");
-    setTxDate(formatDateInput(new Date()));
+    setExpandedId(null);
+    setPayments([]);
+    loadInvoices(id);
+    setInvAmount("");
+    setInvNumber("");
+    setInvNote("");
+    setInvDate(formatDateInput(new Date()));
   }
 
-  // ── Add entry ─────────────────────────────────────────────────────────────
+  // ── Add invoice ───────────────────────────────────────────────────────────
 
-  function handleAddEntry() {
-    const parsedAmount = parseFloat(amount);
+  function handleAddInvoice() {
+    const parsed = parseFloat(invAmount);
     if (!shopId || !selectedId) return;
-    if (!amount || isNaN(parsedAmount) || parsedAmount <= 0) {
+    if (!invAmount || isNaN(parsed) || parsed <= 0) {
       toast({ title: "Invalid amount", description: "Enter a valid amount greater than 0.", variant: "destructive" });
       return;
     }
     startTransition(async () => {
-      const result = await addLedgerEntry({
+      const result = await addInvoice({
         shopId,
         supplierId: selectedId,
-        type: entryType,
-        amount: parsedAmount,
-        note: note.trim() || undefined,
-        transactionDate: txDate,
+        amount: parsed,
+        invoiceNumber: invNumber.trim() || undefined,
+        note: invNote.trim() || undefined,
+        transactionDate: invDate,
       });
       if (result?.error) {
-        toast({ title: "Failed to add entry", description: result.error, variant: "destructive" });
+        toast({ title: "Failed to add invoice", description: result.error, variant: "destructive" });
         return;
       }
-      toast({ title: "Entry added", description: `${entryType === "purchase" ? "Purchase" : "Payment"} of ${pkr(parsedAmount)} recorded.` });
-      setAmount("");
-      setNote("");
-      setTxDate(formatDateInput(new Date()));
-      await Promise.all([loadLedger(selectedId), refreshBalances()]);
+      toast({ title: "Invoice added" });
+      setInvAmount("");
+      setInvNumber("");
+      setInvNote("");
+      setInvDate(formatDateInput(new Date()));
+      await Promise.all([loadInvoices(selectedId), refreshBalances()]);
     });
   }
 
-  // ── Delete entry ──────────────────────────────────────────────────────────
-
-  function handleDelete(id: string) {
-    setDeleteTarget(id);
-  }
+  // ── Delete ────────────────────────────────────────────────────────────────
 
   function confirmDelete() {
     if (!deleteTarget || !shopId) return;
@@ -234,10 +400,8 @@ export function SupplierLedgerClient() {
         toast({ title: "Failed to delete", description: result.error, variant: "destructive" });
         return;
       }
-      toast({ title: "Entry deleted" });
-      if (selectedId) {
-        await Promise.all([loadLedger(selectedId), refreshBalances()]);
-      }
+      toast({ title: "Invoice deleted" });
+      if (selectedId) await Promise.all([loadInvoices(selectedId), refreshBalances()]);
     });
   }
 
@@ -254,31 +418,22 @@ export function SupplierLedgerClient() {
           <h1 className="text-2xl font-bold tracking-tight">Supplier Ledger</h1>
         </div>
         <p className="text-sm text-muted-foreground ml-12">
-          Track purchases and payments to suppliers — your khata book.
+          Track invoices and payments per supplier — know exactly what's outstanding.
         </p>
       </div>
 
       {/* Two-pane layout */}
       <div className="flex flex-col md:flex-row flex-1 min-h-0 gap-4">
+
         {/* ── LEFT PANE: Supplier list ───────────────────────────── */}
-        <div
-          className={cn(
-            "flex flex-col w-full md:w-[340px] md:flex-shrink-0",
-            // On mobile: hide list when in ledger view
-            mobileView === "ledger" ? "hidden md:flex" : "flex"
-          )}
-        >
-          {/* Total outstanding summary */}
+        <div className={cn(
+          "flex flex-col w-full md:w-[340px] md:flex-shrink-0",
+          mobileView === "ledger" ? "hidden md:flex" : "flex"
+        )}>
+          {/* Total outstanding */}
           <div className="rounded-xl border border-sidebar-border bg-card p-4 mb-4">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
-              Total Outstanding
-            </p>
-            <p
-              className={cn(
-                "text-2xl font-bold tabular-nums",
-                totalOutstanding > 0 ? "text-red-400" : "text-green-400"
-              )}
-            >
+            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Total Outstanding</p>
+            <p className={cn("text-2xl font-bold tabular-nums", totalOutstanding > 0 ? "text-red-400" : "text-emerald-400")}>
               {pkr(totalOutstanding)}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -293,13 +448,9 @@ export function SupplierLedgerClient() {
             ) : balances.length === 0 ? (
               <div className="rounded-xl border border-sidebar-border bg-card p-6 text-center">
                 <BookOpen className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
-                <p className="text-sm font-medium text-foreground mb-1">No suppliers yet.</p>
-                <p className="text-xs text-muted-foreground mb-4">
-                  Add suppliers in Products to start tracking.
-                </p>
-                <Button variant="outline" size="sm" asChild>
-                  <Link href="/products">Go to Products</Link>
-                </Button>
+                <p className="text-sm font-medium mb-1">No suppliers yet.</p>
+                <p className="text-xs text-muted-foreground mb-4">Add suppliers in Products to start tracking.</p>
+                <Link href="/products" className="text-xs text-amber-400 hover:underline">Go to Products →</Link>
               </div>
             ) : (
               balances.map((b) => (
@@ -314,49 +465,29 @@ export function SupplierLedgerClient() {
                       : "border-sidebar-border bg-card"
                   )}
                 >
-                  {/* Supplier name + brand */}
                   <div className="flex items-start justify-between gap-2 mb-2.5">
                     <div className="min-w-0">
-                      <p className="font-semibold text-sm text-foreground truncate">
-                        {b.supplier.name}
-                      </p>
-                      {b.supplier.brand && (
-                        <p className="text-xs text-muted-foreground truncate">{b.supplier.brand}</p>
-                      )}
+                      <p className="font-semibold text-sm truncate">{b.supplier.name}</p>
+                      {b.supplier.brand && <p className="text-xs text-muted-foreground truncate">{b.supplier.brand}</p>}
                     </div>
                     {b.balance <= 0 ? (
-                      <span className="flex-shrink-0 text-xs font-semibold text-green-400 bg-green-500/10 border border-green-500/20 rounded-full px-2 py-0.5">
-                        Settled
-                      </span>
+                      <span className="flex-shrink-0 text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2 py-0.5">Settled</span>
                     ) : (
-                      <span className="flex-shrink-0 text-xs font-semibold text-red-400 bg-red-500/10 border border-red-500/20 rounded-full px-2 py-0.5">
-                        Due
-                      </span>
+                      <span className="flex-shrink-0 text-xs font-semibold text-red-400 bg-red-500/10 border border-red-500/20 rounded-full px-2 py-0.5">Due</span>
                     )}
                   </div>
-
-                  {/* Stats grid */}
                   <div className="grid grid-cols-3 gap-2 text-xs">
                     <div>
-                      <p className="text-muted-foreground mb-0.5">Purchased</p>
-                      <p className="font-medium tabular-nums text-foreground">
-                        {pkr(b.total_purchased)}
-                      </p>
+                      <p className="text-muted-foreground mb-0.5">Invoiced</p>
+                      <p className="font-medium tabular-nums">{pkr(b.total_purchased)}</p>
                     </div>
                     <div>
                       <p className="text-muted-foreground mb-0.5">Paid</p>
-                      <p className="font-medium tabular-nums text-green-400">
-                        {pkr(b.total_paid)}
-                      </p>
+                      <p className="font-medium tabular-nums text-emerald-400">{pkr(b.total_paid)}</p>
                     </div>
                     <div>
-                      <p className="text-muted-foreground mb-0.5">Balance</p>
-                      <p
-                        className={cn(
-                          "font-bold tabular-nums",
-                          b.balance > 0 ? "text-red-400" : "text-green-400"
-                        )}
-                      >
+                      <p className="text-muted-foreground mb-0.5">Remaining</p>
+                      <p className={cn("font-bold tabular-nums", b.balance > 0 ? "text-red-400" : "text-emerald-400")}>
                         {pkr(Math.abs(b.balance))}
                       </p>
                     </div>
@@ -367,302 +498,251 @@ export function SupplierLedgerClient() {
           </div>
         </div>
 
-        {/* ── RIGHT PANE: Selected supplier ledger ───────────────── */}
-        <div
-          className={cn(
-            "flex flex-col flex-1 min-w-0",
-            mobileView === "list" ? "hidden md:flex" : "flex"
-          )}
-        >
+        {/* ── RIGHT PANE: Invoices ───────────────────────────────── */}
+        <div className={cn(
+          "flex flex-col flex-1 min-w-0",
+          mobileView === "list" ? "hidden md:flex" : "flex"
+        )}>
           {!selected ? (
-            /* Empty state */
             <div className="flex flex-col items-center justify-center h-full min-h-[400px] rounded-xl border border-sidebar-border bg-card text-center p-8">
               <div className="p-4 rounded-full bg-white/5 mb-4">
                 <BookOpen className="h-10 w-10 text-muted-foreground" />
               </div>
-              <p className="text-lg font-semibold text-foreground mb-1">
-                Select a supplier to view their ledger
-              </p>
-              <p className="text-sm text-muted-foreground max-w-xs">
-                Click any supplier on the left to see their full transaction history and add new entries.
-              </p>
+              <p className="text-lg font-semibold mb-1">Select a supplier</p>
+              <p className="text-sm text-muted-foreground max-w-xs">Click any supplier on the left to view their invoices and outstanding balance.</p>
             </div>
           ) : (
             <div className="flex flex-col gap-4">
-              {/* Mobile back button */}
+              {/* Mobile back */}
               <button
-                onClick={() => {
-                  setMobileView("list");
-                  setSelectedId(null);
-                }}
+                onClick={() => { setMobileView("list"); setSelectedId(null); }}
                 className="md:hidden flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
               >
                 <ChevronLeft className="h-4 w-4" />
                 Back to suppliers
               </button>
 
-              {/* Summary header */}
+              {/* Supplier summary */}
               <div className="rounded-xl border border-sidebar-border bg-card p-5">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <Building2 className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                      <h2 className="text-lg font-bold text-foreground truncate">
-                        {selected.supplier.name}
-                      </h2>
+                      <h2 className="text-lg font-bold truncate">{selected.supplier.name}</h2>
                     </div>
                     {selected.supplier.brand && (
-                      <p className="text-sm text-muted-foreground mb-1 ml-6">
-                        {selected.supplier.brand}
-                      </p>
+                      <p className="text-sm text-muted-foreground mb-1 ml-6">{selected.supplier.brand}</p>
                     )}
                     {selected.supplier.contact && (
                       <div className="flex items-center gap-1.5 ml-6 mt-1">
                         <Phone className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span className="text-sm text-muted-foreground">
-                          {selected.supplier.contact}
-                        </span>
+                        <span className="text-sm text-muted-foreground">{selected.supplier.contact}</span>
                       </div>
                     )}
                   </div>
-
-                  {/* Big balance display */}
                   <div className="text-right flex-shrink-0">
                     {selected.balance <= 0 ? (
                       <div className="flex items-center gap-2 justify-end">
-                        <CheckCircle2 className="h-5 w-5 text-green-400" />
-                        <p className="text-2xl font-bold text-green-400">Settled</p>
+                        <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+                        <p className="text-2xl font-bold text-emerald-400">Settled</p>
                       </div>
                     ) : (
                       <div className="flex items-center gap-2 justify-end">
                         <AlertCircle className="h-5 w-5 text-red-400" />
-                        <p className="text-2xl font-bold text-red-400">
-                          {pkr(selected.balance)} outstanding
-                        </p>
+                        <p className="text-2xl font-bold text-red-400">{pkr(selected.balance)} due</p>
                       </div>
                     )}
                     <div className="flex gap-4 justify-end mt-2 text-xs text-muted-foreground">
-                      <span>
-                        Purchased:{" "}
-                        <span className="text-foreground font-medium">
-                          {pkr(selected.total_purchased)}
-                        </span>
-                      </span>
-                      <span>
-                        Paid:{" "}
-                        <span className="text-green-400 font-medium">
-                          {pkr(selected.total_paid)}
-                        </span>
-                      </span>
+                      <span>Invoiced: <span className="text-foreground font-medium">{pkr(selected.total_purchased)}</span></span>
+                      <span>Paid: <span className="text-emerald-400 font-medium">{pkr(selected.total_paid)}</span></span>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Add entry form */}
+              {/* Add invoice form */}
               <div className="rounded-xl border border-sidebar-border bg-card p-5">
-                <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
+                <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
                   <Plus className="h-4 w-4 text-amber-400" />
-                  Add Entry
+                  New Invoice
                 </h3>
-
-                {/* Type toggle */}
-                <div className="flex gap-2 mb-4">
-                  <button
-                    onClick={() => setEntryType("purchase")}
-                    className={cn(
-                      "flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium border transition-all",
-                      entryType === "purchase"
-                        ? "bg-red-500/15 border-red-500/40 text-red-300"
-                        : "bg-transparent border-sidebar-border text-muted-foreground hover:border-red-500/25 hover:text-red-400"
-                    )}
-                  >
-                    <TrendingDown className="h-4 w-4" />
-                    Purchase
-                  </button>
-                  <button
-                    onClick={() => setEntryType("payment")}
-                    className={cn(
-                      "flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium border transition-all",
-                      entryType === "payment"
-                        ? "bg-green-500/15 border-green-500/40 text-green-300"
-                        : "bg-transparent border-sidebar-border text-muted-foreground hover:border-green-500/25 hover:text-green-400"
-                    )}
-                  >
-                    <TrendingUp className="h-4 w-4" />
-                    Payment
-                  </button>
-                </div>
-
-                {/* Form fields */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Amount (PKR)</Label>
+                    <Label className="text-xs text-muted-foreground">Amount (PKR) *</Label>
                     <Input
-                      type="number"
-                      min="1"
-                      step="1"
-                      placeholder="0"
-                      value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleAddEntry()}
+                      type="number" min="1" step="1" placeholder="0"
+                      value={invAmount}
+                      onChange={(e) => setInvAmount(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleAddInvoice()}
+                      className="bg-background border-sidebar-border"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Invoice # (optional)</Label>
+                    <Input
+                      placeholder="e.g. INV-2024"
+                      value={invNumber}
+                      onChange={(e) => setInvNumber(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleAddInvoice()}
                       className="bg-background border-sidebar-border"
                     />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Date</Label>
                     <Input
-                      type="date"
-                      value={txDate}
-                      onChange={(e) => setTxDate(e.target.value)}
+                      type="date" value={invDate}
+                      onChange={(e) => setInvDate(e.target.value)}
                       className="bg-background border-sidebar-border"
                     />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Note (optional)</Label>
                     <Input
-                      placeholder="e.g. Invoice #42"
-                      value={note}
-                      onChange={(e) => setNote(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleAddEntry()}
+                      placeholder="e.g. Panadol delivery"
+                      value={invNote}
+                      onChange={(e) => setInvNote(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleAddInvoice()}
                       className="bg-background border-sidebar-border"
                     />
                   </div>
                 </div>
-
                 <button
                   type="button"
-                  onClick={handleAddEntry}
-                  disabled={isPending || !amount}
-                  className="mt-4 w-full inline-flex items-center justify-center gap-2 h-10 px-4 rounded-lg text-sm font-semibold transition-colors
-                    bg-amber-500 text-black hover:bg-amber-400
+                  onClick={handleAddInvoice}
+                  disabled={isPending || !invAmount}
+                  className="mt-4 inline-flex items-center justify-center gap-2 h-10 px-6 rounded-lg text-sm font-semibold transition-colors
+                    bg-amber text-black hover:opacity-90
                     disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
                 >
                   {isPending ? (
-                    <>
-                      <span className="h-4 w-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
-                      Adding…
-                    </>
+                    <span className="h-4 w-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
                   ) : (
-                    <>
-                      <Plus className="h-4 w-4" />
-                      Add Entry
-                    </>
+                    <><Plus className="h-4 w-4" /> Add Invoice</>
                   )}
                 </button>
               </div>
 
-              {/* Transaction history */}
+              {/* Invoice list */}
               <div className="flex-1 min-h-0 rounded-xl border border-sidebar-border bg-card p-5">
-                <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
+                <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
                   <Receipt className="h-4 w-4 text-muted-foreground" />
-                  Transaction History
-                  {ledger.length > 0 && (
+                  Invoices
+                  {sortedInvoices.length > 0 && (
                     <span className="ml-auto text-xs text-muted-foreground font-normal">
-                      {ledger.length} entr{ledger.length === 1 ? "y" : "ies"}
+                      {sortedInvoices.length} invoice{sortedInvoices.length !== 1 ? "s" : ""}
                     </span>
                   )}
                 </h3>
 
-                {ledgerLoading ? (
-                  <LedgerTableSkeleton />
-                ) : ledgerWithBalance.length === 0 ? (
+                {invoicesLoading ? (
+                  <InvoiceListSkeleton />
+                ) : sortedInvoices.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
                     <Wallet className="h-8 w-8 text-muted-foreground mb-3" />
-                    <p className="text-sm text-muted-foreground">
-                      No transactions yet. Add the first entry above.
-                    </p>
+                    <p className="text-sm text-muted-foreground">No invoices yet. Add the first one above.</p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto -mx-1">
-                    <table className="w-full text-sm min-w-[540px]">
+                    <table className="w-full text-sm min-w-[600px]">
                       <thead>
                         <tr className="border-b border-sidebar-border">
-                          <th className="text-left text-xs text-muted-foreground font-medium pb-2.5 px-1">
-                            Date
-                          </th>
-                          <th className="text-left text-xs text-muted-foreground font-medium pb-2.5 px-1">
-                            Type
-                          </th>
-                          <th className="text-right text-xs text-muted-foreground font-medium pb-2.5 px-1">
-                            Amount
-                          </th>
-                          <th className="text-left text-xs text-muted-foreground font-medium pb-2.5 px-1">
-                            Note
-                          </th>
-                          <th className="text-right text-xs text-muted-foreground font-medium pb-2.5 px-1">
-                            Balance
-                          </th>
-                          <th className="pb-2.5 px-1" />
+                          <th className="text-left text-xs text-muted-foreground font-medium pb-2.5 px-2">Date</th>
+                          <th className="text-left text-xs text-muted-foreground font-medium pb-2.5 px-2">Invoice #</th>
+                          <th className="text-right text-xs text-muted-foreground font-medium pb-2.5 px-2">Total</th>
+                          <th className="text-right text-xs text-muted-foreground font-medium pb-2.5 px-2">Paid</th>
+                          <th className="text-right text-xs text-muted-foreground font-medium pb-2.5 px-2">Remaining</th>
+                          <th className="text-center text-xs text-muted-foreground font-medium pb-2.5 px-2">Status</th>
+                          <th className="pb-2.5 px-2" />
                         </tr>
                       </thead>
                       <tbody>
-                        {ledgerWithBalance.map((entry) => (
-                          <tr
-                            key={entry.id}
-                            className="border-b border-sidebar-border/50 last:border-0 hover:bg-white/[0.02] transition-colors group"
-                          >
-                            <td className="py-3 px-1 text-muted-foreground whitespace-nowrap">
-                              {fmtDate(entry.transaction_date)}
-                            </td>
-                            <td className="py-3 px-1">
-                              {entry.type === "purchase" ? (
-                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-400 bg-red-500/10 border border-red-500/20 rounded-full px-2 py-0.5">
-                                  <TrendingDown className="h-3 w-3" />
-                                  Purchase
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-400 bg-green-500/10 border border-green-500/20 rounded-full px-2 py-0.5">
-                                  <TrendingUp className="h-3 w-3" />
-                                  Payment
-                                </span>
-                              )}
-                            </td>
-                            <td className="py-3 px-1 text-right tabular-nums font-medium">
-                              <span
-                                className={
-                                  entry.type === "purchase" ? "text-red-400" : "text-green-400"
-                                }
+                        {sortedInvoices.map((inv) => {
+                          const paid = Number(inv.paid_amount);
+                          const remaining = Math.max(0, inv.amount - paid);
+                          const status = getStatus(inv);
+                          const invPayments = payments.filter((p) => p.invoice_id === inv.id);
+                          const isExpanded = expandedId === inv.id;
+                          return (
+                            <Fragment key={inv.id}>
+                              <tr
+                                onClick={() => setExpandedId(isExpanded ? null : inv.id)}
+                                className="border-b border-sidebar-border/50 hover:bg-white/[0.02] transition-colors group cursor-pointer"
                               >
-                                {entry.type === "purchase" ? "+" : "-"}
-                                {pkr(entry.amount)}
-                              </span>
-                            </td>
-                            <td className="py-3 px-1 text-muted-foreground max-w-[160px] truncate">
-                              {entry.note ?? (
-                                <span className="text-white/20 text-xs italic">—</span>
-                              )}
-                            </td>
-                            <td className="py-3 px-1 text-right tabular-nums font-semibold">
-                              <span
-                                className={
-                                  entry.running > 0
-                                    ? "text-red-400"
-                                    : entry.running === 0
-                                    ? "text-green-400"
-                                    : "text-green-400"
-                                }
-                              >
-                                {pkr(Math.abs(entry.running))}
-                                {entry.running < 0 && (
-                                  <span className="text-xs font-normal ml-1 text-green-500">
-                                    (overpaid)
+                                <td className="py-3.5 px-2 text-muted-foreground whitespace-nowrap text-xs">
+                                  {fmtDate(inv.transaction_date)}
+                                </td>
+                                <td className="py-3.5 px-2">
+                                  {inv.invoice_number ? (
+                                    <span className="font-mono text-xs bg-muted/40 px-2 py-0.5 rounded text-foreground">
+                                      #{inv.invoice_number}
+                                    </span>
+                                  ) : (
+                                    <span className="text-muted-foreground/40 text-xs italic">—</span>
+                                  )}
+                                  {inv.note && (
+                                    <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[120px]">{inv.note}</p>
+                                  )}
+                                </td>
+                                <td className="py-3.5 px-2 text-right tabular-nums font-medium">
+                                  {pkr(inv.amount)}
+                                </td>
+                                <td className="py-3.5 px-2 text-right tabular-nums text-emerald-400 font-medium">
+                                  {paid > 0 ? pkr(paid) : <span className="text-muted-foreground/40">—</span>}
+                                </td>
+                                <td className="py-3.5 px-2 text-right tabular-nums font-bold">
+                                  <span className={remaining > 0 ? "text-red-400" : "text-emerald-400"}>
+                                    {pkr(remaining)}
                                   </span>
-                                )}
-                              </span>
-                            </td>
-                            <td className="py-3 px-1">
-                              <button
-                                onClick={() => handleDelete(entry.id)}
-                                disabled={isPending}
-                                className="opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
-                                title="Delete entry"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
+                                </td>
+                                <td className="py-3.5 px-2 text-center">
+                                  <StatusBadge status={status} />
+                                </td>
+                                <td className="py-3.5 px-2">
+                                  <div className="flex items-center gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
+                                    {status !== "paid" && (
+                                      <button
+                                        onClick={() => setPayTarget(inv)}
+                                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors"
+                                      >
+                                        <CreditCard className="h-3 w-3" /> Pay
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={() => setDeleteTarget(inv.id)}
+                                      disabled={isPending}
+                                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
+                                      title="Delete invoice"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                    <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground/40 transition-transform", isExpanded && "rotate-180")} />
+                                  </div>
+                                </td>
+                              </tr>
+                              {isExpanded && (
+                                <tr className="border-b border-sidebar-border/50 bg-muted/5">
+                                  <td colSpan={7} className="px-4 pb-3 pt-0">
+                                    {invPayments.length === 0 ? (
+                                      <p className="text-xs text-muted-foreground/50 py-2 pl-2">No payments recorded yet.</p>
+                                    ) : (
+                                      <div className="mt-1 space-y-1">
+                                        <p className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-wider px-2 pt-1 pb-0.5">Payment History</p>
+                                        {invPayments.map((p) => (
+                                          <div key={p.id} className="flex items-center gap-3 px-2 py-1.5 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
+                                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 flex-shrink-0" />
+                                            <span className="text-xs text-muted-foreground whitespace-nowrap">{fmtDate(p.payment_date)}</span>
+                                            <span className="text-xs font-semibold text-emerald-400 tabular-nums">{pkr(p.amount)}</span>
+                                            {p.note && <span className="text-xs text-muted-foreground truncate">{p.note}</span>}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              )}
+                            </Fragment>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -673,11 +753,23 @@ export function SupplierLedgerClient() {
         </div>
       </div>
 
-      {/* Confirm delete dialog */}
+      {/* Pay dialog */}
+      {payTarget && shopId && (
+        <PayDialog
+          invoice={payTarget}
+          shopId={shopId}
+          onClose={() => setPayTarget(null)}
+          onSuccess={() => {
+            if (selectedId) Promise.all([loadInvoices(selectedId), refreshBalances()]);
+          }}
+        />
+      )}
+
+      {/* Confirm delete */}
       <ConfirmDialog
         open={deleteTarget !== null}
-        title="Delete entry?"
-        description="This will permanently remove this transaction from the ledger. This action cannot be undone."
+        title="Delete invoice?"
+        description="This will permanently remove this invoice. This action cannot be undone."
         confirmLabel="Delete"
         onConfirm={confirmDelete}
         onCancel={() => setDeleteTarget(null)}

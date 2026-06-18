@@ -9,6 +9,14 @@ import { createClient } from "@/lib/supabase/client";
 
 interface CostRow    { label: string; amount: number; sub?: string; }
 interface PayableRow { name: string; balance: number; }
+interface ProductRow {
+  name:        string;
+  units_sold:  number;
+  revenue:     number;
+  cogs:        number;
+  gross_profit: number;
+  margin_pct:  number;
+}
 
 interface PLData {
   total_sales:       number;
@@ -17,8 +25,9 @@ interface PLData {
   gross_profit:      number;
   net_profit:        number;
   margin_pct:        number;
-  cost_rows:         CostRow[];   // ordered breakdown for "where did money go?"
+  cost_rows:         CostRow[];
   supplier_payables: PayableRow[];
+  product_rows:      ProductRow[];
 }
 
 // ─── Fetch ────────────────────────────────────────────────────────────────────
@@ -27,38 +36,124 @@ async function loadPL(shopId: string, from: string, to: string): Promise<PLData>
   const supabase = createClient();
 
   const [
-    { data: salesData },
-    { data: expensesData },
-    { data: ledgerPeriod },
-    { data: ledgerAll },
+    { data: salesData,    error: salesErr },
+    { data: expensesData, error: expErr },
+    { data: ledgerAll,    error: ledgerErr },
     { data: suppliersData },
+    { data: stockInData,  error: stockErr },
   ] = await Promise.all([
-    supabase.from("dms_sales").select("total, quantity, product_id").eq("shop_id", shopId).gte("sale_date", from).lte("sale_date", to),
+    supabase.from("dms_sales").select("total, quantity, product_id, sale_date, unit_cost").eq("shop_id", shopId).gte("sale_date", from).lte("sale_date", to),
     supabase.from("dms_expenses").select("id, amount, category, note").eq("shop_id", shopId).gte("expense_date", from).lte("expense_date", to).order("category").order("created_at"),
-    supabase.from("dms_supplier_ledger").select("type, amount, supplier_id").eq("shop_id", shopId).gte("transaction_date", from).lte("transaction_date", to),
-    supabase.from("dms_supplier_ledger").select("type, amount, supplier_id").eq("shop_id", shopId),
+    supabase.from("dms_supplier_ledger").select("type, amount, paid_amount, supplier_id").eq("shop_id", shopId),
     supabase.from("dms_suppliers").select("id, name").eq("shop_id", shopId),
+    supabase
+      .from("dms_stock_movements")
+      .select("product_id, quantity, unit_price, created_at")
+      .eq("shop_id", shopId)
+      .eq("type", "in")
+      .order("created_at", { ascending: true }),
   ]);
+
+  if (salesErr)  throw new Error(salesErr.message);
+  if (expErr)    throw new Error(expErr.message);
+  if (ledgerErr) throw new Error(ledgerErr.message);
+  if (stockErr)  throw new Error(stockErr.message);
 
   const supplierName: Record<string, string> = {};
   (suppliersData ?? []).forEach((s: { id: string; name: string }) => { supplierName[s.id] = s.name; });
 
-  // Products → cost + supplier
+  // Products → cost + supplier + name
   const productIds = [...new Set((salesData ?? []).map((s: { product_id: string }) => s.product_id))];
-  const productMap: Record<string, { cost_price: number; supplier_id: string | null }> = {};
+  const productMap: Record<string, { name: string; cost_price: number; supplier_id: string | null }> = {};
   if (productIds.length > 0) {
-    const { data: prods } = await supabase.from("dms_products").select("id, cost_price, supplier_id").in("id", productIds);
-    (prods ?? []).forEach((p: { id: string; cost_price: number; supplier_id: string | null }) => {
-      productMap[p.id] = { cost_price: p.cost_price, supplier_id: p.supplier_id };
+    const { data: prods } = await supabase.from("dms_products").select("id, name, cost_price, supplier_id").eq("shop_id", shopId).in("id", productIds);
+    (prods ?? []).forEach((p: { id: string; name: string; cost_price: number; supplier_id: string | null }) => {
+      productMap[p.id] = { name: p.name, cost_price: p.cost_price, supplier_id: p.supplier_id };
     });
   }
 
-  const sales    = (salesData ?? [])    as { total: number; quantity: number; product_id: string }[];
+  const sales    = (salesData ?? [])    as { total: number; quantity: number; product_id: string; sale_date: string; unit_cost: number | null }[];
   const expenses = (expensesData ?? []) as { id: string; amount: number; category: string; note: string | null }[];
+
+  // FIFO COGS
+  type FifoBatch = { remaining: number; unitPrice: number };
+  const stockIn = (stockInData ?? []) as { product_id: string; quantity: number; unit_price: number | null; created_at: string }[];
+
+  const batchQueues: Record<string, FifoBatch[]> = {};
+  for (const m of stockIn) {
+    if (!batchQueues[m.product_id]) batchQueues[m.product_id] = [];
+    const price = m.unit_price != null ? m.unit_price : (productMap[m.product_id]?.cost_price ?? 0);
+    batchQueues[m.product_id].push({ remaining: m.quantity, unitPrice: price });
+  }
+
+  const fifoQueues: Record<string, FifoBatch[]> = {};
+  for (const pid of Object.keys(batchQueues)) {
+    fifoQueues[pid] = batchQueues[pid].map((b) => ({ ...b }));
+  }
+
+  const fifoCogsByProduct: Record<string, number> = {};
+  const sortedSales = [...sales].sort((a, b) => a.sale_date.localeCompare(b.sale_date));
+  for (const sale of sortedSales) {
+    let saleCogs = 0;
+    if (sale.unit_cost != null) {
+      // Sale was recorded with an explicit batch cost — use it directly
+      saleCogs = sale.quantity * sale.unit_cost;
+      // Still consume from FIFO queues to keep batch tracking consistent for later sales
+      let toConsume = sale.quantity;
+      const queue = fifoQueues[sale.product_id] ?? [];
+      for (const batch of queue) {
+        if (toConsume <= 0) break;
+        const consumed = Math.min(batch.remaining, toConsume);
+        batch.remaining -= consumed;
+        toConsume -= consumed;
+      }
+    } else {
+      // Older sale (no stored cost) — fall back to FIFO
+      let toConsume = sale.quantity;
+      const queue = fifoQueues[sale.product_id] ?? [];
+      for (const batch of queue) {
+        if (toConsume <= 0) break;
+        const consumed = Math.min(batch.remaining, toConsume);
+        saleCogs += consumed * batch.unitPrice;
+        batch.remaining -= consumed;
+        toConsume -= consumed;
+      }
+      if (toConsume > 0) {
+        saleCogs += toConsume * (productMap[sale.product_id]?.cost_price ?? 0);
+      }
+    }
+    fifoCogsByProduct[sale.product_id] = (fifoCogsByProduct[sale.product_id] ?? 0) + saleCogs;
+  }
+
+  // Per-product revenue + units (for product performance section)
+  const revenueByProduct: Record<string, number> = {};
+  const unitsByProduct:   Record<string, number> = {};
+  for (const sale of sales) {
+    revenueByProduct[sale.product_id] = (revenueByProduct[sale.product_id] ?? 0) + (sale.total ?? 0);
+    unitsByProduct[sale.product_id]   = (unitsByProduct[sale.product_id]   ?? 0) + sale.quantity;
+  }
+
+  const product_rows: ProductRow[] = productIds
+    .map((pid) => {
+      const revenue     = revenueByProduct[pid] ?? 0;
+      const cogs        = fifoCogsByProduct[pid] ?? 0;
+      const gross_profit = revenue - cogs;
+      const margin_pct  = revenue > 0 ? (gross_profit / revenue) * 100 : 0;
+      return {
+        name:        productMap[pid]?.name ?? "Unknown Product",
+        units_sold:  unitsByProduct[pid] ?? 0,
+        revenue,
+        cogs,
+        gross_profit,
+        margin_pct,
+      };
+    })
+    .filter((p) => p.revenue > 0)
+    .sort((a, b) => b.gross_profit - a.gross_profit);
 
   // Core numbers
   const total_sales    = sales.reduce((a, s) => a + (s.total ?? 0), 0);
-  const total_cogs     = sales.reduce((a, s) => a + s.quantity * (productMap[s.product_id]?.cost_price ?? 0), 0);
+  const total_cogs     = Object.values(fifoCogsByProduct).reduce((a: number, v: number) => a + v, 0);
   const gross_profit   = total_sales - total_cogs;
   const total_expenses = expenses.reduce((a, e) => a + Number(e.amount), 0);
   const net_profit     = gross_profit - total_expenses;
@@ -66,29 +161,20 @@ async function loadPL(shopId: string, from: string, to: string): Promise<PLData>
 
   // COGS by supplier (sub-rows under Product Cost)
   const cogsMap: Record<string, { name: string; amount: number }> = {};
-  for (const s of sales) {
-    const prod = productMap[s.product_id];
-    const cogs = s.quantity * (prod?.cost_price ?? 0);
+  for (const [pid, cogs] of Object.entries(fifoCogsByProduct)) {
     if (!cogs) continue;
+    const prod = productMap[pid];
     const sid  = prod?.supplier_id ?? "__none__";
     const name = sid === "__none__" ? "No Supplier" : (supplierName[sid] ?? "Unknown");
     cogsMap[sid] = { name, amount: (cogsMap[sid]?.amount ?? 0) + cogs };
   }
 
-  // Supplier activity in period → used as sub-label on Product Cost rows
-  const actMap: Record<string, { purchased: number; paid: number }> = {};
-  (ledgerPeriod ?? []).forEach((e: { type: string; amount: number; supplier_id: string }) => {
-    if (!actMap[e.supplier_id]) actMap[e.supplier_id] = { purchased: 0, paid: 0 };
-    if (e.type === "purchase") actMap[e.supplier_id].purchased += Number(e.amount);
-    if (e.type === "payment")  actMap[e.supplier_id].paid      += Number(e.amount);
-  });
-
   // Build cost_rows: Product Cost (with supplier breakdown) + expense categories
   const cost_rows: CostRow[] = [];
 
   // Product cost
-  if (total_cogs > 0) {
-    cost_rows.push({ label: "Product Cost", amount: total_cogs });
+  if ((total_cogs as number) > 0) {
+    cost_rows.push({ label: "Product Cost", amount: total_cogs as number });
     Object.values(cogsMap)
       .sort((a, b) => b.amount - a.amount)
       .forEach((c) => cost_rows.push({ label: `  ${c.name}`, amount: c.amount }));
@@ -124,19 +210,26 @@ async function loadPL(shopId: string, from: string, to: string): Promise<PLData>
   }
 
   // All-time supplier payables
+  // New invoices: paid_amount on the purchase row (updated by dms_supplier_payments)
+  // Legacy:       separate type:"payment" rows
   const payMap: Record<string, { name: string; purchased: number; paid: number }> = {};
-  (ledgerAll ?? []).forEach((e: { type: string; amount: number; supplier_id: string }) => {
+  (ledgerAll ?? []).forEach((e: { type: string; amount: number; paid_amount: number | null; supplier_id: string }) => {
     const name = supplierName[e.supplier_id] ?? "Unknown";
     if (!payMap[e.supplier_id]) payMap[e.supplier_id] = { name, purchased: 0, paid: 0 };
-    if (e.type === "purchase") payMap[e.supplier_id].purchased += Number(e.amount);
-    if (e.type === "payment")  payMap[e.supplier_id].paid      += Number(e.amount);
+    if (e.type === "purchase") {
+      payMap[e.supplier_id].purchased += Number(e.amount);
+      payMap[e.supplier_id].paid      += Number(e.paid_amount ?? 0);
+    }
+    if (e.type === "payment") {
+      payMap[e.supplier_id].paid      += Number(e.amount);
+    }
   });
   const supplier_payables = Object.values(payMap)
     .map((p) => ({ name: p.name, balance: p.purchased - p.paid }))
     .filter((p) => p.balance > 0)
     .sort((a, b) => b.balance - a.balance);
 
-  return { total_sales, total_cogs, total_expenses, gross_profit, net_profit, margin_pct, cost_rows, supplier_payables };
+  return { total_sales, total_cogs: total_cogs as number, total_expenses, gross_profit, net_profit, margin_pct, cost_rows, supplier_payables, product_rows };
 }
 
 const CAT_LABELS: Record<string, string> = {
@@ -155,13 +248,20 @@ function toDateStr(d: Date) {
 const todayStr      = () => toDateStr(new Date());
 const startOfMonth  = () => { const d = new Date(); d.setDate(1); return toDateStr(d); };
 const startOfWeek   = () => { const d = new Date(); d.setDate(d.getDate() - d.getDay()); return toDateStr(d); };
+const startOfYear   = () => { const d = new Date(); return toDateStr(new Date(d.getFullYear(), 0, 1)); };
 
-type Preset = "today" | "week" | "month" | "custom";
+type Preset = "today" | "week" | "month" | "year" | "custom";
 
 // ─── Report render ────────────────────────────────────────────────────────────
 
+function marginColor(pct: number) {
+  if (pct >= 30) return "text-emerald-400";
+  if (pct >= 15) return "text-amber";
+  return "text-red-400";
+}
+
 function PLReport({ data }: { data: PLData }) {
-  const { total_sales, total_cogs, total_expenses, net_profit, margin_pct, cost_rows, supplier_payables } = data;
+  const { total_sales, total_cogs, total_expenses, gross_profit, net_profit, margin_pct, cost_rows, supplier_payables, product_rows } = data;
 
   const isEmpty = total_sales === 0 && total_cogs === 0 && total_expenses === 0;
   if (isEmpty) {
@@ -174,8 +274,9 @@ function PLReport({ data }: { data: PLData }) {
     );
   }
 
-  const isProfit = safe(net_profit) >= 0;
-  const totalOwed = supplier_payables.reduce((a, p) => a + p.balance, 0);
+  const isProfit     = safe(net_profit) >= 0;
+  const gpPositive   = safe(gross_profit) >= 0;
+  const totalOwed    = supplier_payables.reduce((a, p) => a + p.balance, 0);
 
   return (
     <div className="space-y-3">
@@ -201,22 +302,43 @@ function PLReport({ data }: { data: PLData }) {
         </p>
       </div>
 
-      {/* ── Summary: 3 numbers ── */}
-      <div className="grid grid-cols-3 gap-2">
-        <div className="rounded-xl border border-sidebar-border bg-card p-3 text-center">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Revenue</p>
-          <p className="text-base font-bold tabular-nums leading-none">{fmt(total_sales)}</p>
-          <p className="text-[10px] text-muted-foreground mt-1">earned from sales</p>
+      {/* ── Income Statement Waterfall ── */}
+      <div className="rounded-xl border border-sidebar-border bg-card overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-sidebar-border bg-muted/10">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Income Statement</p>
         </div>
-        <div className="rounded-xl border border-sidebar-border bg-card p-3 text-center">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Product Cost</p>
-          <p className="text-base font-bold tabular-nums leading-none text-muted-foreground">{fmt(total_cogs)}</p>
-          <p className="text-[10px] text-muted-foreground mt-1">cost of goods sold</p>
-        </div>
-        <div className="rounded-xl border border-sidebar-border bg-card p-3 text-center">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Expenses</p>
-          <p className="text-base font-bold tabular-nums leading-none text-muted-foreground">{fmt(total_expenses)}</p>
-          <p className="text-[10px] text-muted-foreground mt-1">running costs</p>
+        <div className="divide-y divide-sidebar-border/50">
+
+          {/* Revenue */}
+          <div className="flex items-center justify-between px-4 py-3">
+            <p className="text-sm font-semibold text-foreground">Revenue</p>
+            <p className="text-sm font-semibold tabular-nums">{fmt(total_sales)}</p>
+          </div>
+
+          {/* COGS */}
+          <div className="flex items-center justify-between px-4 py-3">
+            <p className="text-sm text-muted-foreground">(−) Cost of Goods Sold</p>
+            <p className="text-sm tabular-nums text-muted-foreground">{fmt(total_cogs)}</p>
+          </div>
+
+          {/* Gross Profit */}
+          <div className={`flex items-center justify-between px-4 py-3 ${gpPositive ? "bg-emerald-500/[0.06]" : "bg-red-500/[0.06]"}`}>
+            <p className={`text-sm font-bold ${gpPositive ? "text-emerald-400" : "text-red-400"}`}>= Gross Profit</p>
+            <p className={`text-sm font-bold tabular-nums ${gpPositive ? "text-emerald-400" : "text-red-400"}`}>{fmt(gross_profit)}</p>
+          </div>
+
+          {/* Expenses */}
+          <div className="flex items-center justify-between px-4 py-3">
+            <p className="text-sm text-muted-foreground">(−) Expenses</p>
+            <p className="text-sm tabular-nums text-muted-foreground">{fmt(total_expenses)}</p>
+          </div>
+
+          {/* Net Profit */}
+          <div className={`flex items-center justify-between px-4 py-3 ${isProfit ? "bg-emerald-500/[0.06]" : "bg-red-500/[0.06]"}`}>
+            <p className={`text-sm font-bold ${isProfit ? "text-emerald-400" : "text-red-400"}`}>= Net Profit</p>
+            <p className={`text-sm font-bold tabular-nums ${isProfit ? "text-emerald-400" : "text-red-400"}`}>{fmt(net_profit)}</p>
+          </div>
+
         </div>
       </div>
 
@@ -247,6 +369,57 @@ function PLReport({ data }: { data: PLData }) {
               <p className="text-sm font-bold tabular-nums">{fmt(safe(total_cogs) + safe(total_expenses))}</p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Product Performance ── */}
+      {product_rows.length > 0 && (
+        <div className="rounded-xl border border-sidebar-border bg-card overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-sidebar-border bg-muted/10 flex items-center justify-between">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Product Performance</p>
+            <p className="text-xs text-muted-foreground">{product_rows.length} product{product_rows.length !== 1 ? "s" : ""}</p>
+          </div>
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-sidebar-border/40 bg-muted/5">
+                <th className="px-4 py-1.5 text-left text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Product</th>
+                <th className="px-4 py-1.5 text-right text-[10px] font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">Revenue</th>
+                <th className="px-4 py-1.5 text-right text-[10px] font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">Cost</th>
+                <th className="px-4 py-1.5 text-right text-[10px] font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">Gross Profit</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-sidebar-border/40">
+              {product_rows.map((p, i) => (
+                <tr key={i}>
+                  <td className="px-4 py-2.5">
+                    <p className="text-sm font-medium text-foreground">{p.name}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="text-xs text-muted-foreground">{p.units_sold} unit{p.units_sold !== 1 ? "s" : ""}</span>
+                      <span className="text-muted-foreground/30">·</span>
+                      <span className={`text-xs font-semibold ${marginColor(p.margin_pct)}`}>
+                        {safe(p.margin_pct).toFixed(1)}% margin
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-2.5 text-right text-xs tabular-nums text-muted-foreground whitespace-nowrap">{fmt(p.revenue)}</td>
+                  <td className="px-4 py-2.5 text-right text-xs tabular-nums text-muted-foreground whitespace-nowrap">{fmt(p.cogs)}</td>
+                  <td className={`px-4 py-2.5 text-right text-sm font-semibold tabular-nums whitespace-nowrap ${p.gross_profit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                    {fmt(p.gross_profit)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t border-sidebar-border bg-muted/10">
+                <td className="px-4 py-2.5 text-sm font-bold text-foreground">Total</td>
+                <td className="px-4 py-2.5 text-right text-xs tabular-nums font-semibold whitespace-nowrap">{fmt(total_sales)}</td>
+                <td className="px-4 py-2.5 text-right text-xs tabular-nums font-semibold whitespace-nowrap">{fmt(total_cogs)}</td>
+                <td className={`px-4 py-2.5 text-right text-sm font-bold tabular-nums whitespace-nowrap ${gross_profit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                  {fmt(gross_profit)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
       )}
 
@@ -298,21 +471,31 @@ export function PLReportClient() {
   const [report, setReport]       = useState<PLData | null>(null);
   const [error, setError]         = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadSeq     = useRef(0);
 
   function rangeFor(p: Preset) {
     const today = todayStr();
     if (p === "today") return { from: today, to: today };
     if (p === "week")  return { from: startOfWeek(), to: today };
     if (p === "month") return { from: startOfMonth(), to: today };
+    if (p === "year")  return { from: startOfYear(), to: today };
     return { from: customFrom, to: customTo };
   }
 
   const load = useCallback(async (from: string, to: string) => {
     if (!shopId) return;
+    const seq = ++loadSeq.current;
     setLoading(true); setError(null);
-    try { setReport(await loadPL(shopId, from, to)); }
-    catch (err) { setError(err instanceof Error ? err.message : "Failed to load."); }
-    finally { setLoading(false); }
+    try {
+      const result = await loadPL(shopId, from, to);
+      if (seq !== loadSeq.current) return; // stale — a newer load superseded this one
+      setReport(result);
+    } catch (err) {
+      if (seq !== loadSeq.current) return;
+      setError(err instanceof Error ? err.message : "Failed to load.");
+    } finally {
+      if (seq === loadSeq.current) setLoading(false);
+    }
   }, [shopId]);
 
   function handlePreset(p: Preset) {
@@ -328,9 +511,10 @@ export function PLReportClient() {
   }, [shopId]);
 
   const PRESETS: { key: Preset; label: string }[] = [
-    { key: "today", label: "Today" },
-    { key: "week",  label: "This Week" },
-    { key: "month", label: "This Month" },
+    { key: "today",  label: "Today" },
+    { key: "week",   label: "This Week" },
+    { key: "month",  label: "This Month" },
+    { key: "year",   label: "This Year" },
     { key: "custom", label: "Custom" },
   ];
 

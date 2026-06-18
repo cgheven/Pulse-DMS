@@ -10,6 +10,7 @@ export async function addSale(data: {
   paymentMode: "cash" | "credit";
   customerName?: string;
   saleDate?: string;
+  unitCost?: number;
 }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -17,6 +18,11 @@ export async function addSale(data: {
 
   if (data.quantity <= 0) return { error: "Quantity must be greater than 0" };
   if (data.unitPrice < 0) return { error: "Price cannot be negative" };
+
+  if (data.unitCost !== undefined && data.unitCost !== null) {
+    if (!Number.isFinite(data.unitCost) || data.unitCost < 0) return { error: "Unit cost is invalid" };
+    if (data.unitCost > 100_000_000) return { error: "Unit cost is unreasonably large" };
+  }
 
   const total = data.quantity * data.unitPrice;
 
@@ -29,6 +35,7 @@ export async function addSale(data: {
     payment_mode: data.paymentMode,
     customer_name: data.customerName?.trim() || null,
     sale_date: data.saleDate ?? new Date().toISOString().slice(0, 10),
+    unit_cost: data.unitCost ?? null,
   });
 
   if (error) return { error: error.message };
@@ -48,6 +55,7 @@ export async function editSale(
     paymentMode: "cash" | "credit";
     customerName?: string;
     saleDate?: string;
+    unitCost?: number;
   }
 ) {
   const supabase = await createClient();
@@ -56,6 +64,11 @@ export async function editSale(
 
   if (data.quantity <= 0) return { error: "Quantity must be greater than 0" };
   if (data.unitPrice < 0) return { error: "Price cannot be negative" };
+
+  if (data.unitCost !== undefined && data.unitCost !== null) {
+    if (!Number.isFinite(data.unitCost) || data.unitCost < 0) return { error: "Unit cost is invalid" };
+    if (data.unitCost > 100_000_000) return { error: "Unit cost is unreasonably large" };
+  }
 
   const total = data.quantity * data.unitPrice;
 
@@ -77,6 +90,7 @@ export async function editSale(
     payment_mode: data.paymentMode,
     customer_name: data.customerName?.trim() || null,
     sale_date: data.saleDate ?? new Date().toISOString().slice(0, 10),
+    unit_cost: data.unitCost ?? null,
   });
 
   if (insErr) return { error: insErr.message };

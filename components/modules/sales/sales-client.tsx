@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import {
   ShoppingCart, Plus, Pencil, Trash2, Search, Calendar,
-  CreditCard, Banknote,
+  CreditCard, Banknote, PackageCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,6 +49,29 @@ function startOfMonth() {
 
 type DateFilter = "today" | "week" | "month" | "custom";
 
+type BatchOption = { unitPrice: number; remaining: number; date: string };
+
+function computeBatches(
+  movements: { type: string; quantity: number; unit_price: number | null; created_at: string; cost_price_fallback: number }[]
+): BatchOption[] {
+  const sorted = [...movements].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  const batches: BatchOption[] = [];
+  for (const m of sorted) {
+    if (m.type === "in") {
+      batches.push({ unitPrice: m.unit_price ?? m.cost_price_fallback, remaining: m.quantity, date: m.created_at });
+    } else {
+      let toDeduct = m.quantity;
+      for (const b of batches) {
+        if (toDeduct <= 0) break;
+        const d = Math.min(b.remaining, toDeduct);
+        b.remaining -= d;
+        toDeduct -= d;
+      }
+    }
+  }
+  return batches.filter((b) => b.remaining > 0);
+}
+
 interface AddFormState {
   productId: string;
   quantity: string;
@@ -56,6 +79,7 @@ interface AddFormState {
   paymentMode: "cash" | "credit";
   customerName: string;
   saleDate: string;
+  selectedUnitCost: number | null;
 }
 
 const emptyAddForm = (): AddFormState => ({
@@ -65,6 +89,7 @@ const emptyAddForm = (): AddFormState => ({
   paymentMode: "cash",
   customerName: "",
   saleDate: todayStr(),
+  selectedUnitCost: null,
 });
 
 interface EditFormState {
@@ -211,6 +236,9 @@ export function SalesClient() {
   // ── Quick-add form ───────────────────────────────────────────────────────────
   const [addForm, setAddForm] = useState<AddFormState>(emptyAddForm());
   const [addSubmitting, setAddSubmitting] = useState(false);
+  const [addBatches, setAddBatches] = useState<BatchOption[]>([]);
+  const [loadingBatches, setLoadingBatches] = useState(false);
+  const batchFetchSeq = useRef(0);
 
   // ── Search ───────────────────────────────────────────────────────────────────
   const [search, setSearch] = useState("");
@@ -311,13 +339,37 @@ export function SalesClient() {
   }
 
   // ── Product selection in add form ────────────────────────────────────────────
-  function handleAddProductChange(productId: string) {
+  async function handleAddProductChange(productId: string) {
     const product = productMap.get(productId);
     setAddForm((prev) => ({
       ...prev,
       productId,
       unitPrice: product ? String(product.sale_price) : "",
+      selectedUnitCost: null,
     }));
+    setAddBatches([]);
+    if (!productId || !shopId) return;
+    const seq = ++batchFetchSeq.current;
+    setLoadingBatches(true);
+    try {
+      const supabase = createClient();
+      const { data: movements } = await supabase
+        .from("dms_stock_movements")
+        .select("type, quantity, unit_price, created_at")
+        .eq("shop_id", shopId)
+        .eq("product_id", productId)
+        .order("created_at", { ascending: true });
+      if (seq !== batchFetchSeq.current) return;
+      const costFallback = product?.cost_price ?? 0;
+      const withFallback = (movements ?? []).map((m) => ({ ...m, cost_price_fallback: costFallback }));
+      const computed = computeBatches(withFallback);
+      setAddBatches(computed);
+      if (computed.length > 0) {
+        setAddForm((prev) => ({ ...prev, selectedUnitCost: computed[0].unitPrice }));
+      }
+    } finally {
+      if (seq === batchFetchSeq.current) setLoadingBatches(false);
+    }
   }
 
   // ── Submit add form ──────────────────────────────────────────────────────────
@@ -348,6 +400,7 @@ export function SalesClient() {
       paymentMode: addForm.paymentMode,
       customerName: addForm.customerName.trim() || undefined,
       saleDate: addForm.saleDate,
+      unitCost: addForm.selectedUnitCost ?? undefined,
     });
     setAddSubmitting(false);
 
@@ -358,6 +411,7 @@ export function SalesClient() {
 
     toast({ title: "Sale recorded" });
     setAddForm(emptyAddForm());
+    setAddBatches([]);
     await reloadSales(activeFrom, activeTo);
   }
 
@@ -499,6 +553,43 @@ export function SalesClient() {
             </div>
           </div>
 
+          {addBatches.length > 0 && (
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">
+                Cost basis {loadingBatches && <span className="ml-1 text-muted-foreground/40">loading…</span>}
+              </Label>
+              {addBatches.length === 1 ? (
+                <p className="text-xs text-muted-foreground px-1">
+                  Cost: <span className="text-foreground font-medium">PKR {addBatches[0].unitPrice.toLocaleString("en-PK")}/unit</span>
+                  <span className="ml-2 text-muted-foreground/60">({addBatches[0].remaining} remaining)</span>
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {addBatches.map((batch, i) => {
+                    const selected = addForm.selectedUnitCost === batch.unitPrice;
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setAddForm((p) => ({ ...p, selectedUnitCost: batch.unitPrice, unitPrice: String(batch.unitPrice) }))}
+                        className={[
+                          "px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors",
+                          selected
+                            ? "bg-amber-500/15 border-amber-500/40 text-amber-400"
+                            : "bg-muted/30 border-sidebar-border text-muted-foreground hover:bg-muted/60",
+                        ].join(" ")}
+                      >
+                        PKR {batch.unitPrice.toLocaleString("en-PK")}/unit
+                        <span className="ml-1.5 opacity-60">{batch.remaining} pcs</span>
+                        {i === 0 && <span className="ml-1.5 opacity-50 text-[10px]">FIFO</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Row 2: Payment · Customer · Date · Submit */}
           <div className="flex flex-wrap items-end gap-2">
             <div className="space-y-1">
@@ -532,7 +623,7 @@ export function SalesClient() {
               type="submit"
               disabled={addSubmitting || !addForm.productId}
               className="h-9 px-4 self-end inline-flex items-center gap-1.5 rounded-md text-sm font-semibold transition-colors
-                bg-amber-500 text-black hover:bg-amber-400
+                bg-amber text-black hover:opacity-90
                 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
             >
               <Plus className="w-4 h-4" />
@@ -777,7 +868,7 @@ export function SalesClient() {
             <Button
               onClick={handleEditSave}
               disabled={editSubmitting || !editForm?.productId}
-              className="bg-amber-500 hover:bg-amber-400 text-black font-semibold"
+              className="bg-amber hover:opacity-90 text-black font-semibold"
             >
               {editSubmitting ? "Saving…" : "Save"}
             </Button>

@@ -46,6 +46,7 @@ export type StockMovement = {
   product_id: string;
   type: "in" | "out";
   quantity: number;
+  unit_price: number | null;
   note: string | null;
   sale_id: string | null;
   created_at: string;
@@ -75,6 +76,7 @@ export type Sale = {
   customer_name: string | null;
   sale_date: string;
   created_at: string;
+  unit_cost: number | null;
   product?: Pick<Product, "id" | "name" | "unit"> | null;
 };
 
@@ -94,10 +96,22 @@ export type SupplierLedgerEntry = {
   supplier_id: string;
   type: "purchase" | "payment";
   amount: number;
+  paid_amount: number;
+  invoice_number: string | null;
   note: string | null;
   transaction_date: string;
   created_at: string;
   supplier?: Pick<Supplier, "id" | "name" | "brand"> | null;
+};
+
+export type SupplierPayment = {
+  id: string;
+  shop_id: string;
+  invoice_id: string;
+  amount: number;
+  payment_date: string;
+  note: string | null;
+  created_at: string;
 };
 
 export type SupplierBalance = {

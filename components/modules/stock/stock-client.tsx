@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useTransition, useRef, useEffect } from "react";
+import { useState, useMemo, useTransition, useRef, useEffect, Fragment } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useShopContext } from "@/contexts/shop-context";
@@ -29,6 +29,44 @@ function stockStatus(level: StockLevel): "low" | "warn" | "ok" {
 function urgencyScore(level: StockLevel): number {
   if (level.low_stock_threshold === 0) return 999;
   return level.current_stock / level.low_stock_threshold;
+}
+
+// ─── Batch FIFO calculation ───────────────────────────────────────────────────
+
+type BatchRow = { date: string; unitPrice: number | null; remaining: number };
+
+function computeBatches(
+  movements: { type: string; quantity: number; unit_price: number | null; created_at: string }[]
+): BatchRow[] {
+  const sorted = [...movements].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  );
+  const batches: BatchRow[] = [];
+  for (const m of sorted) {
+    if (m.type === "in") {
+      batches.push({ date: m.created_at, unitPrice: m.unit_price, remaining: m.quantity });
+    } else {
+      let toDeduct = m.quantity;
+      // Price-matched deduction: if the OUT movement carries a unit_price (from a
+      // user-selected batch), deduct from that batch first before falling back to FIFO.
+      if (m.unit_price != null) {
+        const matched = batches.find((b) => b.remaining > 0 && b.unitPrice === m.unit_price);
+        if (matched) {
+          const d = Math.min(matched.remaining, toDeduct);
+          matched.remaining -= d;
+          toDeduct -= d;
+        }
+      }
+      // FIFO for any remaining qty (covers fallback and manual stock-out movements)
+      for (const b of batches) {
+        if (toDeduct <= 0) break;
+        const d = Math.min(b.remaining, toDeduct);
+        b.remaining -= d;
+        toDeduct -= d;
+      }
+    }
+  }
+  return batches.filter((b) => b.remaining > 0);
 }
 
 // ─── Inline threshold editor ──────────────────────────────────────────────────
@@ -151,14 +189,22 @@ function MovementDialog({
 }) {
   const [productId, setProductId] = useState(state.productId);
   const [quantity, setQuantity] = useState("");
+  const [unitPrice, setUnitPrice] = useState("");
   const [note, setNote] = useState("");
   const [isPending, startTransition] = useTransition();
 
   const selectedProduct = stockLevels.find((s) => s.product_id === productId);
   const isIn = state.type === "in";
 
+  // Pre-fill price from product cost when product changes
+  useEffect(() => {
+    if (selectedProduct && !unitPrice) {
+      setUnitPrice(String(selectedProduct.cost_price ?? ""));
+    }
+  }, [selectedProduct?.product_id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleClose() {
-    setQuantity(""); setNote("");
+    setQuantity(""); setUnitPrice(""); setNote("");
     onClose();
   }
 
@@ -166,10 +212,16 @@ function MovementDialog({
     const qty = parseInt(quantity, 10);
     if (!productId) { toast({ title: "Select a product", variant: "destructive" }); return; }
     if (isNaN(qty) || qty <= 0) { toast({ title: "Enter a valid quantity", variant: "destructive" }); return; }
+    const price = unitPrice ? parseFloat(unitPrice) : undefined;
+    if (price !== undefined && (isNaN(price) || price <= 0)) {
+      toast({ title: "Enter a valid price", variant: "destructive" });
+      return;
+    }
 
     startTransition(async () => {
       const res = await addStockMovement({
         shopId, productId, type: state.type, quantity: qty,
+        unitPrice: price,
         note: note.trim() || undefined,
       });
       if (res?.error) {
@@ -181,6 +233,7 @@ function MovementDialog({
           product_id: productId,
           type: state.type,
           quantity: qty,
+          unit_price: price ?? null,
           note: note.trim() || null,
           sale_id: null,
           created_at: new Date().toISOString(),
@@ -253,6 +306,21 @@ function MovementDialog({
             />
           </div>
 
+          {/* Unit Price */}
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">
+              {isIn ? "Purchase Price / Unit *" : "Unit Value"}
+              <span className="ml-1 opacity-50">(PKR)</span>
+            </label>
+            <input
+              type="number" min={0} step="0.01"
+              placeholder={isIn ? "e.g. 5000" : "Optional"}
+              value={unitPrice}
+              onChange={(e) => setUnitPrice(e.target.value)}
+              className="w-full h-9 px-3 rounded-md bg-background border border-input text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+
           {/* Note */}
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground">
@@ -300,6 +368,7 @@ export function StockClient() {
   const { shopId } = useShopContext();
   const [stockLevels, setStockLevels] = useState<StockLevel[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
+  const [batchMap, setBatchMap] = useState<Record<string, BatchRow[]>>({});
   const [loading, setLoading] = useState(true);
   const [dialog, setDialog] = useState<MovementDialogState>(emptyDialog);
   const [historyFilter, setHistoryFilter] = useState("all");
@@ -307,7 +376,7 @@ export function StockClient() {
   async function fetchData() {
     if (!shopId) return;
     const supabase = createClient();
-    const [levelsRes, movementsRes] = await Promise.all([
+    const [levelsRes, movementsRes, allMovementsRes] = await Promise.all([
       supabase.from("dms_stock_levels").select("*").eq("shop_id", shopId).order("product_name"),
       supabase
         .from("dms_stock_movements")
@@ -315,11 +384,28 @@ export function StockClient() {
         .eq("shop_id", shopId)
         .order("created_at", { ascending: false })
         .limit(60),
+      supabase
+        .from("dms_stock_movements")
+        .select("product_id, type, quantity, unit_price, created_at")
+        .eq("shop_id", shopId)
+        .order("created_at", { ascending: true }),
     ]);
     if (levelsRes.data) {
       setStockLevels([...(levelsRes.data as StockLevel[])].sort((a, b) => urgencyScore(a) - urgencyScore(b)));
     }
     if (movementsRes.data) setMovements(movementsRes.data as StockMovement[]);
+    if (allMovementsRes.data) {
+      const byProduct: Record<string, typeof allMovementsRes.data> = {};
+      for (const m of allMovementsRes.data) {
+        if (!byProduct[m.product_id]) byProduct[m.product_id] = [];
+        byProduct[m.product_id].push(m);
+      }
+      const map: Record<string, BatchRow[]> = {};
+      for (const [pid, mvs] of Object.entries(byProduct)) {
+        map[pid] = computeBatches(mvs);
+      }
+      setBatchMap(map);
+    }
     setLoading(false);
   }
 
@@ -416,30 +502,36 @@ export function StockClient() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-sidebar-border bg-muted/10">
-                  <th className="text-left text-xs font-medium text-muted-foreground px-4 py-2">Product</th>
-                  <th className="text-xs font-medium text-muted-foreground px-4 py-2 hidden sm:table-cell w-32">Level</th>
-                  <th className="text-center text-xs font-medium text-muted-foreground px-4 py-2 w-16">Stock</th>
-                  <th className="text-center text-xs font-medium text-muted-foreground px-4 py-2 hidden sm:table-cell w-20">Alert at</th>
-                  <th className="px-4 py-2 w-24" />
+                  <th className="text-left text-xs font-medium text-muted-foreground px-4 py-2.5">Product</th>
+                  <th className="text-left text-xs font-medium text-muted-foreground px-4 py-2.5 hidden md:table-cell">Unit Price</th>
+                  <th className="text-center text-xs font-medium text-muted-foreground px-4 py-2.5 w-20">Stock</th>
+                  <th className="text-center text-xs font-medium text-muted-foreground px-4 py-2.5 hidden sm:table-cell w-20">Alert</th>
+                  <th className="px-4 py-2.5 w-24" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-sidebar-border/50">
+              <tbody className="divide-y divide-sidebar-border/40">
                 {stockLevels.map((level) => {
-                  const status = stockStatus(level);
+                  const status     = stockStatus(level);
+                  const batches    = batchMap[level.product_id] ?? [];
                   const countColor =
-                    status === "low" ? "text-red-400" :
-                    status === "warn" ? "text-amber-400" :
-                    "text-emerald-400";
+                    status === "low"  ? "text-red-400" :
+                    status === "warn" ? "text-amber-400" : "text-emerald-400";
+
                   return (
                     <tr key={level.product_id} className={cn(
-                      "hover:bg-muted/10 transition-colors group",
-                      status === "low" && "bg-red-500/[0.04]"
+                      "hover:bg-muted/[0.06] transition-colors",
+                      status === "low" && "bg-red-500/[0.03]"
                     )}>
-                      {/* Product name */}
-                      <td className="px-4 py-2.5">
+
+                      {/* Product */}
+                      <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          {status === "low" && <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />}
-                          {status === "warn" && <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+                          {status !== "ok" && (
+                            <AlertTriangle className={cn(
+                              "w-3.5 h-3.5 shrink-0",
+                              status === "low" ? "text-red-400" : "text-amber-400"
+                            )} />
+                          )}
                           <div>
                             <p className="font-medium leading-none">{level.product_name}</p>
                             <p className="text-xs text-muted-foreground mt-0.5">{level.unit}</p>
@@ -447,32 +539,70 @@ export function StockClient() {
                         </div>
                       </td>
 
-                      {/* Visual bar */}
-                      <td className="px-4 py-2.5 hidden sm:table-cell">
-                        <StockBar level={level} />
+                      {/* Unit Price — all batches stacked */}
+                      <td className="px-4 py-3 hidden md:table-cell">
+                        {batches.length > 0 ? (
+                          <div className="space-y-1.5">
+                            {batches.map((batch, bi) => {
+                              const isLatest    = bi === batches.length - 1;
+                              const hasPrice    = batch.unitPrice != null;
+                              return (
+                                <div key={bi} className="flex items-center gap-2">
+                                  <div className={cn(
+                                    "flex items-center gap-2 px-2 py-1 rounded-md text-xs",
+                                    isLatest && hasPrice
+                                      ? "bg-amber-500/10 border border-amber-500/20"
+                                      : "bg-muted/40"
+                                  )}>
+                                    <span className={cn(
+                                      "font-semibold tabular-nums",
+                                      isLatest && hasPrice ? "text-foreground" : "text-muted-foreground"
+                                    )}>
+                                      PKR {Number(hasPrice ? batch.unitPrice : level.cost_price).toLocaleString("en-PK")}
+                                      {!hasPrice && (
+                                        <span className="font-normal text-muted-foreground/50 ml-1">*</span>
+                                      )}
+                                    </span>
+                                    <span className="text-muted-foreground/40">·</span>
+                                    <span className={cn(
+                                      "font-bold tabular-nums",
+                                      isLatest && hasPrice ? "text-amber-400" : "text-muted-foreground"
+                                    )}>
+                                      {batch.remaining} {level.unit}
+                                    </span>
+                                  </div>
+                                  {isLatest && hasPrice && batches.length > 1 && (
+                                    <span className="text-[10px] text-amber-500/70 font-semibold uppercase tracking-wide">new</span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground/40">—</span>
+                        )}
                       </td>
 
                       {/* Stock count */}
-                      <td className="px-4 py-2.5 text-center">
-                        <span className={cn("text-base font-bold tabular-nums", countColor)}>
+                      <td className="px-4 py-3 text-center">
+                        <span className={cn("text-lg font-bold tabular-nums leading-none", countColor)}>
                           {level.current_stock}
                         </span>
                       </td>
 
-                      {/* Alert threshold (click to edit) */}
-                      <td className="px-4 py-2.5 text-center hidden sm:table-cell">
+                      {/* Alert threshold */}
+                      <td className="px-4 py-3 text-center hidden sm:table-cell">
                         <ThresholdEditor level={level} shopId={shopId} onUpdated={handleThresholdUpdated} />
                       </td>
 
-                      {/* In / Out buttons */}
-                      <td className="px-4 py-2.5">
+                      {/* Actions */}
+                      <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-1">
                           <button
                             onClick={() => openDialog("in", level.product_id)}
                             className="inline-flex items-center gap-1 h-7 px-2 rounded-md text-xs font-semibold
                               bg-emerald-500/10 text-emerald-400 border border-emerald-500/20
                               hover:bg-emerald-500/20 transition-colors"
-                            title="Add stock in"
                           >
                             <ArrowDown className="w-3 h-3" />
                             <span className="hidden sm:inline">In</span>
@@ -482,7 +612,6 @@ export function StockClient() {
                             className="inline-flex items-center gap-1 h-7 px-2 rounded-md text-xs font-semibold
                               bg-red-500/10 text-red-400 border border-red-500/20
                               hover:bg-red-500/20 transition-colors"
-                            title="Record stock out"
                           >
                             <ArrowUp className="w-3 h-3" />
                             <span className="hidden sm:inline">Out</span>
@@ -494,16 +623,6 @@ export function StockClient() {
                 })}
               </tbody>
             </table>
-          </div>
-        )}
-
-        {/* Legend */}
-        {stockLevels.length > 0 && (
-          <div className="px-4 py-2 border-t border-sidebar-border/50 flex items-center gap-4 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500" />Good</span>
-            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-500" />Low</span>
-            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500" />Critical</span>
-            <span className="ml-auto opacity-60">Click "Alert at" value to change threshold</span>
           </div>
         )}
       </div>
@@ -544,13 +663,14 @@ export function StockClient() {
                   <th className="text-left text-xs font-medium text-muted-foreground px-4 py-2">Product</th>
                   <th className="text-center text-xs font-medium text-muted-foreground px-4 py-2 w-16">Type</th>
                   <th className="text-center text-xs font-medium text-muted-foreground px-4 py-2 w-16">Qty</th>
+                  <th className="text-right text-xs font-medium text-muted-foreground px-4 py-2 hidden md:table-cell w-28">Unit Price</th>
                   <th className="text-left text-xs font-medium text-muted-foreground px-4 py-2 hidden md:table-cell">Note / Source</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-sidebar-border/50">
                 {filteredMovements.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
                       No movements for this product
                     </td>
                   </tr>
@@ -584,9 +704,25 @@ export function StockClient() {
                           </span>
                           <span className="text-xs text-muted-foreground ml-0.5">{m.product?.unit}</span>
                         </td>
+                        <td className="px-4 py-2.5 text-right hidden md:table-cell">
+                          {m.unit_price != null ? (
+                            <span className={cn("text-xs tabular-nums font-medium", isIn ? "text-emerald-400" : "text-red-400/80")}>
+                              PKR {Number(m.unit_price).toLocaleString("en-PK")}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground opacity-30">—</span>
+                          )}
+                        </td>
                         <td className="px-4 py-2.5 hidden md:table-cell">
                           <span className="text-xs text-muted-foreground">
-                            {m.note ? m.note : <span className="opacity-40">{source}</span>}
+                            {m.note && m.note !== "Auto: sale"
+                              ? m.note
+                              : m.sale_id
+                                ? m.unit_price != null
+                                  ? <span>Sale <span className="text-muted-foreground/60">@ PKR {Number(m.unit_price).toLocaleString("en-PK")}/unit</span></span>
+                                  : <span className="opacity-40">Sale</span>
+                                : <span className="opacity-40">Manual</span>
+                            }
                           </span>
                         </td>
                       </tr>
