@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, Zap, GitBranch } from "lucide-react";
+import { ArrowRight, Check, Zap, GitBranch, CheckCircle2 } from "lucide-react";
+import { submitDemoRequest } from "@/app/actions/demo-request";
 
 // ── Pricing data ──────────────────────────────────────────────────────────────
 
@@ -176,9 +177,7 @@ function PlanCard({
       {/* CTA */}
       <div className="mt-auto">
         <a
-          href={`https://wa.me/?text=${encodeURIComponent(`Hi! I'm interested in Pulse DMS — ${plan.name} plan.`)}`}
-          target="_blank"
-          rel="noopener noreferrer"
+          href="#demo"
           className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${
             plan.highlight
               ? "bg-primary text-primary-foreground hover:bg-primary/90 shadow-md shadow-primary/20"
@@ -190,6 +189,167 @@ function PlanCard({
         </a>
       </div>
     </div>
+  );
+}
+
+// ── Demo Request Form ─────────────────────────────────────────────────────────
+
+const INPUT_CLS =
+  "w-full h-11 rounded-lg border border-sidebar-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground/50 outline-none transition focus:ring-2 focus:ring-primary/30 focus:border-primary";
+
+function DemoForm() {
+  const [isPending, startTransition] = useTransition();
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    contact_name: "",
+    shop_name: "",
+    city: "",
+    phone: "",
+    whatsapp: "",
+    plan_interest: "",
+    num_branches: "",
+    message: "",
+  });
+
+  function set(field: keyof typeof form) {
+    return (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+      setForm((f) => ({ ...f, [field]: e.target.value }));
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    startTransition(async () => {
+      const result = await submitDemoRequest({
+        ...form,
+        num_branches: form.num_branches ? parseInt(form.num_branches, 10) : undefined,
+      });
+      if (result.error) setError(result.error);
+      else setSuccess(true);
+    });
+  }
+
+  if (success) {
+    return (
+      <div className="rounded-2xl border border-sidebar-border bg-card p-8 sm:p-10 text-center space-y-6">
+        <div className="flex justify-center">
+          <div className="w-16 h-16 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center">
+            <CheckCircle2 className="w-8 h-8 text-primary" />
+          </div>
+        </div>
+        <div>
+          <h3 className="text-xl font-bold text-foreground mb-1">Request received!</h3>
+          <p className="text-sm text-muted-foreground">
+            We&apos;ll reach out within a few hours to get your shop set up.
+          </p>
+        </div>
+        <div className="rounded-xl border border-sidebar-border bg-background p-5 text-left space-y-4">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">What happens next</p>
+          {[
+            "We review your details and prepare your account.",
+            "Our team calls or WhatsApps you to confirm.",
+            "Your shop goes live — we walk you through setup together.",
+          ].map((text, i) => (
+            <div key={i} className="flex items-start gap-3">
+              <span className="shrink-0 font-mono text-xs font-bold text-primary/60 mt-0.5">
+                {String(i + 1).padStart(2, "0")}
+              </span>
+              <p className="text-sm text-foreground leading-relaxed">{text}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="rounded-2xl border border-sidebar-border bg-card p-6 sm:p-8 space-y-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="space-y-1.5">
+          <label className="text-sm font-semibold text-foreground">
+            Your Name <span className="text-red-500">*</span>
+          </label>
+          <input required type="text" placeholder="e.g. Ali Raza" value={form.contact_name} onChange={set("contact_name")} className={INPUT_CLS} />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-sm font-semibold text-foreground">
+            Shop Name <span className="text-red-500">*</span>
+          </label>
+          <input required type="text" placeholder="e.g. Raza Electronics" value={form.shop_name} onChange={set("shop_name")} className={INPUT_CLS} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="space-y-1.5">
+          <label className="text-sm font-semibold text-foreground">City</label>
+          <input type="text" placeholder="e.g. Lahore, Karachi" value={form.city} onChange={set("city")} className={INPUT_CLS} />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-sm font-semibold text-foreground">No. of Branches</label>
+          <input
+            type="number"
+            min={1}
+            max={99}
+            placeholder="e.g. 2"
+            value={form.num_branches}
+            onChange={set("num_branches")}
+            className={INPUT_CLS}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-sm font-semibold text-foreground">Plan Interest</label>
+          <select value={form.plan_interest} onChange={set("plan_interest")} className={INPUT_CLS}>
+            <option value="">Select a plan</option>
+            <option value="single">Single Branch</option>
+            <option value="double">Double Branch</option>
+            <option value="triple">Triple Branch</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="space-y-1.5">
+          <label className="text-sm font-semibold text-foreground">
+            Phone <span className="text-red-500">*</span>
+          </label>
+          <input required type="tel" placeholder="e.g. 0300-1234567" value={form.phone} onChange={set("phone")} className={INPUT_CLS} />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-sm font-semibold text-foreground">WhatsApp</label>
+          <input type="tel" placeholder="Leave blank if same as above" value={form.whatsapp} onChange={set("whatsapp")} className={INPUT_CLS} />
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-sm font-semibold text-foreground">Message</label>
+        <textarea
+          rows={3}
+          placeholder="Anything you'd like us to know?"
+          value={form.message}
+          onChange={set("message")}
+          className="w-full rounded-lg border border-sidebar-border bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 outline-none transition focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
+        />
+      </div>
+
+      {error && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+
+      <button
+        type="submit"
+        disabled={isPending}
+        className="w-full h-12 rounded-xl bg-primary text-primary-foreground font-bold text-sm hover:bg-primary/90 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+      >
+        {isPending ? "Sending…" : "Send Request →"}
+      </button>
+
+      <p className="text-center text-xs text-muted-foreground/60">
+        We typically respond within a few hours during business days.
+      </p>
+    </form>
   );
 }
 
@@ -226,39 +386,16 @@ export default function PricingPage() {
             Pulse of your business
           </span>
         </Link>
-        <div className="flex items-center gap-4">
-          {/* Billing toggle inline in nav area */}
-          <div className="inline-flex items-center gap-0.5 p-0.5 rounded-lg border border-sidebar-border bg-card">
-            {BILLING_OPTIONS.map(({ key, label, badge }) => (
-              <button
-                key={key}
-                onClick={() => setBilling(key)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                  billing === key
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {label}
-                {badge && billing !== key && (
-                  <span className="text-[9px] px-1 py-0.5 rounded font-bold bg-primary/10 text-primary hidden sm:inline">
-                    {key === "annual" ? "Best" : "More"}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-          <Link
-            href="/login"
-            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            Sign in
-          </Link>
-        </div>
+        <Link
+          href="/login"
+          className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Sign in
+        </Link>
       </nav>
 
       {/* Compact heading */}
-      <div className="relative z-10 px-6 pt-8 pb-5 max-w-6xl mx-auto flex items-end justify-between gap-4">
+      <div className="relative z-10 px-6 pt-8 pb-5 max-w-6xl mx-auto flex items-end justify-between gap-4 flex-wrap">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-primary mb-1">Pricing</p>
           <h1 className="text-2xl font-bold text-foreground tracking-tight">
@@ -267,6 +404,21 @@ export default function PricingPage() {
           <p className="text-sm text-muted-foreground mt-1">
             Every feature included in every plan — no card required.
           </p>
+        </div>
+        <div className="inline-flex items-center gap-1 p-1 rounded-xl border border-sidebar-border bg-card">
+          {BILLING_OPTIONS.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setBilling(key)}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                billing === key
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -349,6 +501,23 @@ export default function PricingPage() {
 
           <div className="h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
         </div>
+      </section>
+
+      {/* Demo request */}
+      <section id="demo" className="relative z-10 px-6 py-12 max-w-3xl mx-auto">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-primary/20 bg-primary/5 mb-4">
+            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+            <span className="text-xs font-semibold text-primary uppercase tracking-widest">Free Demo</span>
+          </div>
+          <h2 className="text-2xl font-bold tracking-tight text-foreground mb-2">
+            Request a free demo
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Fill in your details — we&apos;ll set up your shop in under 24 hours.
+          </p>
+        </div>
+        <DemoForm />
       </section>
 
       {/* CTA */}
