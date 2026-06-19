@@ -5,9 +5,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 // Allowlist — only these values accepted from the public internet
 const VALID_PLANS = new Set(["single", "double", "triple"]);
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 // Truncate to max chars after trimming so the DB never sees oversized data
 function cap(value: string | undefined | null, max: number): string {
   return (value ?? "").trim().slice(0, max);
@@ -66,7 +63,3 @@ export async function submitDemoRequest(data: {
   return {};
 }
 
-// ── Utility exported for other server actions that receive UUIDs from clients ─
-export function isUUID(value: string): boolean {
-  return UUID_RE.test(value);
-}

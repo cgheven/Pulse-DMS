@@ -3,7 +3,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { unstable_cache, revalidateTag } from "next/cache";
-import { isUUID } from "@/app/actions/demo-request";
+import { isUUID } from "@/lib/utils";
 
 const INQUIRIES_CACHE_TAG = "admin-dms-inquiries";
 const LEADS_CACHE_TAG = "admin-dms-leads";

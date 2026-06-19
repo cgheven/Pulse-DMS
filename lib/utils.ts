@@ -120,3 +120,10 @@ export function getMemberStatusColor(status: string): string {
 export function capitalize(str: string) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isUUID(value: string): boolean {
+  return UUID_RE.test(value);
+}
