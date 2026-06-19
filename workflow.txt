@@ -1,0 +1,253 @@
+================================================================
+  PULSE DMS — DEMO WORKFLOW GUIDE
+  Al-Hasan Molty Form | Dealer Management System
+================================================================
+
+This guide walks through every section of the system with
+real examples based on a Molty Form dealership.
+
+----------------------------------------------------------------
+STEP 1 — PRODUCTS  (Catalogue > Products)
+----------------------------------------------------------------
+PURPOSE: Register every product you stock and sell.
+
+How to add a product:
+  - Name       : Enter product name
+  - SKU/Code   : Optional short code for quick reference
+  - Unit Price  : Your selling price (PKR)
+  - Cost Price  : What you buy it from supplier for (PKR)
+
+EXAMPLES TO ADD:
+  ┌─────────────────────────────────┬──────┬───────────┬────────────┐
+  │ Product Name                    │ SKU  │ Sale Price│ Cost Price │
+  ├─────────────────────────────────┼──────┼───────────┼────────────┤
+  │ Molty Foam Spring Mattress 6x6  │ MF01 │ 45,000    │ 32,000     │
+  │ Molty Foam Spring Mattress 5x6  │ MF02 │ 38,000    │ 27,000     │
+  │ Molty Foam Spring Mattress 4x6  │ MF03 │ 30,000    │ 21,000     │
+  │ Molty Ortho Mattress 6x6        │ MF04 │ 55,000    │ 40,000     │
+  │ Molty Foam Single Mattress      │ MF05 │ 18,000    │ 12,500     │
+  │ Molty Pillow Standard           │ MF10 │ 2,500     │ 1,600      │
+  │ Molty Pillow King Size          │ MF11 │ 3,500     │ 2,200      │
+  │ Sofa Foam Sheet (Per Foot)      │ MF20 │ 800       │ 500        │
+  └─────────────────────────────────┴──────┴───────────┴────────────┘
+
+  WHY THIS MATTERS: The system automatically calculates your
+  profit on every sale using the cost price you enter here.
+
+----------------------------------------------------------------
+STEP 2 — STOCK  (Operations > Stock)
+----------------------------------------------------------------
+PURPOSE: Track how many units you have. Know when to reorder.
+
+--- Adding Stock (when new stock arrives from Molty) ---
+  Click "Stock In", fill in:
+  - Product    : Molty Foam Spring Mattress 6x6
+  - Quantity   : 10
+  - Note       : Received from Master Molty — Invoice #4421
+
+  Repeat for each product received in the delivery.
+
+--- Setting Low Stock Alerts ---
+  Click the edit (pencil) icon on any product row:
+  - Low Stock Threshold : 3
+  This means the system will highlight the product in red
+  when you have 3 or fewer units remaining.
+
+EXAMPLE OPENING STOCK TO ENTER:
+  Product                         | Qty  | Low Alert
+  --------------------------------|------|----------
+  Spring Mattress 6x6             |  12  |   3
+  Spring Mattress 5x6             |   8  |   3
+  Spring Mattress 4x6             |  10  |   3
+  Ortho Mattress 6x6              |   5  |   2
+  Single Mattress                 |  15  |   5
+  Standard Pillow                 |  30  |  10
+  King Pillow                     |  20  |   5
+  Sofa Foam Sheet                 |  50  |  15
+
+--- Stock Out (manual adjustment) ---
+  Use "Stock Out" only if a product is damaged/returned
+  and needs to be removed from stock without a sale.
+
+----------------------------------------------------------------
+STEP 3 — SALES  (Operations > Sales)
+----------------------------------------------------------------
+PURPOSE: Record every sale made. System auto-deducts stock.
+
+How to record a sale:
+  - Date       : Today's date (auto-filled)
+  - Product    : Select from dropdown
+  - Qty        : How many units sold
+  - Price      : Selling price (auto-filled from product, editable)
+  - Customer   : Optional — customer name for reference
+
+EXAMPLE SALES TO RECORD:
+
+  Sale 1 — Walk-in customer
+    Product  : Molty Foam Spring Mattress 6x6
+    Qty      : 1
+    Price    : 45,000
+    Customer : Ahmed Khan
+    → Profit on this sale: 45,000 - 32,000 = PKR 13,000
+
+  Sale 2 — Pillow bundle
+    Product  : Molty Pillow Standard
+    Qty      : 4
+    Price    : 2,500
+    Customer : Furniture House Lahore
+    → Profit: 4 x (2,500 - 1,600) = PKR 3,600
+
+  Sale 3 — Discounted sale
+    Product  : Spring Mattress 4x6
+    Qty      : 2
+    Price    : 28,000   ← manually reduced from 30,000
+    Customer : Regular customer — 2,000 discount given
+    → Profit: 2 x (28,000 - 21,000) = PKR 14,000
+
+  TIP: You can change the price per sale for discounts.
+  The system uses your entered price (not catalogue price)
+  for revenue, but always uses catalogue cost for profit.
+
+----------------------------------------------------------------
+STEP 4 — EXPENSES  (Operations > Expenses)
+----------------------------------------------------------------
+PURPOSE: Track all money going OUT of the business.
+
+Categories available:
+  UTILITY BILLS          OTHER
+  ├── Electricity        ├── Rent
+  ├── Internet           ├── Salary
+  ├── Water              └── Miscellaneous
+  ├── Gas
+  └── Phone
+
+EXAMPLE EXPENSES FOR JUNE:
+
+  1. RENT
+     Category  : Rent
+     Amount    : PKR 35,000
+     Period    : June 2026
+     Date      : June 1, 2026
+
+  2. ELECTRICITY BILL
+     Category  : Electricity
+     Amount    : PKR 8,500
+     Date      : June 5, 2026
+
+  3. INTERNET
+     Category  : Internet
+     Amount    : PKR 3,500
+     Date      : June 5, 2026
+
+  4. STAFF SALARY — Salesman
+     Category  : Salary
+     Employee  : Ali Raza (Salesman)    ← required field
+     Amount    : PKR 25,000
+     Date      : June 30, 2026
+
+  5. STAFF SALARY — Helper
+     Category  : Salary
+     Employee  : Usman (Helper)         ← required field
+     Amount    : PKR 18,000
+     Date      : June 30, 2026
+
+  6. WATER SUPPLY
+     Category  : Water
+     Amount    : PKR 1,200
+     Date      : June 10, 2026
+
+  7. MISCELLANEOUS
+     Category  : Miscellaneous
+     Description: Packaging tape & stickers  ← required field
+     Amount    : PKR 800
+     Date      : June 12, 2026
+
+  TIP: Each salary entry must have an employee name so you
+  can track exactly who was paid what at end of month.
+
+----------------------------------------------------------------
+STEP 5 — SUPPLIER LEDGER  (Suppliers > Supplier Ledger)
+----------------------------------------------------------------
+PURPOSE: Track how much you owe each supplier and your
+payment history. Keep the relationship transparent.
+
+First, make sure your supplier is added under Settings.
+
+EXAMPLE — Molty Supplier Account:
+  Supplier: Master Molty Foam
+
+  Add Entry 1 — Purchase (money owed)
+    Type      : Credit (You Owe)
+    Amount    : PKR 320,000
+    Note      : Invoice #4421 — 10x Spring 6x6
+    Date      : June 3, 2026
+
+  Add Entry 2 — Payment made
+    Type      : Debit (You Paid)
+    Amount    : PKR 200,000
+    Note      : Partial payment — bank transfer
+    Date      : June 15, 2026
+
+  Add Entry 3 — New stock received
+    Type      : Credit (You Owe)
+    Amount    : PKR 162,500
+    Note      : Invoice #4455 — 5x Ortho 6x6, 15x Pillows
+    Date      : June 20, 2026
+
+  → BALANCE: 320,000 - 200,000 + 162,500 = PKR 282,500 still owed
+
+  This balance shows up on the P&L report so you always
+  know your outstanding liabilities.
+
+----------------------------------------------------------------
+STEP 6 — P&L REPORT  (Reports > P&L Report)
+----------------------------------------------------------------
+PURPOSE: See if the business is profitable. One-click summary.
+
+Select date range → Click Generate
+
+WHAT YOU SEE:
+
+  [NET PROFIT]  ← Big number at top, green if profit, red if loss
+  PKR 47,200
+
+  Revenue          PKR 135,000
+  Product Cost     PKR  87,800
+  Expenses         PKR  91,000   ← Wait, this doesn't add up?
+                                    See BREAKDOWN below.
+
+  WHERE THE MONEY WENT:
+  ├── Product Cost               PKR  87,800
+  │   ├── Master Molty Foam      PKR  87,800
+  ├── Staff Salaries             PKR  43,000
+  │   ├── Ali Raza               PKR  25,000
+  │   └── Usman                  PKR  18,000
+  ├── Rent                       PKR  35,000
+  ├── Utility Bills              PKR  13,200
+  └── Miscellaneous              PKR     800
+
+  SUPPLIER PAYABLES (what you still owe)
+  Master Molty Foam              PKR 282,500
+
+  NOTE: Supplier payables are NOT subtracted from profit —
+  they show what you still owe but haven't paid yet.
+
+----------------------------------------------------------------
+QUICK DEMO SEQUENCE (for a 10-minute demo)
+----------------------------------------------------------------
+Follow this order to show the full flow live:
+
+  1. Go to Products → Add 2-3 products with cost & sale price
+  2. Go to Stock → Stock In for those products (qty 10 each)
+  3. Go to Sales → Record 2 sales, show stock auto-drops
+  4. Go to Expenses → Add rent + one salary with employee name
+  5. Go to Supplier Ledger → Add a purchase + a payment
+  6. Go to P&L Report → Select current month → Generate
+     Show the net profit, breakdown, and supplier balance
+
+This demonstrates the complete business cycle in one flow.
+
+================================================================
+  END OF GUIDE
+  For questions: musab@cgheven.com
+================================================================
