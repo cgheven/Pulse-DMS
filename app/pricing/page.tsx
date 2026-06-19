@@ -2,8 +2,21 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, Zap, GitBranch, CheckCircle2 } from "lucide-react";
+import { ArrowRight, Check, Zap, GitBranch, CheckCircle2, X } from "lucide-react";
 import { submitDemoRequest } from "@/app/actions/demo-request";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 // ── Pricing data ──────────────────────────────────────────────────────────────
 
@@ -87,9 +100,11 @@ function fmt(n: number) {
 function PlanCard({
   plan,
   period,
+  onGetStarted,
 }: {
   plan: (typeof PLANS)[number];
   period: BillingPeriod;
+  onGetStarted: () => void;
 }) {
   const price = getPrice(plan, period);
   const savings = getSavings(plan, period);
@@ -176,8 +191,8 @@ function PlanCard({
 
       {/* CTA */}
       <div className="mt-auto">
-        <a
-          href="#demo"
+        <button
+          onClick={onGetStarted}
           className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${
             plan.highlight
               ? "bg-primary text-primary-foreground hover:bg-primary/90 shadow-md shadow-primary/20"
@@ -186,7 +201,7 @@ function PlanCard({
         >
           Get Started
           <ArrowRight className="w-3.5 h-3.5" />
-        </a>
+        </button>
       </div>
     </div>
   );
@@ -197,7 +212,7 @@ function PlanCard({
 const INPUT_CLS =
   "w-full h-11 rounded-lg border border-sidebar-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground/50 outline-none transition focus:ring-2 focus:ring-primary/30 focus:border-primary";
 
-function DemoForm() {
+function DemoForm({ initialPlan = "" }: { initialPlan?: string }) {
   const [isPending, startTransition] = useTransition();
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -207,7 +222,7 @@ function DemoForm() {
     city: "",
     phone: "",
     whatsapp: "",
-    plan_interest: "",
+    plan_interest: initialPlan,
     num_branches: "",
     message: "",
   });
@@ -280,7 +295,7 @@ function DemoForm() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-1.5">
           <label className="text-sm font-semibold text-foreground">City</label>
           <input type="text" placeholder="e.g. Lahore, Karachi" value={form.city} onChange={set("city")} className={INPUT_CLS} />
@@ -297,15 +312,23 @@ function DemoForm() {
             className={INPUT_CLS}
           />
         </div>
-        <div className="space-y-1.5">
-          <label className="text-sm font-semibold text-foreground">Plan Interest</label>
-          <select value={form.plan_interest} onChange={set("plan_interest")} className={INPUT_CLS}>
-            <option value="">Select a plan</option>
-            <option value="single">Single Branch</option>
-            <option value="double">Double Branch</option>
-            <option value="triple">Triple Branch</option>
-          </select>
-        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-sm font-semibold text-foreground">Plan Interest</label>
+        <Select
+          value={form.plan_interest}
+          onValueChange={(v) => setForm((f) => ({ ...f, plan_interest: v }))}
+        >
+          <SelectTrigger className="w-full h-11">
+            <SelectValue placeholder="Select a plan" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="single">Single Branch — PKR 4,500 / mo</SelectItem>
+            <SelectItem value="double">Double Branch — PKR 7,500 / mo</SelectItem>
+            <SelectItem value="triple">Triple Branch — PKR 9,500 / mo</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -363,6 +386,7 @@ const BILLING_OPTIONS: { key: BillingPeriod; label: string; badge?: string }[] =
 
 export default function PricingPage() {
   const [billing, setBilling] = useState<BillingPeriod>("monthly");
+  const [dialogPlan, setDialogPlan] = useState<string | null>(null);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -426,7 +450,12 @@ export default function PricingPage() {
       <section className="relative z-10 px-6 pb-8 max-w-6xl mx-auto">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-stretch">
           {PLANS.map((plan) => (
-            <PlanCard key={plan.key} plan={plan} period={billing} />
+            <PlanCard
+              key={plan.key}
+              plan={plan}
+              period={billing}
+              onGetStarted={() => setDialogPlan(plan.key)}
+            />
           ))}
         </div>
       </section>
@@ -503,22 +532,20 @@ export default function PricingPage() {
         </div>
       </section>
 
-      {/* Demo request */}
-      <section id="demo" className="relative z-10 px-6 py-12 max-w-3xl mx-auto">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-primary/20 bg-primary/5 mb-4">
-            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-            <span className="text-xs font-semibold text-primary uppercase tracking-widest">Free Demo</span>
-          </div>
-          <h2 className="text-2xl font-bold tracking-tight text-foreground mb-2">
-            Request a free demo
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            Fill in your details — we&apos;ll set up your shop in under 24 hours.
-          </p>
-        </div>
-        <DemoForm />
-      </section>
+      {/* Get Started dialog */}
+      <Dialog open={dialogPlan !== null} onOpenChange={(v) => !v && setDialogPlan(null)}>
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Get Started</DialogTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              Fill in your details — we&apos;ll set up your shop in under 24 hours.
+            </p>
+          </DialogHeader>
+          {dialogPlan !== null && (
+            <DemoForm key={dialogPlan} initialPlan={dialogPlan} />
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* CTA */}
       <section className="relative z-10 px-6 py-8 max-w-6xl mx-auto">

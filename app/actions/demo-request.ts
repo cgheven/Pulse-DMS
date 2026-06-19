@@ -2,6 +2,17 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 
+// Allowlist — only these values accepted from the public internet
+const VALID_PLANS = new Set(["single", "double", "triple"]);
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Truncate to max chars after trimming so the DB never sees oversized data
+function cap(value: string | undefined | null, max: number): string {
+  return (value ?? "").trim().slice(0, max);
+}
+
 export async function submitDemoRequest(data: {
   contact_name: string;
   shop_name: string;
@@ -12,22 +23,50 @@ export async function submitDemoRequest(data: {
   num_branches?: number;
   message?: string;
 }): Promise<{ error?: string }> {
-  if (!data.contact_name?.trim()) return { error: "Name is required" };
-  if (!data.shop_name?.trim()) return { error: "Shop name is required" };
-  if (!data.phone?.trim()) return { error: "Phone number is required" };
+  // ── Required field presence ────────────────────────────────────────────────
+  const contact_name = cap(data.contact_name, 100);
+  const shop_name = cap(data.shop_name, 150);
+  const phone = cap(data.phone, 20);
+
+  if (!contact_name) return { error: "Name is required" };
+  if (!shop_name) return { error: "Shop name is required" };
+  if (!phone) return { error: "Phone number is required" };
+
+  // ── Allowlist: plan_interest must be one of the known values or absent ─────
+  const plan_interest =
+    data.plan_interest && VALID_PLANS.has(data.plan_interest)
+      ? data.plan_interest
+      : null;
+
+  // ── Clamp num_branches to a sane range ────────────────────────────────────
+  let num_branches: number | null = null;
+  if (data.num_branches !== undefined && data.num_branches !== null) {
+    const n = Math.floor(Number(data.num_branches));
+    if (Number.isFinite(n) && n >= 1 && n <= 99) num_branches = n;
+  }
+
+  // ── Cap all free-text fields ───────────────────────────────────────────────
+  const city = cap(data.city, 100) || null;
+  const whatsapp = cap(data.whatsapp, 20) || null;
+  const message = cap(data.message, 1000) || null;
 
   const admin = createAdminClient();
   const { error } = await admin.from("dms_inquiries").insert({
-    contact_name: data.contact_name.trim(),
-    shop_name: data.shop_name.trim(),
-    city: data.city?.trim() || null,
-    phone: data.phone.trim(),
-    whatsapp: data.whatsapp?.trim() || null,
-    plan_interest: data.plan_interest || null,
-    num_branches: data.num_branches ?? null,
-    message: data.message?.trim() || null,
+    contact_name,
+    shop_name,
+    city,
+    phone,
+    whatsapp,
+    plan_interest,
+    num_branches,
+    message,
   });
 
   if (error) return { error: "Something went wrong. Please try again." };
   return {};
+}
+
+// ── Utility exported for other server actions that receive UUIDs from clients ─
+export function isUUID(value: string): boolean {
+  return UUID_RE.test(value);
 }
