@@ -535,6 +535,51 @@ export function StockClient() {
                           <div>
                             <p className="font-medium leading-none">{level.product_name}</p>
                             <p className="text-xs text-muted-foreground mt-0.5">{level.unit}</p>
+                            {/* Prices — mobile only */}
+                            <div className="mt-1.5 flex flex-wrap gap-1 md:hidden">
+                              {batches.length > 0 ? batches.map((batch, bi) => {
+                                const isLatest = bi === batches.length - 1;
+                                const hasPrice = batch.unitPrice != null;
+                                return (
+                                  <span key={bi} className={cn(
+                                    "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs",
+                                    isLatest && hasPrice
+                                      ? "bg-amber-500/10 border border-amber-500/20 text-foreground"
+                                      : "bg-muted/40 text-muted-foreground"
+                                  )}>
+                                    <span className="font-semibold tabular-nums">
+                                      PKR {Number(hasPrice ? batch.unitPrice : level.cost_price).toLocaleString("en-PK")}
+                                    </span>
+                                    <span className="opacity-40">·</span>
+                                    <span className={cn("font-bold tabular-nums", isLatest && hasPrice ? "text-amber-400" : "")}>
+                                      {batch.remaining}
+                                    </span>
+                                    {isLatest && hasPrice && batches.length > 1 && (
+                                      <span className="text-[10px] text-amber-500/70 font-semibold uppercase">new</span>
+                                    )}
+                                  </span>
+                                );
+                              }) : (
+                                <>
+                                  {level.cost_price > 0 && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-muted/40 text-muted-foreground">
+                                      <span className="opacity-50">Cost</span>
+                                      <span className="font-semibold tabular-nums text-foreground">
+                                        PKR {Number(level.cost_price).toLocaleString("en-PK")}
+                                      </span>
+                                    </span>
+                                  )}
+                                  {level.sale_price > 0 && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-muted/40 text-muted-foreground">
+                                      <span className="opacity-50">Sale</span>
+                                      <span className="font-semibold tabular-nums text-foreground">
+                                        PKR {Number(level.sale_price).toLocaleString("en-PK")}
+                                      </span>
+                                    </span>
+                                  )}
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </td>
