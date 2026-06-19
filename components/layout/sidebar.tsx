@@ -60,7 +60,7 @@ const NavLink = memo(function NavLink({
       href={href}
       onClick={onClose}
       className={cn(
-        "relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 group",
+        "relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 group",
         active
           ? "bg-primary/10 text-primary"
           : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
@@ -99,23 +99,25 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-60 flex-col border-r border-sidebar-border bg-sidebar transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 lg:z-auto",
+          "fixed inset-y-0 left-0 z-50 flex w-[260px] flex-col border-r border-sidebar-border bg-sidebar transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 lg:z-auto",
           open ? "translate-x-0" : "-translate-x-full"
         )}
       >
         {/* Logo */}
-        <div className="flex items-center justify-between px-4 h-14 border-b border-sidebar-border">
+        <div className="flex items-center justify-between px-4 h-16 border-b border-sidebar-border">
           <Link
             href="/dashboard"
             className="flex items-center gap-2.5 group"
             onClick={onClose}
           >
-            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/15 border border-primary/25 transition-all group-hover:bg-primary/20">
-              <Zap className="w-4 h-4 text-primary" />
+            <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary/15 border border-primary/25 transition-all group-hover:bg-primary/20">
+              <Zap className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <p className="text-foreground font-bold text-sm tracking-tight leading-none">Pulse DMS</p>
-              <p className="text-muted-foreground text-[10px] mt-0.5">Pulse of your business</p>
+              <p className="text-foreground font-bold text-base tracking-tight leading-none">Pulse DMS</p>
+              <p className="text-primary/60 text-[10px] mt-1 font-semibold tracking-[0.15em] uppercase">
+                Pulse of your business
+              </p>
             </div>
           </Link>
           <button
@@ -127,10 +129,10 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto py-3 px-2.5 space-y-3 scrollbar-hide">
+        <nav className="flex-1 overflow-y-auto py-4 px-2.5 space-y-4 scrollbar-hide">
           {navGroups.map((group) => (
             <div key={group.label}>
-              <p className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-widest px-3 mb-1 mt-1">
+              <p className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-widest px-3 mb-1.5">
                 {group.label}
               </p>
               <div className="space-y-0.5">
@@ -151,7 +153,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         <div className="px-4 py-3 border-t border-sidebar-border">
           <div className="flex items-center gap-2 px-1">
             <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-            <p className="text-xs text-muted-foreground">Pulse DMS</p>
+            <p className="text-xs text-muted-foreground">Pulse is online</p>
           </div>
         </div>
       </aside>

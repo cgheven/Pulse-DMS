@@ -6,8 +6,8 @@ import { Building2, Clock, AlertTriangle, Users } from "lucide-react";
 export const dynamic = "force-dynamic";
 
 // ── Cache tags (shared with action files) ──────────────────────────────────────
-export const CLIENTS_CACHE_TAG = "admin-dms-clients";
-export const LEADS_CACHE_TAG = "admin-dms-leads";
+const CLIENTS_CACHE_TAG = "admin-dms-clients";
+const LEADS_CACHE_TAG = "admin-dms-leads";
 
 // ── Cached stats fetch ────────────────────────────────────────────────────────
 

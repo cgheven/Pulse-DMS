@@ -31,17 +31,17 @@ function AdminSidebar({ open, onClose, email }: { open: boolean; onClose: () => 
         <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm lg:hidden" onClick={onClose} />
       )}
       <aside className={cn(
-        "fixed inset-y-0 left-0 z-50 flex w-60 flex-col border-r border-sidebar-border bg-sidebar transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 lg:z-auto",
+        "fixed inset-y-0 left-0 z-50 flex w-[260px] flex-col border-r border-sidebar-border bg-sidebar transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 lg:z-auto",
         open ? "translate-x-0" : "-translate-x-full"
       )}>
-        <div className="flex items-center justify-between px-4 py-4 border-b border-sidebar-border">
+        <div className="flex items-center justify-between px-4 h-16 border-b border-sidebar-border">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
-              <Zap className="w-4 h-4 text-primary" />
+            <div className="w-9 h-9 rounded-lg bg-primary/15 border border-primary/25 flex items-center justify-center">
+              <Zap className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <p className="text-sm font-bold text-foreground leading-none">Admin Panel</p>
-              <p className="text-[11px] text-muted-foreground mt-0.5 tracking-wide uppercase font-medium">Pulse DMS</p>
+              <p className="text-base font-bold text-foreground leading-none">Pulse</p>
+              <p className="text-primary/60 text-[10px] mt-1 font-semibold tracking-[0.15em] uppercase">Pulse of your business</p>
             </div>
           </div>
           <button onClick={onClose} className="lg:hidden p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors">
@@ -49,15 +49,15 @@ function AdminSidebar({ open, onClose, email }: { open: boolean; onClose: () => 
           </button>
         </div>
 
-        <nav className="flex-1 py-3 px-2.5 overflow-y-auto">
-          <p className="text-[10px] font-semibold text-muted-foreground/40 uppercase tracking-widest px-3 mb-1.5">Admin Panel</p>
+        <nav className="flex-1 py-4 px-2.5 overflow-y-auto">
+          <p className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-widest px-3 mb-1.5">Admin Panel</p>
           <div className="space-y-0.5">
             {adminNav.map(({ href, label, icon: Icon, exact }) => {
               const active = exact ? pathname === href : (pathname === href || pathname.startsWith(href + '/'));
               return (
                 <Link key={href} href={href} onClick={onClose}
                   className={cn(
-                    "relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all group",
+                    "relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all group",
                     active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
                   )}
                 >
