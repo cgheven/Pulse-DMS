@@ -4,14 +4,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Shield, Users, Building2, LayoutDashboard,
-  Menu, X, LogOut, ClipboardList, Zap,
+  Menu, X, LogOut, ClipboardList, Zap, Target,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
 const adminNav = [
-  { href: "/admin/users",  label: "User Management", icon: Users },
-  { href: "/admin/gyms",   label: "Shops",           icon: Building2 },
+  { href: "/admin",        label: "Dashboard",       icon: LayoutDashboard, exact: true },
+  { href: "/admin/users",  label: "Clients",         icon: Users },
+  { href: "/admin/leads",  label: "Leads",           icon: Target },
   { href: "/admin/audit",  label: "Audit Log",       icon: ClipboardList },
 ];
 
@@ -49,10 +50,10 @@ function AdminSidebar({ open, onClose, email }: { open: boolean; onClose: () => 
         </div>
 
         <nav className="flex-1 py-3 px-2.5 overflow-y-auto">
-          <p className="text-[10px] font-semibold text-muted-foreground/40 uppercase tracking-widest px-3 mb-1.5">Management</p>
+          <p className="text-[10px] font-semibold text-muted-foreground/40 uppercase tracking-widest px-3 mb-1.5">Admin Panel</p>
           <div className="space-y-0.5">
-            {adminNav.map(({ href, label, icon: Icon }) => {
-              const active = pathname === href || pathname.startsWith(href);
+            {adminNav.map(({ href, label, icon: Icon, exact }) => {
+              const active = exact ? pathname === href : (pathname === href || pathname.startsWith(href + '/'));
               return (
                 <Link key={href} href={href} onClick={onClose}
                   className={cn(

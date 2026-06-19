@@ -15,6 +15,7 @@ export type Profile = {
   email?: string;
   role: "owner" | "staff";
   shop_id: string | null;
+  is_admin: boolean;
   created_at: string;
 };
 

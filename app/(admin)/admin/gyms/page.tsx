@@ -10,7 +10,7 @@ export default async function AdminShopsPage() {
     .order("created_at", { ascending: false });
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-6">
       <h1 className="text-xl font-bold text-foreground mb-1">Shops</h1>
       <p className="text-sm text-muted-foreground mb-6">{shops?.length ?? 0} registered shops</p>
 

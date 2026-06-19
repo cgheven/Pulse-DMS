@@ -7,8 +7,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const ctx = await getAuthContext();
   if (!ctx?.user) redirect("/login");
 
-  // No shop yet → onboarding
-  if (!ctx.shop) redirect("/onboarding");
+  // Admin has no shop — send to admin panel, not onboarding
+  if (!ctx.shop) {
+    if (ctx.profile?.is_admin) redirect("/admin");
+    redirect("/onboarding");
+  }
 
   return (
     <ShopProvider profile={ctx.profile} shop={ctx.shop}>

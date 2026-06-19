@@ -1,0 +1,363 @@
+================================================================
+  PULSE DMS — PHARMACY WORKFLOW GUIDE
+  Medical Store / Pharmacy | Dealer Management System
+================================================================
+
+This guide walks through every section of the system with
+real examples based on a retail pharmacy / medical store.
+
+----------------------------------------------------------------
+STEP 1 — PRODUCTS  (Catalogue > Products)
+----------------------------------------------------------------
+PURPOSE: Register every medicine and product you stock.
+
+How to add a product:
+  - Name       : Brand name + strength/size (be specific)
+  - SKU/Code   : Use the company's own product code if available
+  - Unit Price  : Your retail selling price (PKR per strip/unit)
+  - Cost Price  : Your purchase price from distributor (PKR)
+
+EXAMPLES TO ADD:
+
+  PAINKILLERS / FEVER
+  ┌─────────────────────────────────┬──────┬───────────┬────────────┐
+  │ Product Name                    │ SKU  │ Sale Price│ Cost Price │
+  ├─────────────────────────────────┼──────┼───────────┼────────────┤
+  │ Panadol Tablet 500mg (Strip/10) │ PAN1 │  70       │  52        │
+  │ Panadol Extra (Strip/10)        │ PAN2 │  90       │  68        │
+  │ Brufen 400mg (Strip/10)         │ BRU1 │  80       │  60        │
+  │ Brufen Syrup 100ml              │ BRU2 │  160      │  120       │
+  │ Calpol Suspension 120ml         │ CAL1 │  180      │  135       │
+  └─────────────────────────────────┴──────┴───────────┴────────────┘
+
+  ANTIBIOTICS
+  ┌─────────────────────────────────┬──────┬───────────┬────────────┐
+  │ Product Name                    │ SKU  │ Sale Price│ Cost Price │
+  ├─────────────────────────────────┼──────┼───────────┼────────────┤
+  │ Augmentin 625mg (Strip/6)       │ AUG1 │  520      │  390       │
+  │ Amoxil 500mg (Strip/6)          │ AMX1 │  220      │  160       │
+  │ Flagyl 400mg (Strip/14)         │ FLG1 │  130      │  95        │
+  │ Cipro 500mg (Strip/10)          │ CIP1 │  350      │  260       │
+  └─────────────────────────────────┴──────┴───────────┴────────────┘
+
+  STOMACH / DIGESTION
+  ┌─────────────────────────────────┬──────┬───────────┬────────────┐
+  │ Product Name                    │ SKU  │ Sale Price│ Cost Price │
+  ├─────────────────────────────────┼──────┼───────────┼────────────┤
+  │ Nexium 40mg (Strip/7)           │ NEX1 │  520      │  390       │
+  │ Motilium 10mg (Strip/10)        │ MOT1 │  180      │  130       │
+  │ ORS Sachet (Per Piece)          │ ORS1 │  35       │  22        │
+  │ Flagyl Suspension 120ml         │ FLS1 │  180      │  135       │
+  └─────────────────────────────────┴──────┴───────────┴────────────┘
+
+  SUPPLEMENTS / OTC
+  ┌─────────────────────────────────┬──────┬───────────┬────────────┐
+  │ Product Name                    │ SKU  │ Sale Price│ Cost Price │
+  ├─────────────────────────────────┼──────┼───────────┼────────────┤
+  │ Scotts Emulsion 200ml           │ SCT1 │  420      │  315       │
+  │ Vitamin C 1000mg (Strip/10)     │ VTC1 │  220      │  165       │
+  │ Ensure Powder 400g (Vanilla)    │ ENS1 │ 2,800     │ 2,100      │
+  │ B-Complex Tablets (Strip/10)    │ BCX1 │  90       │  65        │
+  │ Disprin Tablet (Strip/10)       │ DSP1 │  55       │  38        │
+  └─────────────────────────────────┴──────┴───────────┴────────────┘
+
+  TIP: Add products in STRIPS as your unit, not tablets.
+  Selling 2 strips = qty 2 in the system. Keep it consistent.
+
+----------------------------------------------------------------
+STEP 2 — STOCK  (Operations > Stock)
+----------------------------------------------------------------
+PURPOSE: Know exactly how many strips/units are on your shelf.
+
+--- Adding Stock (when distributor delivers) ---
+  Click "Stock In", fill in:
+  - Product    : Panadol Tablet 500mg (Strip/10)
+  - Quantity   : 50   ← 50 strips received
+  - Note       : GlaxoSmithKline — Invoice #GSK-8821
+
+  Repeat for every product in the delivery.
+
+EXAMPLE OPENING STOCK TO ENTER:
+  Product                        | Qty  | Low Alert
+  -------------------------------|------|----------
+  Panadol 500mg Strip            |  80  |   20
+  Panadol Extra Strip            |  40  |   10
+  Brufen 400mg Strip             |  50  |   15
+  Brufen Syrup 100ml             |  20  |    5
+  Calpol 120ml                   |  15  |    5
+  Augmentin 625mg Strip          |  30  |   10
+  Amoxil 500mg Strip             |  40  |   10
+  Flagyl 400mg Strip             |  35  |   10
+  Cipro 500mg Strip              |  25  |    8
+  Nexium 40mg Strip              |  20  |    5
+  Motilium Strip                 |  30  |   10
+  ORS Sachet                     | 100  |   30
+  Scotts Emulsion 200ml          |  15  |    5
+  Vitamin C Strip                |  40  |   10
+  Ensure 400g                    |  12  |    3
+  Disprin Strip                  |  60  |   15
+
+--- Low Stock Alerts ---
+  Set the threshold per product. When stock drops below
+  that number, it turns red on the stock page.
+  Example: Panadol low alert = 20 strips → reorder before
+  you run out.
+
+--- Stock Out (damage/expired removal) ---
+  If a batch expires or gets damaged, use "Stock Out"
+  to remove it without recording it as a sale.
+  Note: "Expired batch — returned to distributor"
+
+----------------------------------------------------------------
+STEP 3 — SALES  (Operations > Sales)
+----------------------------------------------------------------
+PURPOSE: Record every sale at the counter.
+
+How to record a sale:
+  - Date       : Today (auto-filled)
+  - Product    : Select medicine
+  - Qty        : Number of strips/units sold
+  - Price      : Retail price (auto-filled, editable)
+  - Customer   : Optional — patient name or "Walk-in"
+
+EXAMPLE SALES:
+
+  Sale 1 — Common OTC purchase
+    Product  : Panadol Tablet 500mg
+    Qty      : 2   (2 strips)
+    Price    : 70
+    Customer : Walk-in
+    → Revenue: PKR 140 | Profit: 2 x (70-52) = PKR 36
+
+  Sale 2 — Prescription sale (antibiotic)
+    Product  : Augmentin 625mg
+    Qty      : 1
+    Price    : 520
+    Customer : Bashir Ahmed
+    → Profit: 520 - 390 = PKR 130
+
+  Sale 3 — Multiple items (record each separately)
+    First entry:
+      Product  : Flagyl 400mg Strip
+      Qty      : 1
+      Price    : 130
+    Second entry:
+      Product  : ORS Sachet
+      Qty      : 5
+      Price    : 35
+    → Total for this patient: 130 + 175 = PKR 305
+
+  Sale 4 — Doctor/hospital bulk supply (discounted)
+    Product  : Brufen 400mg Strip
+    Qty      : 20
+    Price    : 70   ← discounted from 80 for bulk
+    Customer : City Clinic
+    → Revenue: PKR 1,400
+
+  TIP: For walk-in customers you don't know, just leave
+  Customer blank or write "Walk-in". Use names only for
+  hospitals, clinics, or credit customers.
+
+----------------------------------------------------------------
+STEP 4 — EXPENSES  (Operations > Expenses)
+----------------------------------------------------------------
+PURPOSE: Record everything the pharmacy spends.
+
+EXAMPLE MONTHLY EXPENSES:
+
+  1. RENT
+     Category  : Rent
+     Amount    : PKR 45,000
+     Period    : June 2026
+     Date      : June 1, 2026
+
+  2. ELECTRICITY BILL
+     Category  : Electricity
+     Amount    : PKR 12,000
+     Note      : LESCO — June bill
+     Date      : June 7, 2026
+
+  3. INTERNET / PHONE LINE
+     Category  : Internet
+     Amount    : PKR 2,500
+     Date      : June 5, 2026
+
+  4. PHARMACIST SALARY
+     Category  : Salary
+     Employee  : Dr. Kamran (Pharmacist)   ← required
+     Amount    : PKR 55,000
+     Date      : June 30, 2026
+
+  5. ASSISTANT / COUNTER STAFF
+     Category  : Salary
+     Employee  : Bilal (Counter Staff)     ← required
+     Amount    : PKR 22,000
+     Date      : June 30, 2026
+
+  6. WATER SUPPLY
+     Category  : Water
+     Amount    : PKR 500
+     Date      : June 10, 2026
+
+  7. GENERATOR FUEL / GAS
+     Category  : Gas
+     Amount    : PKR 3,500
+     Note      : Generator fuel — June
+     Date      : June 15, 2026
+
+  8. SHOPPING BAGS / PACKAGING
+     Category  : Miscellaneous
+     Description: Pharmacy bags and receipt rolls   ← required
+     Amount    : PKR 1,200
+     Date      : June 12, 2026
+
+  9. DRUG LICENSE RENEWAL FEE
+     Category  : Miscellaneous
+     Description: Drug sale license — annual renewal  ← required
+     Amount    : PKR 8,000
+     Date      : June 3, 2026
+
+  TOTAL EXPENSES EXAMPLE: PKR 150,200 for June
+
+----------------------------------------------------------------
+STEP 5 — SUPPLIER LEDGER  (Suppliers > Supplier Ledger)
+----------------------------------------------------------------
+PURPOSE: Track what you owe each pharmaceutical distributor.
+
+  Pharmacies usually buy on credit — you receive stock today
+  and pay the distributor in 30-60 days. This section keeps
+  that balance accurate.
+
+First, add your distributors in Settings.
+  Common distributors:
+  - Fazal Din Pharma
+  - United Distributors
+  - National Pharma
+  - GlaxoSmithKline (direct)
+
+EXAMPLE — Fazal Din Pharma:
+
+  Entry 1 — Stock received (you now owe them)
+    Type    : Credit (You Owe)
+    Amount  : PKR 185,000
+    Note    : Invoice #FD-3301 — June 2 delivery
+    Date    : June 2, 2026
+
+  Entry 2 — Payment made
+    Type    : Debit (You Paid)
+    Amount  : PKR 100,000
+    Note    : Cash payment — partial
+    Date    : June 10, 2026
+
+  Entry 3 — New delivery received
+    Type    : Credit (You Owe)
+    Amount  : PKR 92,000
+    Note    : Invoice #FD-3389 — June 18 delivery
+    Date    : June 18, 2026
+
+  Entry 4 — Final payment
+    Type    : Debit (You Paid)
+    Amount  : PKR 85,000
+    Note    : Bank transfer
+    Date    : June 25, 2026
+
+  → BALANCE: 185,000 - 100,000 + 92,000 - 85,000 = PKR 92,000 owed
+
+EXAMPLE — United Distributors:
+
+  Entry 1 — Stock received
+    Type    : Credit (You Owe)
+    Amount  : PKR 67,500
+    Note    : Invoice #UD-1102 — GSK, Abbott items
+    Date    : June 5, 2026
+
+  Entry 2 — Payment
+    Type    : Debit (You Paid)
+    Amount  : PKR 67,500
+    Note    : Full payment — cash
+    Date    : June 20, 2026
+
+  → BALANCE: PKR 0 — fully cleared
+
+----------------------------------------------------------------
+STEP 6 — P&L REPORT  (Reports > P&L Report)
+----------------------------------------------------------------
+PURPOSE: Is the pharmacy making money? One click to find out.
+
+Select date range (e.g., June 1–30) → Click Generate
+
+SAMPLE REPORT OUTPUT:
+
+  ┌─────────────────────────────────────────┐
+  │   NET PROFIT         PKR 64,800         │ ← Green = Profitable
+  └─────────────────────────────────────────┘
+
+  Revenue (Medicines sold)    PKR 275,000
+  Product Cost (COGS)         PKR  60,000
+  ─────────────────────────────────────────
+  Gross Profit                PKR 215,000
+  Total Expenses              PKR 150,200
+  ─────────────────────────────────────────
+  NET PROFIT                  PKR  64,800
+
+  WHERE THE MONEY WENT:
+  ├── Product Cost             PKR  60,000
+  │   ├── Fazal Din Pharma     PKR  37,000
+  │   └── United Distributors  PKR  23,000
+  ├── Staff Salaries           PKR  77,000
+  │   ├── Dr. Kamran           PKR  55,000
+  │   └── Bilal                PKR  22,000
+  ├── Rent                     PKR  45,000
+  ├── Utility Bills            PKR  15,000
+  └── Miscellaneous            PKR   9,200  (bags + license)
+
+  SUPPLIER PAYABLES (outstanding amounts)
+  Fazal Din Pharma             PKR  92,000  ← still to pay
+  United Distributors          PKR       0  ← cleared
+
+  NOTE: Profit shown above is BEFORE paying the remaining
+  PKR 92,000 to Fazal Din. Your actual cash in hand will be
+  lower. The system shows this separately so you can plan.
+
+----------------------------------------------------------------
+QUICK DEMO SEQUENCE (for a 10-minute demo)
+----------------------------------------------------------------
+Follow this exact order to show the full flow:
+
+  1. Products  → Add Panadol 500mg, Augmentin 625mg, ORS Sachet
+                 Show cost price vs sale price columns
+  2. Stock     → Stock In for those 3 products (30, 20, 100 qty)
+                 Show low stock threshold setting (5 for each)
+  3. Sales     → Record: 2x Panadol, 1x Augmentin, 5x ORS
+                 Show stock numbers drop automatically
+  4. Expenses  → Add: Rent PKR 45,000
+                 Add: Salary — Dr. Kamran PKR 55,000
+                 Show how salary needs employee name
+  5. Sup. Ledger → Add Fazal Din: Credit 185,000 (stock arrived)
+                   Then: Debit 100,000 (partial payment made)
+                   Show running balance = 85,000 still owed
+  6. P&L Report → Generate for current month
+                  Show net profit, cost breakdown, supplier balance
+
+  KEY POINTS TO HIGHLIGHT DURING DEMO:
+  • Salary entries capture WHO got paid — full transparency
+  • Supplier ledger shows exactly what you owe, to whom
+  • P&L shows profit even if distributor isn't paid yet
+  • Stock alerts turn red before you run out
+  • Every sale auto-reduces stock — no manual counting
+
+----------------------------------------------------------------
+PHARMACY-SPECIFIC TIPS
+----------------------------------------------------------------
+  ✓ Add products as STRIPS (not individual tablets)
+  ✓ Use the Notes field on Stock In for invoice numbers —
+    useful if distributor disputes a delivery later
+  ✓ Enter expenses on the day they are paid, not due date
+  ✓ Record each salary as a SEPARATE entry with staff name
+  ✓ Check Stock page weekly — red items need urgent reorder
+  ✓ Run P&L monthly to track if margins are holding
+
+================================================================
+  END OF GUIDE
+  For questions: musab@cgheven.com
+================================================================
