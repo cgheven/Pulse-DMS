@@ -1,9 +1,22 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+
+// Verify that branchId belongs to the authenticated user
+async function verifyBranchOwnership(branchId: string, userId: string): Promise<boolean> {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("dms_branches")
+    .select("dms_shops!inner(owner_id)")
+    .eq("id", branchId)
+    .eq("dms_shops.owner_id", userId)
+    .single();
+  return !!data;
+}
 
 export async function addExpense(data: {
-  shopId: string;
+  branchId: string;
   category: "rent" | "electricity" | "internet" | "water" | "gas" | "phone" | "salary" | "misc";
   amount: number;
   note?: string;
@@ -12,10 +25,11 @@ export async function addExpense(data: {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
+  if (!(await verifyBranchOwnership(data.branchId, user.id))) return { error: "Forbidden" };
   if (data.amount <= 0) return { error: "Amount must be greater than 0" };
 
   const { error } = await supabase.from("dms_expenses").insert({
-    shop_id: data.shopId,
+    branch_id: data.branchId,
     category: data.category,
     amount: data.amount,
     note: data.note?.trim() || null,
@@ -30,7 +44,7 @@ export async function addExpense(data: {
 
 export async function editExpense(
   expenseId: string,
-  shopId: string,
+  branchId: string,
   data: {
     category: "rent" | "electricity" | "internet" | "water" | "gas" | "phone" | "salary" | "misc";
     amount: number;
@@ -41,6 +55,7 @@ export async function editExpense(
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
+  if (!(await verifyBranchOwnership(branchId, user.id))) return { error: "Forbidden" };
   if (data.amount <= 0) return { error: "Amount must be greater than 0" };
 
   const { error } = await supabase
@@ -52,7 +67,7 @@ export async function editExpense(
       expense_date: data.expenseDate,
     })
     .eq("id", expenseId)
-    .eq("shop_id", shopId);
+    .eq("branch_id", branchId);
 
   if (error) return { error: error.message };
   revalidatePath("/expenses");
@@ -60,16 +75,17 @@ export async function editExpense(
   return { success: true };
 }
 
-export async function deleteExpense(expenseId: string, shopId: string) {
+export async function deleteExpense(expenseId: string, branchId: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
+  if (!(await verifyBranchOwnership(branchId, user.id))) return { error: "Forbidden" };
 
   const { error } = await supabase
     .from("dms_expenses")
     .delete()
     .eq("id", expenseId)
-    .eq("shop_id", shopId);
+    .eq("branch_id", branchId);
 
   if (error) return { error: error.message };
   revalidatePath("/expenses");
@@ -77,7 +93,7 @@ export async function deleteExpense(expenseId: string, shopId: string) {
   return { success: true };
 }
 
-export async function fetchExpenses(shopId: string, from: string, to: string) {
+export async function fetchExpenses(branchId: string, from: string, to: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated", expenses: [] };
@@ -85,7 +101,7 @@ export async function fetchExpenses(shopId: string, from: string, to: string) {
   const { data, error } = await supabase
     .from("dms_expenses")
     .select("*")
-    .eq("shop_id", shopId)
+    .eq("branch_id", branchId)
     .gte("expense_date", from)
     .lte("expense_date", to)
     .order("expense_date", { ascending: false })

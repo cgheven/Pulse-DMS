@@ -31,7 +31,7 @@ import {
   editSupplier,
   deleteSupplier,
 } from "@/app/actions/products";
-import { useShopContext } from "@/contexts/shop-context";
+import { useBranchContext } from "@/contexts/branch-context";
 import { createClient } from "@/lib/supabase/client";
 
 // ─── helpers ───────────────────────────────────────────────────────────────
@@ -99,31 +99,31 @@ function ProductsSkeleton() {
 // ─── main component ────────────────────────────────────────────────────────
 
 export function ProductsClient() {
-  const { shopId } = useShopContext();
+  const { branchId } = useBranchContext();
 
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
-    if (!shopId) return;
+    if (!branchId) return;
     const supabase = createClient();
     const [{ data: productsData }, { data: suppliersData }] = await Promise.all([
       supabase
         .from("dms_products")
         .select("*, supplier:dms_suppliers(id,name,brand)")
-        .eq("shop_id", shopId)
+        .eq("branch_id", branchId)
         .order("name"),
       supabase
         .from("dms_suppliers")
         .select("*")
-        .eq("shop_id", shopId)
+        .eq("branch_id", branchId)
         .order("name"),
     ]);
     setProducts((productsData as Product[]) ?? []);
     setSuppliers((suppliersData as Supplier[]) ?? []);
     setLoading(false);
-  }, [shopId]);
+  }, [branchId]);
 
   useEffect(() => {
     fetchData();
@@ -155,7 +155,7 @@ export function ProductsClient() {
           <ProductsTab
             products={products}
             suppliers={suppliers}
-            shopId={shopId!}
+            branchId={branchId!}
             onRefresh={fetchData}
           />
         </TabsContent>
@@ -164,7 +164,7 @@ export function ProductsClient() {
           <SuppliersTab
             suppliers={suppliers}
             products={products}
-            shopId={shopId!}
+            branchId={branchId!}
             onRefresh={fetchData}
           />
         </TabsContent>
@@ -178,12 +178,12 @@ export function ProductsClient() {
 function ProductsTab({
   products,
   suppliers,
-  shopId,
+  branchId,
   onRefresh,
 }: {
   products: Product[];
   suppliers: Supplier[];
-  shopId: string;
+  branchId: string;
   onRefresh: () => Promise<void>;
 }) {
   const { toast } = useToast();
@@ -228,7 +228,7 @@ function ProductsTab({
     if (!unit) { toast({ title: "Unit is required", variant: "destructive" }); return; }
 
     const payload = {
-      shopId,
+      branchId,
       name: form.name.trim(),
       supplierId: form.supplierId || undefined,
       unit,
@@ -239,7 +239,7 @@ function ProductsTab({
 
     startTransition(async () => {
       const res = editingProduct
-        ? await editProduct(editingProduct.id, shopId, payload)
+        ? await editProduct(editingProduct.id, branchId, payload)
         : await addProduct(payload);
 
       if (res?.error) {
@@ -255,7 +255,7 @@ function ProductsTab({
 
   function handleDelete(id: string) {
     startTransition(async () => {
-      const res = await deleteProduct(id, shopId);
+      const res = await deleteProduct(id, branchId);
       if (res?.error) {
         toast({ title: res.error, variant: "destructive" });
         return;
@@ -486,12 +486,12 @@ function ProductsTab({
 function SuppliersTab({
   suppliers,
   products,
-  shopId,
+  branchId,
   onRefresh,
 }: {
   suppliers: Supplier[];
   products: Product[];
-  shopId: string;
+  branchId: string;
   onRefresh: () => Promise<void>;
 }) {
   const { toast } = useToast();
@@ -529,7 +529,7 @@ function SuppliersTab({
     if (!form.name.trim()) { toast({ title: "Supplier name is required", variant: "destructive" }); return; }
 
     const payload = {
-      shopId,
+      branchId,
       name: form.name.trim(),
       brand: form.brand.trim() || undefined,
       contact: form.contact.trim() || undefined,
@@ -537,7 +537,7 @@ function SuppliersTab({
 
     startTransition(async () => {
       const res = editingSupplier
-        ? await editSupplier(editingSupplier.id, shopId, payload)
+        ? await editSupplier(editingSupplier.id, branchId, payload)
         : await addSupplier(payload);
 
       if (res?.error) {
@@ -553,7 +553,7 @@ function SuppliersTab({
 
   function handleDelete(id: string) {
     startTransition(async () => {
-      const res = await deleteSupplier(id, shopId);
+      const res = await deleteSupplier(id, branchId);
       if (res?.error) {
         toast({ title: res.error, variant: "destructive" });
         return;

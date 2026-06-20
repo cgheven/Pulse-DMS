@@ -23,6 +23,8 @@ export type DmsClient = {
   is_admin: boolean;
   created_at: string | null;
   last_sign_in_at: string | null;
+  branch_count: number;
+  branch_limit: number;
 };
 
 // ── Trial helpers ─────────────────────────────────────────────────────────────
@@ -84,20 +86,30 @@ type ShopRow = {
   trial_plan: string | null;
   trial_ends_at: string | null;
   is_active: boolean;
+  branch_limit: number;
+};
+
+type BranchCountRow = {
+  shop_id: string;
+  count: number;
 };
 
 const fetchClientsData = unstable_cache(
   async (): Promise<DmsClient[]> => {
     const admin = createAdminClient();
 
-    const [authRes, profilesRes, shopsRes] = await Promise.all([
+    const [authRes, profilesRes, shopsRes, branchCountsRes] = await Promise.all([
       admin.auth.admin.listUsers({ perPage: 1000 }),
       admin
         .from("dms_profiles")
         .select("id, full_name, shop_id, is_admin, created_at"),
       admin
         .from("dms_shops")
-        .select("id, owner_id, shop_name, trial_plan, trial_ends_at, is_active"),
+        .select("id, owner_id, shop_name, trial_plan, trial_ends_at, is_active, branch_limit"),
+      admin
+        .from("dms_branches")
+        .select("shop_id")
+        .eq("is_active", true),
     ]);
 
     if (authRes.error) throw authRes.error;
@@ -111,15 +123,22 @@ const fetchClientsData = unstable_cache(
       ((shopsRes.data ?? []) as ShopRow[]).map((s) => [s.owner_id, s])
     );
 
+    // Build branch count map: shop_id -> count
+    const branchCountMap = new Map<string, number>();
+    ((branchCountsRes.data ?? []) as { shop_id: string }[]).forEach((b) => {
+      branchCountMap.set(b.shop_id, (branchCountMap.get(b.shop_id) ?? 0) + 1);
+    });
+
     const clients: DmsClient[] = authRes.data.users.map((u) => {
       const profile = profileMap.get(u.id);
       const shop = shopByOwner.get(u.id);
+      const shopId = shop?.id ?? profile?.shop_id ?? null;
 
       return {
         user_id: u.id,
         email: u.email ?? null,
         full_name: profile?.full_name ?? null,
-        shop_id: shop?.id ?? profile?.shop_id ?? null,
+        shop_id: shopId,
         shop_name: shop?.shop_name ?? null,
         trial_plan: shop?.trial_plan ?? null,
         trial_ends_at: shop?.trial_ends_at ?? null,
@@ -128,6 +147,8 @@ const fetchClientsData = unstable_cache(
         is_admin: profile?.is_admin ?? false,
         created_at: u.created_at ?? profile?.created_at ?? null,
         last_sign_in_at: u.last_sign_in_at ?? null,
+        branch_count: shopId ? (branchCountMap.get(shopId) ?? 0) : 0,
+        branch_limit: shop?.branch_limit ?? 1,
       };
     });
 

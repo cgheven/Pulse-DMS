@@ -1,9 +1,22 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+
+// Verify that branchId belongs to the authenticated user
+async function verifyBranchOwnership(branchId: string, userId: string): Promise<boolean> {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("dms_branches")
+    .select("dms_shops!inner(owner_id)")
+    .eq("id", branchId)
+    .eq("dms_shops.owner_id", userId)
+    .single();
+  return !!data;
+}
 
 export async function addInvoice(data: {
-  shopId: string;
+  branchId: string;
   supplierId: string;
   amount: number;
   invoiceNumber?: string;
@@ -14,18 +27,13 @@ export async function addInvoice(data: {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
-  const { data: profile } = await supabase
-    .from("dms_profiles")
-    .select("shop_id")
-    .eq("id", user.id)
-    .single();
-  if (!profile || profile.shop_id !== data.shopId) return { error: "Forbidden" };
+  if (!(await verifyBranchOwnership(data.branchId, user.id))) return { error: "Forbidden" };
 
   if (!Number.isFinite(data.amount) || data.amount <= 0) return { error: "Amount must be greater than 0" };
   if (data.amount > 100_000_000) return { error: "Amount is unreasonably large" };
 
   const { error } = await supabase.from("dms_supplier_ledger").insert({
-    shop_id: data.shopId,
+    branch_id: data.branchId,
     supplier_id: data.supplierId,
     type: "purchase",
     amount: data.amount,
@@ -41,7 +49,7 @@ export async function addInvoice(data: {
 }
 
 export async function recordPayment(data: {
-  shopId: string;
+  branchId: string;
   invoiceId: string;
   amount: number;
   paymentDate?: string;
@@ -51,12 +59,7 @@ export async function recordPayment(data: {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
-  const { data: profile } = await supabase
-    .from("dms_profiles")
-    .select("shop_id")
-    .eq("id", user.id)
-    .single();
-  if (!profile || profile.shop_id !== data.shopId) return { error: "Forbidden" };
+  if (!(await verifyBranchOwnership(data.branchId, user.id))) return { error: "Forbidden" };
 
   if (!Number.isFinite(data.amount) || data.amount <= 0) return { error: "Amount must be greater than 0" };
   if (data.amount > 100_000_000) return { error: "Amount is unreasonably large" };
@@ -65,7 +68,7 @@ export async function recordPayment(data: {
     .from("dms_supplier_ledger")
     .select("amount, paid_amount")
     .eq("id", data.invoiceId)
-    .eq("shop_id", data.shopId)
+    .eq("branch_id", data.branchId)
     .eq("type", "purchase")
     .single();
 
@@ -77,7 +80,7 @@ export async function recordPayment(data: {
   // Insert payment record + update invoice paid_amount atomically
   const [paymentRes, updateRes] = await Promise.all([
     supabase.from("dms_supplier_payments").insert({
-      shop_id: data.shopId,
+      branch_id: data.branchId,
       invoice_id: data.invoiceId,
       amount: data.amount,
       payment_date: data.paymentDate ?? today,
@@ -87,7 +90,7 @@ export async function recordPayment(data: {
       .from("dms_supplier_ledger")
       .update({ paid_amount: newPaid })
       .eq("id", data.invoiceId)
-      .eq("shop_id", data.shopId),
+      .eq("branch_id", data.branchId),
   ]);
 
   if (paymentRes.error) return { error: paymentRes.error.message };
@@ -97,23 +100,18 @@ export async function recordPayment(data: {
   return { success: true };
 }
 
-export async function deleteLedgerEntry(entryId: string, shopId: string) {
+export async function deleteLedgerEntry(entryId: string, branchId: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
-  const { data: profile } = await supabase
-    .from("dms_profiles")
-    .select("shop_id")
-    .eq("id", user.id)
-    .single();
-  if (!profile || profile.shop_id !== shopId) return { error: "Forbidden" };
+  if (!(await verifyBranchOwnership(branchId, user.id))) return { error: "Forbidden" };
 
   const { error } = await supabase
     .from("dms_supplier_ledger")
     .delete()
     .eq("id", entryId)
-    .eq("shop_id", shopId);
+    .eq("branch_id", branchId);
 
   if (error) return { error: error.message };
   revalidatePath("/supplier-ledger");

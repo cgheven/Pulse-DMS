@@ -1,10 +1,26 @@
 import { cache } from "react";
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type {
   Profile, Shop, Product, Supplier, Sale, StockLevel, StockMovement,
   Expense, SupplierLedgerEntry, SupplierBalance, DashboardStats, PLReport,
+  DmsBranch,
 } from "@/types";
+
+// ─── Internal branch fetch ────────────────────────────────────────────────────
+async function _fetchBranchesForShop(shopId: string): Promise<DmsBranch[]> {
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("dms_branches")
+    .select("*")
+    .eq("shop_id", shopId)
+    .eq("is_active", true)
+    .order("is_default", { ascending: false })
+    .order("created_at", { ascending: true });
+  if (error) return [];
+  return (data as DmsBranch[]) ?? [];
+}
 
 // ─── Auth Context ─────────────────────────────────────────────────────────────
 export const getAuthContext = cache(async () => {
@@ -24,7 +40,7 @@ export const getAuthContext = cache(async () => {
 
   const profileWithEmail = { ...profile, email: user.email };
 
-  if (!profile.shop_id) return { user, profile: profileWithEmail, shop: null };
+  if (!profile.shop_id) return { user, profile: profileWithEmail, shop: null, branches: [], branch: null, branchId: null };
 
   const { data: shopRow } = await admin
     .from("dms_shops")
@@ -32,17 +48,41 @@ export const getAuthContext = cache(async () => {
     .eq("id", profile.shop_id)
     .single();
 
+  const shop = shopRow as Shop | null;
+
+  // Fetch branches for the shop
+  const branches: DmsBranch[] = shop ? await _fetchBranchesForShop(shop.id) : [];
+
+  // Resolve active branch from cookie
+  const cookieStore = await cookies();
+  const activeBranchId = cookieStore.get("dms_active_branch")?.value;
+  const branch =
+    (activeBranchId ? branches.find((b) => b.id === activeBranchId) : null) ??
+    branches.find((b) => b.is_default) ??
+    branches[0] ??
+    null;
+
   return {
     user,
     profile: profileWithEmail,
-    shop: (shopRow as Shop | null),
+    shop,
+    branches,
+    branch,
+    branchId: branch?.id ?? null,
   };
 });
 
+export async function resolveActiveBranchId(): Promise<string | null> {
+  const ctx = await getAuthContext();
+  return ctx?.branchId ?? null;
+}
+
 // ─── Dashboard ────────────────────────────────────────────────────────────────
-export async function getDashboardStats(shopId: string): Promise<DashboardStats> {
+export async function getDashboardStats(branchId: string): Promise<DashboardStats> {
   const supabase = await createClient();
-  const { data } = await supabase.rpc("get_dashboard_stats", { p_shop_id: shopId });
+  const today = new Date();
+  const p_today = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const { data } = await supabase.rpc("get_dashboard_stats", { p_branch_id: branchId, p_today });
   return (data as DashboardStats) ?? {
     today_sales: 0, today_transactions: 0, month_sales: 0, month_cogs: 0,
     month_expenses: 0, outstanding_payables: 0, low_stock_count: 0, total_products: 0,
@@ -50,58 +90,58 @@ export async function getDashboardStats(shopId: string): Promise<DashboardStats>
 }
 
 // ─── Products ─────────────────────────────────────────────────────────────────
-export async function getProducts(shopId: string): Promise<Product[]> {
+export async function getProducts(branchId: string): Promise<Product[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("dms_products")
     .select("*, supplier:dms_suppliers(id, name, brand)")
-    .eq("shop_id", shopId)
+    .eq("branch_id", branchId)
     .order("name");
   return (data as Product[]) ?? [];
 }
 
-export async function getProduct(shopId: string, productId: string): Promise<Product | null> {
+export async function getProduct(branchId: string, productId: string): Promise<Product | null> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("dms_products")
     .select("*, supplier:dms_suppliers(id, name, brand)")
-    .eq("shop_id", shopId)
+    .eq("branch_id", branchId)
     .eq("id", productId)
     .single();
   return (data as Product | null);
 }
 
 // ─── Suppliers ────────────────────────────────────────────────────────────────
-export async function getSuppliers(shopId: string): Promise<Supplier[]> {
+export async function getSuppliers(branchId: string): Promise<Supplier[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("dms_suppliers")
     .select("*")
-    .eq("shop_id", shopId)
+    .eq("branch_id", branchId)
     .order("name");
   return (data as Supplier[]) ?? [];
 }
 
 // ─── Stock ────────────────────────────────────────────────────────────────────
-export async function getStockLevels(shopId: string): Promise<StockLevel[]> {
+export async function getStockLevels(branchId: string): Promise<StockLevel[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("dms_stock_levels")
     .select("*")
-    .eq("shop_id", shopId)
+    .eq("branch_id", branchId)
     .order("product_name");
   return (data as StockLevel[]) ?? [];
 }
 
 export async function getStockMovements(
-  shopId: string,
+  branchId: string,
   opts?: { productId?: string; limit?: number }
 ): Promise<StockMovement[]> {
   const supabase = await createClient();
   let q = supabase
     .from("dms_stock_movements")
     .select("*, product:dms_products(id, name, unit)")
-    .eq("shop_id", shopId)
+    .eq("branch_id", branchId)
     .order("created_at", { ascending: false })
     .limit(opts?.limit ?? 50);
   if (opts?.productId) q = q.eq("product_id", opts.productId);
@@ -111,14 +151,14 @@ export async function getStockMovements(
 
 // ─── Sales ────────────────────────────────────────────────────────────────────
 export async function getSales(
-  shopId: string,
+  branchId: string,
   opts?: { from?: string; to?: string; limit?: number }
 ): Promise<Sale[]> {
   const supabase = await createClient();
   let q = supabase
     .from("dms_sales")
     .select("*, product:dms_products(id, name, unit)")
-    .eq("shop_id", shopId)
+    .eq("branch_id", branchId)
     .order("sale_date", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(opts?.limit ?? 50);
@@ -130,14 +170,14 @@ export async function getSales(
 
 // ─── Expenses ─────────────────────────────────────────────────────────────────
 export async function getExpenses(
-  shopId: string,
+  branchId: string,
   opts?: { from?: string; to?: string; limit?: number }
 ): Promise<Expense[]> {
   const supabase = await createClient();
   let q = supabase
     .from("dms_expenses")
     .select("*")
-    .eq("shop_id", shopId)
+    .eq("branch_id", branchId)
     .order("expense_date", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(opts?.limit ?? 50);
@@ -149,14 +189,14 @@ export async function getExpenses(
 
 // ─── Supplier Ledger ──────────────────────────────────────────────────────────
 export async function getSupplierLedger(
-  shopId: string,
+  branchId: string,
   supplierId: string
 ): Promise<SupplierLedgerEntry[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("dms_supplier_ledger")
     .select("*, supplier:dms_suppliers(id, name, brand)")
-    .eq("shop_id", shopId)
+    .eq("branch_id", branchId)
     .eq("supplier_id", supplierId)
     .order("transaction_date", { ascending: false })
     .order("created_at", { ascending: false })
@@ -164,11 +204,11 @@ export async function getSupplierLedger(
   return (data as SupplierLedgerEntry[]) ?? [];
 }
 
-export async function getSupplierBalances(shopId: string): Promise<SupplierBalance[]> {
+export async function getSupplierBalances(branchId: string): Promise<SupplierBalance[]> {
   const supabase = await createClient();
   const [{ data: suppliers }, { data: ledger }] = await Promise.all([
-    supabase.from("dms_suppliers").select("*").eq("shop_id", shopId).order("name"),
-    supabase.from("dms_supplier_ledger").select("supplier_id, type, amount").eq("shop_id", shopId),
+    supabase.from("dms_suppliers").select("*").eq("branch_id", branchId).order("name"),
+    supabase.from("dms_supplier_ledger").select("supplier_id, type, amount").eq("branch_id", branchId),
   ]);
 
   const rows = (suppliers as Supplier[]) ?? [];
@@ -184,7 +224,7 @@ export async function getSupplierBalances(shopId: string): Promise<SupplierBalan
 
 // ─── P&L Report ───────────────────────────────────────────────────────────────
 export async function getPLReport(
-  shopId: string,
+  branchId: string,
   from: string,
   to: string
 ): Promise<PLReport> {
@@ -194,13 +234,13 @@ export async function getPLReport(
     supabase
       .from("dms_sales")
       .select("total, quantity, unit_price, product_id")
-      .eq("shop_id", shopId)
+      .eq("branch_id", branchId)
       .gte("sale_date", from)
       .lte("sale_date", to),
     supabase
       .from("dms_expenses")
       .select("amount, category")
-      .eq("shop_id", shopId)
+      .eq("branch_id", branchId)
       .gte("expense_date", from)
       .lte("expense_date", to),
   ]);

@@ -1,18 +1,18 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Menu, LogOut, ChevronDown, Zap, Store } from "lucide-react";
+import { Menu, LogOut, ChevronDown } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import { BranchSelector } from "@/components/layout/branch-selector";
 import type { Profile, Shop } from "@/types";
 
 interface NavbarProps {
   onMenuClick: () => void;
   profile: Profile | null;
-  shop: Shop | null;
 }
 
-export function Navbar({ onMenuClick, profile, shop }: NavbarProps) {
+export function Navbar({ onMenuClick, profile }: NavbarProps) {
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
   const [dropOpen, setDropOpen] = useState(false);
@@ -41,18 +41,8 @@ export function Navbar({ onMenuClick, profile, shop }: NavbarProps) {
         <Menu className="w-5 h-5" />
       </button>
 
-      {/* Shop name */}
-      <div className="flex items-center gap-2 min-w-0">
-        <div className="flex items-center justify-center w-6 h-6 rounded-md bg-primary/10 border border-primary/20 shrink-0">
-          <Zap className="w-3.5 h-3.5 text-primary" />
-        </div>
-        <div className="flex items-center gap-1.5 min-w-0">
-          <Store className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-          <span className="font-semibold text-sm truncate text-foreground">
-            {shop?.shop_name ?? "My Shop"}
-          </span>
-        </div>
-      </div>
+      {/* Shop / Branch selector */}
+      <BranchSelector />
 
       {/* User menu */}
       <div className="flex items-center gap-2 relative ml-auto">

@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import { cn, formatDateInput } from "@/lib/utils";
-import { useShopContext } from "@/contexts/shop-context";
+import { useBranchContext } from "@/contexts/branch-context";
 import { createClient } from "@/lib/supabase/client";
 import { addInvoice, recordPayment, deleteLedgerEntry } from "@/app/actions/supplier-ledger";
 import type { SupplierBalance, SupplierLedgerEntry, SupplierPayment } from "@/types";
@@ -99,12 +99,12 @@ function InvoiceListSkeleton() {
 
 interface PayDialogProps {
   invoice: SupplierLedgerEntry;
-  shopId: string;
+  branchId: string;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-function PayDialog({ invoice, shopId, onClose, onSuccess }: PayDialogProps) {
+function PayDialog({ invoice, branchId, onClose, onSuccess }: PayDialogProps) {
   const remaining = Math.max(0, invoice.amount - Number(invoice.paid_amount));
   const [amount, setAmount] = useState(String(remaining));
   const [payDate, setPayDate] = useState(formatDateInput(new Date()));
@@ -119,7 +119,7 @@ function PayDialog({ invoice, shopId, onClose, onSuccess }: PayDialogProps) {
     }
     startTransition(async () => {
       const result = await recordPayment({
-        shopId,
+        branchId,
         invoiceId: invoice.id,
         amount: parsed,
         paymentDate: payDate,
@@ -218,7 +218,7 @@ function PayDialog({ invoice, shopId, onClose, onSuccess }: PayDialogProps) {
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export function SupplierLedgerClient() {
-  const { shopId } = useShopContext();
+  const { branchId } = useBranchContext();
 
   const [balances, setBalances] = useState<SupplierBalance[]>([]);
   const [balancesLoading, setBalancesLoading] = useState(true);
@@ -272,13 +272,13 @@ export function SupplierLedgerClient() {
 
   const loadInvoices = useCallback(
     async (supplierId: string) => {
-      if (!shopId) return;
+      if (!branchId) return;
       setInvoicesLoading(true);
       const supabase = createClient();
       const { data: invData, error: invErr } = await supabase
         .from("dms_supplier_ledger")
         .select("*")
-        .eq("shop_id", shopId)
+        .eq("branch_id", branchId)
         .eq("supplier_id", supplierId)
         .order("transaction_date", { ascending: false })
         .order("created_at", { ascending: false });
@@ -296,7 +296,7 @@ export function SupplierLedgerClient() {
         const { data: payData } = await supabase
           .from("dms_supplier_payments")
           .select("*")
-          .eq("shop_id", shopId)
+          .eq("branch_id", branchId)
           .in("invoice_id", invoiceIds)
           .order("payment_date", { ascending: false });
         setPayments((payData as SupplierPayment[]) ?? []);
@@ -305,20 +305,20 @@ export function SupplierLedgerClient() {
       }
       setInvoicesLoading(false);
     },
-    [shopId]
+    [branchId]
   );
 
   // ── Refresh supplier balances ─────────────────────────────────────────────
 
   const refreshBalances = useCallback(async () => {
-    if (!shopId) return;
+    if (!branchId) return;
     const supabase = createClient();
     const [{ data: suppliers }, { data: ledgerAll }] = await Promise.all([
-      supabase.from("dms_suppliers").select("*").eq("shop_id", shopId).order("name"),
+      supabase.from("dms_suppliers").select("*").eq("branch_id", branchId).order("name"),
       supabase
         .from("dms_supplier_ledger")
         .select("supplier_id, type, amount, paid_amount")
-        .eq("shop_id", shopId),
+        .eq("branch_id", branchId),
     ]);
     const rows = (suppliers ?? []) as SupplierBalance["supplier"][];
     const entries = (ledgerAll ?? []) as { supplier_id: string; type: string; amount: number; paid_amount: number }[];
@@ -339,7 +339,7 @@ export function SupplierLedgerClient() {
     });
     setBalances(newBalances);
     setBalancesLoading(false);
-  }, [shopId]);
+  }, [branchId]);
 
   useEffect(() => { refreshBalances(); }, [refreshBalances]);
 
@@ -361,14 +361,14 @@ export function SupplierLedgerClient() {
 
   function handleAddInvoice() {
     const parsed = parseFloat(invAmount);
-    if (!shopId || !selectedId) return;
+    if (!branchId || !selectedId) return;
     if (!invAmount || isNaN(parsed) || parsed <= 0) {
       toast({ title: "Invalid amount", description: "Enter a valid amount greater than 0.", variant: "destructive" });
       return;
     }
     startTransition(async () => {
       const result = await addInvoice({
-        shopId,
+        branchId,
         supplierId: selectedId,
         amount: parsed,
         invoiceNumber: invNumber.trim() || undefined,
@@ -391,11 +391,11 @@ export function SupplierLedgerClient() {
   // ── Delete ────────────────────────────────────────────────────────────────
 
   function confirmDelete() {
-    if (!deleteTarget || !shopId) return;
+    if (!deleteTarget || !branchId) return;
     const id = deleteTarget;
     setDeleteTarget(null);
     startTransition(async () => {
-      const result = await deleteLedgerEntry(id, shopId);
+      const result = await deleteLedgerEntry(id, branchId);
       if (result?.error) {
         toast({ title: "Failed to delete", description: result.error, variant: "destructive" });
         return;
@@ -754,10 +754,10 @@ export function SupplierLedgerClient() {
       </div>
 
       {/* Pay dialog */}
-      {payTarget && shopId && (
+      {payTarget && branchId && (
         <PayDialog
           invoice={payTarget}
-          shopId={shopId}
+          branchId={branchId}
           onClose={() => setPayTarget(null)}
           onSuccess={() => {
             if (selectedId) Promise.all([loadInvoices(selectedId), refreshBalances()]);

@@ -1,9 +1,22 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+
+// Verify that branchId belongs to the authenticated user
+async function verifyBranchOwnership(branchId: string, userId: string): Promise<boolean> {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("dms_branches")
+    .select("dms_shops!inner(owner_id)")
+    .eq("id", branchId)
+    .eq("dms_shops.owner_id", userId)
+    .single();
+  return !!data;
+}
 
 export async function addSale(data: {
-  shopId: string;
+  branchId: string;
   productId: string;
   quantity: number;
   unitPrice: number;
@@ -16,6 +29,8 @@ export async function addSale(data: {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
+  if (!(await verifyBranchOwnership(data.branchId, user.id))) return { error: "Forbidden" };
+
   if (data.quantity <= 0) return { error: "Quantity must be greater than 0" };
   if (data.unitPrice < 0) return { error: "Price cannot be negative" };
 
@@ -27,7 +42,7 @@ export async function addSale(data: {
   const total = data.quantity * data.unitPrice;
 
   const { error } = await supabase.from("dms_sales").insert({
-    shop_id: data.shopId,
+    branch_id: data.branchId,
     product_id: data.productId,
     quantity: data.quantity,
     unit_price: data.unitPrice,
@@ -47,7 +62,7 @@ export async function addSale(data: {
 
 export async function editSale(
   saleId: string,
-  shopId: string,
+  branchId: string,
   data: {
     productId: string;
     quantity: number;
@@ -61,6 +76,8 @@ export async function editSale(
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
+
+  if (!(await verifyBranchOwnership(branchId, user.id))) return { error: "Forbidden" };
 
   if (data.quantity <= 0) return { error: "Quantity must be greater than 0" };
   if (data.unitPrice < 0) return { error: "Price cannot be negative" };
@@ -77,12 +94,12 @@ export async function editSale(
     .from("dms_sales")
     .delete()
     .eq("id", saleId)
-    .eq("shop_id", shopId);
+    .eq("branch_id", branchId);
 
   if (delErr) return { error: delErr.message };
 
   const { error: insErr } = await supabase.from("dms_sales").insert({
-    shop_id: shopId,
+    branch_id: branchId,
     product_id: data.productId,
     quantity: data.quantity,
     unit_price: data.unitPrice,
@@ -100,16 +117,18 @@ export async function editSale(
   return { success: true };
 }
 
-export async function deleteSale(saleId: string, shopId: string) {
+export async function deleteSale(saleId: string, branchId: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
+
+  if (!(await verifyBranchOwnership(branchId, user.id))) return { error: "Forbidden" };
 
   const { error } = await supabase
     .from("dms_sales")
     .delete()
     .eq("id", saleId)
-    .eq("shop_id", shopId);
+    .eq("branch_id", branchId);
 
   if (error) return { error: error.message };
   revalidatePath("/sales");

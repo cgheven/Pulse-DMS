@@ -8,7 +8,7 @@ import {
 import { addExpense, deleteExpense, fetchExpenses } from "@/app/actions/expenses";
 import { formatDateInput } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-import { useShopContext } from "@/contexts/shop-context";
+import { useBranchContext } from "@/contexts/branch-context";
 import { toast } from "@/hooks/use-toast";
 import type { Expense } from "@/types";
 
@@ -164,7 +164,7 @@ function CategoryBadge({ category }: { category: Category }) {
 type FilterMode = "this_month" | "last_month" | "custom";
 
 export function ExpensesClient() {
-  const { shopId } = useShopContext();
+  const { branchId } = useBranchContext();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingFilter, setLoadingFilter] = useState(false);
@@ -188,13 +188,13 @@ export function ExpensesClient() {
 
   // Load on mount
   useEffect(() => {
-    if (!shopId) return;
+    if (!branchId) return;
     const { from, to } = getThisMonthRange();
     const supabase = createClient();
     supabase
       .from("dms_expenses")
       .select("*")
-      .eq("shop_id", shopId)
+      .eq("branch_id", branchId)
       .gte("expense_date", from)
       .lte("expense_date", to)
       .order("expense_date", { ascending: false })
@@ -203,7 +203,7 @@ export function ExpensesClient() {
         if (data) setExpenses(data as Expense[]);
         setLoading(false);
       });
-  }, [shopId]);
+  }, [branchId]);
 
   // Derived
   const total = useMemo(() => expenses.reduce((s, e) => s + Number(e.amount), 0), [expenses]);
@@ -224,9 +224,9 @@ export function ExpensesClient() {
 
   // Load range
   async function loadExpenses(from: string, to: string) {
-    if (!shopId) return;
+    if (!branchId) return;
     setLoadingFilter(true);
-    const result = await fetchExpenses(shopId, from, to);
+    const result = await fetchExpenses(branchId, from, to);
     if (result.error) {
       toast({ title: "Failed to load", description: result.error, variant: "destructive" });
     } else {
@@ -254,7 +254,7 @@ export function ExpensesClient() {
   // Add
   function handleAdd() {
     const amountNum = parseFloat(amount);
-    if (!shopId) return;
+    if (!branchId) return;
     if (!amount || isNaN(amountNum) || amountNum <= 0) {
       toast({ title: "Enter a valid amount", variant: "destructive" });
       return;
@@ -265,7 +265,7 @@ export function ExpensesClient() {
     }
     startTransition(async () => {
       const res = await addExpense({
-        shopId,
+        branchId,
         category,
         amount: amountNum,
         note: note.trim() || undefined,
@@ -285,9 +285,9 @@ export function ExpensesClient() {
 
   // Delete
   function handleDelete(id: string) {
-    if (!shopId) return;
+    if (!branchId) return;
     startDeleteTransition(async () => {
-      const res = await deleteExpense(id, shopId);
+      const res = await deleteExpense(id, branchId);
       if (res?.error) {
         toast({ title: "Error", description: res.error, variant: "destructive" });
       } else {

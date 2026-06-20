@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Printer, TrendingUp, TrendingDown, AlertCircle } from "lucide-react";
-import { useShopContext } from "@/contexts/shop-context";
+import { useBranchContext } from "@/contexts/branch-context";
 import { createClient } from "@/lib/supabase/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -32,7 +32,7 @@ interface PLData {
 
 // ─── Fetch ────────────────────────────────────────────────────────────────────
 
-async function loadPL(shopId: string, from: string, to: string): Promise<PLData> {
+async function loadPL(branchId: string, from: string, to: string): Promise<PLData> {
   const supabase = createClient();
 
   const [
@@ -42,14 +42,14 @@ async function loadPL(shopId: string, from: string, to: string): Promise<PLData>
     { data: suppliersData },
     { data: stockInData,  error: stockErr },
   ] = await Promise.all([
-    supabase.from("dms_sales").select("total, quantity, product_id, sale_date, unit_cost").eq("shop_id", shopId).gte("sale_date", from).lte("sale_date", to),
-    supabase.from("dms_expenses").select("id, amount, category, note").eq("shop_id", shopId).gte("expense_date", from).lte("expense_date", to).order("category").order("created_at"),
-    supabase.from("dms_supplier_ledger").select("type, amount, paid_amount, supplier_id").eq("shop_id", shopId),
-    supabase.from("dms_suppliers").select("id, name").eq("shop_id", shopId),
+    supabase.from("dms_sales").select("total, quantity, product_id, sale_date, unit_cost").eq("branch_id", branchId).gte("sale_date", from).lte("sale_date", to),
+    supabase.from("dms_expenses").select("id, amount, category, note").eq("branch_id", branchId).gte("expense_date", from).lte("expense_date", to).order("category").order("created_at"),
+    supabase.from("dms_supplier_ledger").select("type, amount, paid_amount, supplier_id").eq("branch_id", branchId),
+    supabase.from("dms_suppliers").select("id, name").eq("branch_id", branchId),
     supabase
       .from("dms_stock_movements")
       .select("product_id, quantity, unit_price, created_at")
-      .eq("shop_id", shopId)
+      .eq("branch_id", branchId)
       .eq("type", "in")
       .order("created_at", { ascending: true }),
   ]);
@@ -66,7 +66,7 @@ async function loadPL(shopId: string, from: string, to: string): Promise<PLData>
   const productIds = [...new Set((salesData ?? []).map((s: { product_id: string }) => s.product_id))];
   const productMap: Record<string, { name: string; cost_price: number; supplier_id: string | null }> = {};
   if (productIds.length > 0) {
-    const { data: prods } = await supabase.from("dms_products").select("id, name, cost_price, supplier_id").eq("shop_id", shopId).in("id", productIds);
+    const { data: prods } = await supabase.from("dms_products").select("id, name, cost_price, supplier_id").eq("branch_id", branchId).in("id", productIds);
     (prods ?? []).forEach((p: { id: string; name: string; cost_price: number; supplier_id: string | null }) => {
       productMap[p.id] = { name: p.name, cost_price: p.cost_price, supplier_id: p.supplier_id };
     });
@@ -462,7 +462,7 @@ function Skeleton() {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export function PLReportClient() {
-  const { shopId } = useShopContext();
+  const { branchId } = useBranchContext();
 
   const [preset, setPreset]       = useState<Preset>("month");
   const [customFrom, setCustomFrom] = useState(startOfMonth());
@@ -483,11 +483,11 @@ export function PLReportClient() {
   }
 
   const load = useCallback(async (from: string, to: string) => {
-    if (!shopId) return;
+    if (!branchId) return;
     const seq = ++loadSeq.current;
     setLoading(true); setError(null);
     try {
-      const result = await loadPL(shopId, from, to);
+      const result = await loadPL(branchId, from, to);
       if (seq !== loadSeq.current) return; // stale — a newer load superseded this one
       setReport(result);
     } catch (err) {
@@ -496,7 +496,7 @@ export function PLReportClient() {
     } finally {
       if (seq === loadSeq.current) setLoading(false);
     }
-  }, [shopId]);
+  }, [branchId]);
 
   function handlePreset(p: Preset) {
     setPreset(p);
@@ -506,9 +506,9 @@ export function PLReportClient() {
   }
 
   useEffect(() => {
-    if (shopId) { const { from, to } = rangeFor("month"); load(from, to); }
+    if (branchId) { const { from, to } = rangeFor("month"); load(from, to); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shopId]);
+  }, [branchId]);
 
   const PRESETS: { key: Preset; label: string }[] = [
     { key: "today",  label: "Today" },

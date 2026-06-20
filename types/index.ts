@@ -6,6 +6,9 @@ export type Shop = {
   id: string;
   owner_id: string;
   shop_name: string;
+  city?: string | null;
+  phone?: string | null;
+  branch_limit: number;
   created_at: string;
 };
 
@@ -21,7 +24,7 @@ export type Profile = {
 
 export type Supplier = {
   id: string;
-  shop_id: string;
+  shop_id?: string | null;
   name: string;
   brand: string | null;
   contact: string | null;
@@ -30,7 +33,7 @@ export type Supplier = {
 
 export type Product = {
   id: string;
-  shop_id: string;
+  shop_id?: string | null;
   supplier_id: string | null;
   name: string;
   unit: string;
@@ -43,7 +46,7 @@ export type Product = {
 
 export type StockMovement = {
   id: string;
-  shop_id: string;
+  shop_id?: string | null;
   product_id: string;
   type: "in" | "out";
   quantity: number;
@@ -57,6 +60,7 @@ export type StockMovement = {
 export type StockLevel = {
   product_id: string;
   shop_id: string;
+  branch_id: string;
   product_name: string;
   unit: string;
   low_stock_threshold: number;
@@ -68,7 +72,7 @@ export type StockLevel = {
 
 export type Sale = {
   id: string;
-  shop_id: string;
+  shop_id?: string | null;
   product_id: string;
   quantity: number;
   unit_price: number;
@@ -83,7 +87,7 @@ export type Sale = {
 
 export type Expense = {
   id: string;
-  shop_id: string;
+  shop_id?: string | null;
   category: "rent" | "electricity" | "internet" | "water" | "gas" | "phone" | "salary" | "misc";
   amount: number;
   note: string | null;
@@ -93,7 +97,7 @@ export type Expense = {
 
 export type SupplierLedgerEntry = {
   id: string;
-  shop_id: string;
+  shop_id?: string | null;
   supplier_id: string;
   type: "purchase" | "payment";
   amount: number;
@@ -107,7 +111,7 @@ export type SupplierLedgerEntry = {
 
 export type SupplierPayment = {
   id: string;
-  shop_id: string;
+  shop_id?: string | null;
   invoice_id: string;
   amount: number;
   payment_date: string;
@@ -141,6 +145,21 @@ export type PLReport = {
   net_profit: number;
   margin_pct: number;
   expense_breakdown: { category: string; amount: number }[];
+};
+
+// ─── Multi-branch support ─────────────────────────────────────────────────────
+
+export type DmsBranch = {
+  id: string;
+  shop_id: string;
+  name: string;
+  city: string | null;
+  address: string | null;
+  phone: string | null;
+  is_active: boolean;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
 };
 
 // ─── Admin portal stubs (platform-level, not shop-level) ─────────────────────

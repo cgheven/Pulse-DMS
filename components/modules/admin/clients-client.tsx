@@ -16,6 +16,7 @@ import {
   Copy,
   Check,
   RefreshCw,
+  Building2,
 } from "lucide-react";
 import {
   Dialog,
@@ -39,6 +40,7 @@ import {
   deleteDmsClient,
   updateDmsClientTrial,
 } from "@/app/actions/admin-users";
+import { ManageBranchesDialog } from "@/components/admin/manage-branches-dialog";
 
 // ── Trial status badge ────────────────────────────────────────────────────────
 
@@ -440,12 +442,19 @@ function ExtendTrialDialog({
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
+type ManagingBranchesTarget = {
+  shopId: string;
+  shopName: string;
+  branchLimit: number;
+};
+
 export default function ClientsClient({ clients }: { clients: DmsClient[] }) {
   const { toast } = useToast();
   const router = useRouter();
   const [createOpen, setCreateOpen] = useState(false);
   const [extendTarget, setExtendTarget] = useState<DmsClient | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [managingBranchesFor, setManagingBranchesFor] = useState<ManagingBranchesTarget | null>(null);
 
   // Stats
   const totalClients = clients.filter((c) => !c.is_admin).length;
@@ -521,6 +530,9 @@ export default function ClientsClient({ clients }: { clients: DmsClient[] }) {
                 Trial Status
               </th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Branches
+              </th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 Joined
               </th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -549,6 +561,30 @@ export default function ClientsClient({ clients }: { clients: DmsClient[] }) {
                   <TrialBadge client={client} />
                 </td>
 
+                {/* Branches */}
+                <td className="px-4 py-3">
+                  {client.shop_id ? (
+                    <button
+                      className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() =>
+                        setManagingBranchesFor({
+                          shopId: client.shop_id!,
+                          shopName: client.shop_name ?? client.full_name ?? client.email ?? "Shop",
+                          branchLimit: client.branch_limit,
+                        })
+                      }
+                      title="Manage branches"
+                    >
+                      <Building2 size={13} />
+                      <span>
+                        {client.branch_count} / {client.branch_limit}
+                      </span>
+                    </button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground/50 italic">—</span>
+                  )}
+                </td>
+
                 {/* Joined */}
                 <td className="px-4 py-3 text-muted-foreground text-xs">
                   {client.created_at
@@ -559,6 +595,24 @@ export default function ClientsClient({ clients }: { clients: DmsClient[] }) {
                 {/* Actions */}
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 gap-1 text-xs"
+                      onClick={() =>
+                        client.shop_id &&
+                        setManagingBranchesFor({
+                          shopId: client.shop_id,
+                          shopName: client.shop_name ?? client.full_name ?? client.email ?? "Shop",
+                          branchLimit: client.branch_limit,
+                        })
+                      }
+                      disabled={!client.shop_id}
+                      title={!client.shop_id ? "No shop linked" : "Manage branches"}
+                    >
+                      <Building2 size={13} />
+                      Branches
+                    </Button>
                     <Button
                       size="sm"
                       variant="outline"
@@ -602,6 +656,15 @@ export default function ClientsClient({ clients }: { clients: DmsClient[] }) {
       {/* Dialogs */}
       <CreateClientDialog open={createOpen} onClose={() => setCreateOpen(false)} />
       <ExtendTrialDialog client={extendTarget} onClose={() => setExtendTarget(null)} />
+      {managingBranchesFor && (
+        <ManageBranchesDialog
+          open={!!managingBranchesFor}
+          onOpenChange={(v) => { if (!v) setManagingBranchesFor(null); }}
+          shopId={managingBranchesFor.shopId}
+          shopName={managingBranchesFor.shopName}
+          currentBranchLimit={managingBranchesFor.branchLimit}
+        />
+      )}
     </>
   );
 }

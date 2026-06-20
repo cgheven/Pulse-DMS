@@ -3,7 +3,7 @@
 import { useState, useMemo, useTransition, useRef, useEffect, Fragment } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { useShopContext } from "@/contexts/shop-context";
+import { useBranchContext } from "@/contexts/branch-context";
 import {
   ArrowDown, ArrowUp, AlertTriangle, Package,
   Plus, History, Check, Loader2,
@@ -72,10 +72,10 @@ function computeBatches(
 // ─── Inline threshold editor ──────────────────────────────────────────────────
 
 function ThresholdEditor({
-  level, shopId, onUpdated,
+  level, branchId, onUpdated,
 }: {
   level: StockLevel;
-  shopId: string;
+  branchId: string;
   onUpdated: (productId: string, value: number) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -97,7 +97,7 @@ function ThresholdEditor({
     }
     if (num === level.low_stock_threshold) { setEditing(false); return; }
     setSaving(true);
-    const res = await updateLowStockThreshold(level.product_id, shopId, num);
+    const res = await updateLowStockThreshold(level.product_id, branchId, num);
     setSaving(false);
     if (res?.error) {
       toast({ title: "Error", description: res.error, variant: "destructive" });
@@ -179,11 +179,11 @@ interface MovementDialogState {
 const emptyDialog: MovementDialogState = { open: false, type: "in", productId: "" };
 
 function MovementDialog({
-  state, stockLevels, shopId, onClose, onSuccess,
+  state, stockLevels, branchId, onClose, onSuccess,
 }: {
   state: MovementDialogState;
   stockLevels: StockLevel[];
-  shopId: string;
+  branchId: string;
   onClose: () => void;
   onSuccess: (movement: StockMovement) => void;
 }) {
@@ -220,7 +220,7 @@ function MovementDialog({
 
     startTransition(async () => {
       const res = await addStockMovement({
-        shopId, productId, type: state.type, quantity: qty,
+        branchId, productId, type: state.type, quantity: qty,
         unitPrice: price,
         note: note.trim() || undefined,
       });
@@ -229,7 +229,7 @@ function MovementDialog({
       } else {
         const newMovement: StockMovement = {
           id: `temp-${Date.now()}`,
-          shop_id: shopId,
+          shop_id: null,
           product_id: productId,
           type: state.type,
           quantity: qty,
@@ -365,7 +365,7 @@ function MovementDialog({
 // ─── Root Client Component ────────────────────────────────────────────────────
 
 export function StockClient() {
-  const { shopId } = useShopContext();
+  const { branchId } = useBranchContext();
   const [stockLevels, setStockLevels] = useState<StockLevel[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [batchMap, setBatchMap] = useState<Record<string, BatchRow[]>>({});
@@ -374,20 +374,20 @@ export function StockClient() {
   const [historyFilter, setHistoryFilter] = useState("all");
 
   async function fetchData() {
-    if (!shopId) return;
+    if (!branchId) return;
     const supabase = createClient();
     const [levelsRes, movementsRes, allMovementsRes] = await Promise.all([
-      supabase.from("dms_stock_levels").select("*").eq("shop_id", shopId).order("product_name"),
+      supabase.from("dms_stock_levels").select("*").eq("branch_id", branchId).order("product_name"),
       supabase
         .from("dms_stock_movements")
         .select("*, product:dms_products(id,name,unit)")
-        .eq("shop_id", shopId)
+        .eq("branch_id", branchId)
         .order("created_at", { ascending: false })
         .limit(60),
       supabase
         .from("dms_stock_movements")
         .select("product_id, type, quantity, unit_price, created_at")
-        .eq("shop_id", shopId)
+        .eq("branch_id", branchId)
         .order("created_at", { ascending: true }),
     ]);
     if (levelsRes.data) {
@@ -409,7 +409,7 @@ export function StockClient() {
     setLoading(false);
   }
 
-  useEffect(() => { fetchData(); }, [shopId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchData(); }, [branchId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const lowStockCount = useMemo(() => stockLevels.filter((s) => s.current_stock <= s.low_stock_threshold).length, [stockLevels]);
 
@@ -441,7 +441,7 @@ export function StockClient() {
     fetchData();
   }
 
-  if (loading || !shopId) {
+  if (loading || !branchId) {
     return (
       <div className="space-y-4">
         <div className="h-7 w-40 bg-muted animate-pulse rounded-lg" />
@@ -637,7 +637,7 @@ export function StockClient() {
 
                       {/* Alert threshold */}
                       <td className="px-4 py-3 text-center hidden sm:table-cell">
-                        <ThresholdEditor level={level} shopId={shopId} onUpdated={handleThresholdUpdated} />
+                        <ThresholdEditor level={level} branchId={branchId} onUpdated={handleThresholdUpdated} />
                       </td>
 
                       {/* Actions */}
@@ -786,7 +786,7 @@ export function StockClient() {
           key={`${dialog.type}-${dialog.productId}`}
           state={dialog}
           stockLevels={stockLevels}
-          shopId={shopId}
+          branchId={branchId}
           onClose={() => setDialog((p) => ({ ...p, open: false }))}
           onSuccess={handleMovementSuccess}
         />

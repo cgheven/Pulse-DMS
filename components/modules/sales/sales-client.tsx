@@ -21,7 +21,7 @@ import { formatDateInput } from "@/lib/utils";
 import { addSale, editSale, deleteSale } from "@/app/actions/sales";
 import { fetchSales } from "@/app/actions/sales-data";
 import { createClient } from "@/lib/supabase/client";
-import { useShopContext } from "@/contexts/shop-context";
+import { useBranchContext } from "@/contexts/branch-context";
 import type { Sale, Product } from "@/types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -185,7 +185,7 @@ function SkeletonRows() {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function SalesClient() {
-  const { shopId } = useShopContext();
+  const { branchId } = useBranchContext();
 
   // ── Data state ──────────────────────────────────────────────────────────────
   const [sales, setSales] = useState<Sale[]>([]);
@@ -195,7 +195,7 @@ export function SalesClient() {
 
   // ── Initial data fetch ───────────────────────────────────────────────────────
   useEffect(() => {
-    if (!shopId) return;
+    if (!branchId) return;
 
     const supabase = createClient();
     const today = todayStr();
@@ -207,14 +207,14 @@ export function SalesClient() {
           supabase
             .from("dms_sales")
             .select("*, product:dms_products(id,name,unit)")
-            .eq("shop_id", shopId)
+            .eq("branch_id", branchId)
             .eq("sale_date", today)
             .order("created_at", { ascending: false })
             .limit(50),
           supabase
             .from("dms_products")
             .select("*")
-            .eq("shop_id", shopId)
+            .eq("branch_id", branchId)
             .order("name"),
         ]);
 
@@ -226,7 +226,7 @@ export function SalesClient() {
     }
 
     loadInitialData();
-  }, [shopId]);
+  }, [branchId]);
 
   // ── Date filter state ────────────────────────────────────────────────────────
   const [dateFilter, setDateFilter] = useState<DateFilter>("today");
@@ -305,10 +305,10 @@ export function SalesClient() {
   // ── Reload sales for current date range ─────────────────────────────────────
   const reloadSales = useCallback(
     async (f: string, t: string) => {
-      if (!shopId) return;
+      if (!branchId) return;
       setLoadingSales(true);
       try {
-        const result = await fetchSales(shopId, f, t);
+        const result = await fetchSales(branchId, f, t);
         setSales(result);
       } catch {
         toast({ title: "Error", description: "Failed to load sales.", variant: "destructive" });
@@ -316,7 +316,7 @@ export function SalesClient() {
         setLoadingSales(false);
       }
     },
-    [shopId]
+    [branchId]
   );
 
   // ── Early return while initial data loads ────────────────────────────────────
@@ -348,7 +348,7 @@ export function SalesClient() {
       selectedUnitCost: null,
     }));
     setAddBatches([]);
-    if (!productId || !shopId) return;
+    if (!productId || !branchId) return;
     const seq = ++batchFetchSeq.current;
     setLoadingBatches(true);
     try {
@@ -356,7 +356,7 @@ export function SalesClient() {
       const { data: movements } = await supabase
         .from("dms_stock_movements")
         .select("type, quantity, unit_price, created_at")
-        .eq("shop_id", shopId)
+        .eq("branch_id", branchId)
         .eq("product_id", productId)
         .order("created_at", { ascending: true });
       if (seq !== batchFetchSeq.current) return;
@@ -375,7 +375,7 @@ export function SalesClient() {
   // ── Submit add form ──────────────────────────────────────────────────────────
   async function handleAddSale(e: React.FormEvent) {
     e.preventDefault();
-    if (!shopId) return;
+    if (!branchId) return;
     if (!addForm.productId) {
       toast({ title: "Select a product", variant: "destructive" });
       return;
@@ -393,7 +393,7 @@ export function SalesClient() {
 
     setAddSubmitting(true);
     const result = await addSale({
-      shopId,
+      branchId,
       productId: addForm.productId,
       quantity,
       unitPrice,
@@ -435,7 +435,7 @@ export function SalesClient() {
 
   // ── Submit edit ──────────────────────────────────────────────────────────────
   async function handleEditSave() {
-    if (!editSaleRow || !editForm || !shopId) return;
+    if (!editSaleRow || !editForm || !branchId) return;
     const quantity = parseFloat(editForm.quantity);
     const unitPrice = parseFloat(editForm.unitPrice);
     if (!quantity || quantity <= 0) {
@@ -443,7 +443,7 @@ export function SalesClient() {
       return;
     }
     setEditSubmitting(true);
-    const result = await editSale(editSaleRow.id, shopId, {
+    const result = await editSale(editSaleRow.id, branchId, {
       productId: editForm.productId,
       quantity,
       unitPrice,
@@ -465,9 +465,9 @@ export function SalesClient() {
 
   // ── Delete ───────────────────────────────────────────────────────────────────
   async function handleDelete() {
-    if (!deleteId || !shopId) return;
+    if (!deleteId || !branchId) return;
     setDeleteSubmitting(true);
-    const result = await deleteSale(deleteId, shopId);
+    const result = await deleteSale(deleteId, branchId);
     setDeleteSubmitting(false);
 
     if (result?.error) {

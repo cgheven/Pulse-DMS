@@ -15,7 +15,7 @@ import {
   BarChart2,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { useShopContext } from "@/contexts/shop-context";
+import { useBranchContext } from "@/contexts/branch-context";
 import type { DashboardStats } from "@/types";
 
 function formatPKR(amount: number) {
@@ -49,12 +49,12 @@ function DashboardSkeleton() {
 }
 
 export function DashboardClient() {
-  const { shopId } = useShopContext();
+  const { branchId } = useBranchContext();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!shopId) return;
+    if (!branchId) return;
 
     const supabase = createClient();
 
@@ -64,7 +64,7 @@ export function DashboardClient() {
         const today = new Date();
         const p_today = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
         const { data, error } = await supabase.rpc("get_dashboard_stats", {
-          p_shop_id: shopId,
+          p_branch_id: branchId,
           p_today,
         });
         if (!error && data) {
@@ -76,7 +76,7 @@ export function DashboardClient() {
     }
 
     fetchStats();
-  }, [shopId]);
+  }, [branchId]);
 
   if (loading || !stats) {
     return <DashboardSkeleton />;

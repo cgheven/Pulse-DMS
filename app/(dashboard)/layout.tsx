@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/data";
 import { ShopProvider } from "@/contexts/shop-context";
+import { BranchProvider } from "@/contexts/branch-context";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -15,7 +16,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <ShopProvider profile={ctx.profile} shop={ctx.shop}>
-      <DashboardShell>{children}</DashboardShell>
+      <BranchProvider branch={ctx.branch ?? null} branches={ctx.branches ?? []}>
+        <DashboardShell>{children}</DashboardShell>
+      </BranchProvider>
     </ShopProvider>
   );
 }
