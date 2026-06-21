@@ -40,7 +40,7 @@ export function Navbar({ onMenuClick, profile }: NavbarProps) {
   }
 
   return (
-    <header className="sticky top-0 z-30 flex items-center gap-3 px-4 sm:px-6 h-14 bg-sidebar/90 backdrop-blur-md border-b border-sidebar-border">
+    <header className="sticky top-0 z-30 flex items-center gap-3 px-4 sm:px-6 h-16 bg-sidebar/90 backdrop-blur-md border-b border-sidebar-border">
       <button
         onClick={onMenuClick}
         className="lg:hidden p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"

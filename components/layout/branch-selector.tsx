@@ -25,12 +25,7 @@ export function BranchSelector() {
         <div className="flex items-center justify-center w-6 h-6 rounded-md bg-primary/10 border border-primary/20 shrink-0">
           <Zap className="w-3.5 h-3.5 text-primary" />
         </div>
-        <div>
-          <p className="font-semibold text-sm truncate text-foreground leading-none">{displayName}</p>
-          <p className="text-primary/60 text-[10px] mt-1 font-semibold tracking-[0.15em] uppercase">
-            Pulse of your business
-          </p>
-        </div>
+        <p className="font-semibold text-sm truncate text-foreground">{displayName}</p>
       </div>
     );
   }
@@ -45,14 +40,9 @@ export function BranchSelector() {
           <div className="flex items-center justify-center w-6 h-6 rounded-md bg-primary/10 border border-primary/20 shrink-0 group-hover:bg-primary/20 transition-colors">
             <Zap className="w-3.5 h-3.5 text-primary" />
           </div>
-          <div>
-            <p className="font-semibold text-sm truncate text-foreground group-hover:text-primary transition-colors leading-none">
-              {displayName}
-            </p>
-            <p className="text-primary/60 text-[10px] mt-1 font-semibold tracking-[0.15em] uppercase">
-              Pulse of your business
-            </p>
-          </div>
+          <p className="font-semibold text-sm truncate text-foreground group-hover:text-primary transition-colors">
+            {displayName}
+          </p>
           {open
             ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
             : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
