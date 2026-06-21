@@ -1,6 +1,7 @@
 "use client";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { Eye, EyeOff, Loader2, Zap } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { normalizePhone, syntheticEmailFromPhone } from "@/lib/phone";
@@ -17,10 +18,53 @@ function resolveEmail(input: string): string {
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [identity, setIdentity] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    // Finding 13 fix: read the query params, show toasts, then strip the params from
+    // the URL via history.replaceState so they do not persist in browser history,
+    // bookmarks, or screenshots. useSearchParams() is consumed once on mount.
+    const params = new URLSearchParams(window.location.search);
+    let changed = false;
+
+    if (params.get("password_reset") === "1") {
+      toast({
+        title: "Password updated",
+        description: "Sign in with your new password.",
+      });
+      params.delete("password_reset");
+      changed = true;
+    }
+    if (params.get("error") === "reset_failed") {
+      toast({
+        title: "Reset link expired",
+        description: "Please request a new password reset link.",
+        variant: "destructive",
+      });
+      params.delete("error");
+      changed = true;
+    }
+    if (params.get("registered") === "1") {
+      toast({
+        title: "Account created!",
+        description: "Please sign in with your new credentials.",
+      });
+      params.delete("registered");
+      changed = true;
+    }
+
+    if (changed) {
+      const cleanUrl =
+        window.location.pathname +
+        (params.toString() ? `?${params.toString()}` : "");
+      window.history.replaceState({}, "", cleanUrl);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -79,9 +123,14 @@ export default function LoginPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="password" className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Password
-              </Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password" className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Password
+                </Label>
+                <Link href="/forgot-password" className="text-xs text-primary hover:text-primary/80 transition-colors">
+                  Forgot password?
+                </Link>
+              </div>
               <div className="relative">
                 <Input
                   id="password"
@@ -118,10 +167,11 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          <p className="text-center text-xs text-muted-foreground/60 mt-6 leading-relaxed">
-            Access restricted to authorized users only.
-            <br />
-            Contact your administrator for access.
+          <p className="text-center text-sm text-muted-foreground mt-6">
+            Don't have an account?{" "}
+            <Link href="/register" className="text-primary hover:text-primary/80 font-medium transition-colors">
+              Start free trial
+            </Link>
           </p>
         </div>
       </div>

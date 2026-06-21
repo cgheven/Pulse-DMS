@@ -10,6 +10,10 @@ export type Shop = {
   phone?: string | null;
   branch_limit: number;
   created_at: string;
+  // Trial / subscription fields — required for server-side enforcement (Finding 6)
+  is_active: boolean;
+  trial_plan: "7_day" | "14_day" | "30_day" | "full" | null;
+  trial_ends_at: string | null;
 };
 
 export type Profile = {

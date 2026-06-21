@@ -14,6 +14,15 @@ export default async function DashboardLayout({ children }: { children: React.Re
     redirect("/onboarding");
   }
 
+  // Finding 6 fix: enforce trial expiry and shop active status server-side.
+  // The TrialBanner component is purely cosmetic — access must be blocked here.
+  const trialExpired =
+    ctx.shop.trial_ends_at != null &&
+    new Date(ctx.shop.trial_ends_at) < new Date();
+  if (!ctx.shop.is_active || trialExpired) {
+    redirect("/pricing");
+  }
+
   return (
     <ShopProvider profile={ctx.profile} shop={ctx.shop}>
       <BranchProvider branch={ctx.branch ?? null} branches={ctx.branches ?? []}>

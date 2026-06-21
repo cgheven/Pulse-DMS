@@ -34,7 +34,24 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
   const isAuthRoute = pathname.startsWith("/login");
-  const isPublic = isAuthRoute || pathname.startsWith("/find") || pathname.startsWith("/research") || pathname.startsWith("/api/") || pathname.startsWith("/pricing") || pathname.startsWith("/onboarding");
+  // Finding 7 fix: /register and /verify-email must be public so unauthenticated
+  // users can access the registration flow without being redirected to /login.
+  // Finding 4 fix: /forgot-password, /reset-password, and /auth/callback must be
+  // public. Without these entries an unauthenticated user clicking a password-reset
+  // link hits /auth/callback → middleware redirects to /login before the code
+  // exchange can happen, breaking the entire reset flow.
+  const isPublic =
+    isAuthRoute ||
+    pathname.startsWith("/register") ||
+    pathname.startsWith("/verify-email") ||
+    pathname.startsWith("/forgot-password") ||
+    pathname.startsWith("/reset-password") ||
+    pathname.startsWith("/auth/callback") ||
+    pathname.startsWith("/find") ||
+    pathname.startsWith("/research") ||
+    pathname.startsWith("/api/") ||
+    pathname.startsWith("/pricing") ||
+    pathname.startsWith("/onboarding");
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
