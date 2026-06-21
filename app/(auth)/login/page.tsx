@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Eye, EyeOff, Loader2, Zap } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -18,7 +18,6 @@ function resolveEmail(input: string): string {
 
 export default function LoginPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [identity, setIdentity] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
