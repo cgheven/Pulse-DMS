@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import {
   ShoppingCart, Plus, Pencil, Trash2, Search, Calendar,
-  CreditCard, Banknote, PackageCheck, FileSpreadsheet, FileText, AlertTriangle,
+  CreditCard, Banknote, PackageCheck, FileSpreadsheet, FileText, AlertTriangle, ChevronDown, Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DatePicker } from "@/components/ui/date-picker";
 import { toast } from "@/hooks/use-toast";
@@ -167,6 +168,129 @@ function PaymentToggle({
         </button>
       ))}
     </div>
+  );
+}
+
+// ─── Product Combobox ─────────────────────────────────────────────────────────
+
+function ProductCombobox({
+  products,
+  value,
+  onChange,
+  stockMap = {},
+  className,
+}: {
+  products: Product[];
+  value: string;
+  onChange: (id: string) => void;
+  stockMap?: Record<string, number>;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  const selected = products.find((p) => p.id === value);
+
+  const filtered = useMemo(() => {
+    if (!query.trim()) return products;
+    const q = query.toLowerCase();
+    return products.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        (p.size ?? "").toLowerCase().includes(q)
+    );
+  }, [products, query]);
+
+  function handleSelect(id: string) {
+    onChange(id);
+    setOpen(false);
+    setQuery("");
+  }
+
+  // Focus search input when popover opens
+  useEffect(() => {
+    if (open) setTimeout(() => searchRef.current?.focus(), 50);
+  }, [open]);
+
+  return (
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setQuery(""); }}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={[
+            "flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 text-sm",
+            "ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+            "disabled:cursor-not-allowed disabled:opacity-50 text-left",
+            !selected ? "text-muted-foreground" : "text-foreground",
+            className ?? "",
+          ].join(" ")}
+        >
+          <span className="truncate">
+            {selected
+              ? `${selected.name}${selected.size ? ` (${selected.size})` : ""}`
+              : "Select product…"}
+          </span>
+          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="p-0 w-[var(--radix-popover-trigger-width)] min-w-[260px]"
+        style={{ width: "var(--radix-popover-trigger-width)" }}
+      >
+        {/* Search input */}
+        <div className="flex items-center gap-2 border-b border-sidebar-border px-3 py-2">
+          <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+          <input
+            ref={searchRef}
+            placeholder="Search products…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
+          />
+          {query && (
+            <button type="button" onClick={() => setQuery("")} className="text-muted-foreground hover:text-foreground text-xs">✕</button>
+          )}
+        </div>
+
+        {/* List */}
+        <div className="max-h-60 overflow-y-auto py-1">
+          {filtered.length === 0 ? (
+            <p className="px-3 py-4 text-center text-xs text-muted-foreground">No products match</p>
+          ) : (
+            filtered.map((p) => {
+              const stock = stockMap[p.id] ?? null;
+              const outOfStock = stock !== null && stock <= 0;
+              const isSelected = p.id === value;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => handleSelect(p.id)}
+                  className={[
+                    "w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors",
+                    isSelected ? "bg-primary/10 text-primary" : "hover:bg-muted/40 text-foreground",
+                  ].join(" ")}
+                >
+                  <Check className={["w-3.5 h-3.5 shrink-0", isSelected ? "opacity-100 text-primary" : "opacity-0"].join(" ")} />
+                  <span className="flex-1 truncate">
+                    {p.name}
+                    {p.size && (
+                      <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary">{p.size}</span>
+                    )}
+                  </span>
+                  <span className="text-xs text-muted-foreground shrink-0">{formatPKR(p.sale_price)}</span>
+                  {outOfStock && (
+                    <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+                  )}
+                </button>
+              );
+            })
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -575,32 +699,12 @@ export function SalesClient() {
           <div className="grid grid-cols-12 gap-2 items-end">
             <div className="col-span-12 sm:col-span-5 space-y-1">
               <Label className="text-xs text-muted-foreground">Product</Label>
-              <Select value={addForm.productId} onValueChange={handleAddProductChange}>
-                <SelectTrigger className="h-9">
-                  <SelectValue placeholder="Select product…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {products.length === 0 ? (
-                    <div className="px-3 py-4 text-sm text-muted-foreground text-center">No products yet</div>
-                  ) : (
-                    products.map((p) => {
-                      const stock = stockMap[p.id] ?? null;
-                      const outOfStock = stock !== null && stock <= 0;
-                      return (
-                        <SelectItem key={p.id} value={p.id}>
-                          <span className={outOfStock ? "text-amber-400" : ""}>
-                            {p.name}
-                          </span>
-                          <span className="ml-1.5 text-muted-foreground text-xs">— {formatPKR(p.sale_price)}/{p.unit}</span>
-                          {outOfStock && (
-                            <span className="ml-2 text-xs text-amber-400">({stock < 0 ? stock : "out of stock"})</span>
-                          )}
-                        </SelectItem>
-                      );
-                    })
-                  )}
-                </SelectContent>
-              </Select>
+              <ProductCombobox
+                products={products}
+                value={addForm.productId}
+                onChange={handleAddProductChange}
+                stockMap={stockMap}
+              />
             </div>
 
             <div className="col-span-4 sm:col-span-2 space-y-1">
@@ -905,25 +1009,14 @@ export function SalesClient() {
             <div className="space-y-3 py-1">
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Product</Label>
-                <Select
+                <ProductCombobox
+                  products={products}
                   value={editForm.productId}
-                  onValueChange={(v) => {
+                  onChange={(v) => {
                     const p = productMap.get(v);
                     setEditForm((prev) => prev ? { ...prev, productId: v, unitPrice: p ? String(p.sale_price) : prev.unitPrice } : prev);
                   }}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select product…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {products.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.name}
-                        <span className="ml-1.5 text-muted-foreground text-xs">— {formatPKR(p.sale_price)}/{p.unit}</span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                />
               </div>
 
               <div className="grid grid-cols-3 gap-2">

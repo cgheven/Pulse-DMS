@@ -49,9 +49,13 @@ const PRESET_UNITS = ["piece", "box", "kg", "litre", "dozen"];
 
 // ─── types ─────────────────────────────────────────────────────────────────
 
+const PRESET_SIZES = ["S", "M", "L", "XL"];
+
 interface ProductForm {
   name: string;
   supplierId: string;
+  size: string;
+  customSize: string;
   unit: string;
   customUnit: string;
   costPrice: string;
@@ -68,6 +72,8 @@ interface SupplierForm {
 const emptyProductForm = (): ProductForm => ({
   name: "",
   supplierId: "",
+  size: "",
+  customSize: "",
   unit: "piece",
   customUnit: "",
   costPrice: "",
@@ -209,12 +215,16 @@ function ProductsTab({
 
   function openEdit(p: Product) {
     setEditingProduct(p);
-    const isPreset = PRESET_UNITS.includes(p.unit);
+    const isPresetUnit = PRESET_UNITS.includes(p.unit);
+    const existingSize = p.size ?? "";
+    const isPresetSize = PRESET_SIZES.includes(existingSize);
     setForm({
       name: p.name,
       supplierId: p.supplier_id ?? "",
-      unit: isPreset ? p.unit : "__custom__",
-      customUnit: isPreset ? "" : p.unit,
+      size: existingSize ? (isPresetSize ? existingSize : "__custom__") : "",
+      customSize: isPresetSize ? "" : existingSize,
+      unit: isPresetUnit ? p.unit : "__custom__",
+      customUnit: isPresetUnit ? "" : p.unit,
       costPrice: String(p.cost_price),
       salePrice: String(p.sale_price),
       lowStockThreshold: String(p.low_stock_threshold),
@@ -227,10 +237,12 @@ function ProductsTab({
     if (!form.name.trim()) { toast({ title: "Name is required", variant: "destructive" }); return; }
     if (!unit) { toast({ title: "Unit is required", variant: "destructive" }); return; }
 
+    const size = form.size === "__custom__" ? form.customSize.trim() : form.size.trim();
     const payload = {
       branchId,
       name: form.name.trim(),
       supplierId: form.supplierId || undefined,
+      size: size || undefined,
       unit,
       costPrice: parseFloat(form.costPrice) || 0,
       salePrice: parseFloat(form.salePrice) || 0,
@@ -290,6 +302,7 @@ function ProductsTab({
               <thead>
                 <tr className="border-b border-sidebar-border">
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Name</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Size</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Supplier</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Unit</th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden md:table-cell">Cost Price</th>
@@ -303,6 +316,11 @@ function ProductsTab({
                 {products.map((p) => (
                   <tr key={p.id} className="hover:bg-white/[0.02] transition-colors">
                     <td className="px-4 py-3 font-medium text-foreground">{p.name}</td>
+                    <td className="px-4 py-3 hidden sm:table-cell">
+                      {p.size
+                        ? <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-primary/10 border border-primary/20 text-xs font-semibold text-primary">{p.size}</span>
+                        : <span className="text-xs text-muted-foreground italic">—</span>}
+                    </td>
                     <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">
                       {p.supplier_id
                         ? (supplierMap[p.supplier_id]?.name ?? <span className="italic text-xs">Unknown</span>)
@@ -364,6 +382,45 @@ function ProductsTab({
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               />
+            </div>
+
+            {/* Size */}
+            <div className="space-y-1.5">
+              <Label>Size <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <div className="flex flex-wrap gap-1.5">
+                {PRESET_SIZES.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, size: f.size === s ? "" : s, customSize: "" }))}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                      form.size === s
+                        ? "bg-primary/15 border-primary/40 text-primary"
+                        : "border-sidebar-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, size: f.size === "__custom__" ? "" : "__custom__" }))}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                    form.size === "__custom__"
+                      ? "bg-primary/15 border-primary/40 text-primary"
+                      : "border-sidebar-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
+                  }`}
+                >
+                  Custom
+                </button>
+              </div>
+              {form.size === "__custom__" && (
+                <Input
+                  placeholder="e.g. XXL, 2XL, 1L, 500ml"
+                  value={form.customSize}
+                  onChange={(e) => setForm((f) => ({ ...f, customSize: e.target.value }))}
+                />
+              )}
             </div>
 
             {/* Supplier */}

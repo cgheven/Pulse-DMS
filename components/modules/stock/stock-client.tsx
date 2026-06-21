@@ -572,7 +572,12 @@ export function StockClient() {
                             )} />
                           )}
                           <div>
-                            <p className="font-medium leading-none">{level.product_name}</p>
+                            <div className="flex items-center gap-1.5 leading-none">
+                              <p className="font-medium">{level.product_name}</p>
+                              {level.size && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-primary/10 border border-primary/20 text-[10px] font-semibold text-primary">{level.size}</span>
+                              )}
+                            </div>
                             <p className="text-xs text-muted-foreground mt-0.5">{level.unit}</p>
                             {/* Prices — mobile only */}
                             <div className="mt-1.5 flex flex-wrap gap-1 md:hidden">

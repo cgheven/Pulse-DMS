@@ -51,6 +51,7 @@ export type Product = {
   shop_id?: string | null;
   supplier_id: string | null;
   name: string;
+  size: string | null;
   unit: string;
   cost_price: number;
   sale_price: number;
@@ -77,6 +78,7 @@ export type StockLevel = {
   shop_id: string;
   branch_id: string;
   product_name: string;
+  size: string | null;
   unit: string;
   low_stock_threshold: number;
   cost_price: number;

@@ -19,6 +19,7 @@ export async function addProduct(data: {
   branchId: string;
   name: string;
   supplierId?: string;
+  size?: string;
   unit: string;
   costPrice: number;
   salePrice: number;
@@ -35,6 +36,7 @@ export async function addProduct(data: {
     branch_id: data.branchId,
     name: data.name.trim(),
     supplier_id: data.supplierId || null,
+    size: data.size?.trim() || null,
     unit: data.unit,
     cost_price: data.costPrice,
     sale_price: data.salePrice,
@@ -52,6 +54,7 @@ export async function editProduct(
   data: {
     name: string;
     supplierId?: string;
+    size?: string;
     unit: string;
     costPrice: number;
     salePrice: number;
@@ -69,6 +72,7 @@ export async function editProduct(
     .update({
       name: data.name.trim(),
       supplier_id: data.supplierId || null,
+      size: data.size?.trim() || null,
       unit: data.unit,
       cost_price: data.costPrice,
       sale_price: data.salePrice,
