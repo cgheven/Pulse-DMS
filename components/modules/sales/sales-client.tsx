@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import {
   ShoppingCart, Plus, Pencil, Trash2, Search, Calendar,
-  CreditCard, Banknote, PackageCheck,
+  CreditCard, Banknote, PackageCheck, FileSpreadsheet, FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -197,20 +197,32 @@ function ReportExportButtons({ sales, shopName, branchName }: { sales: Sale[]; s
     { id: "price",    label: "Unit Price",   defaultOn: true, numeric: true, accessor: (r) => r.unit_price },
     { id: "total",    label: "Total (PKR)",  defaultOn: true, numeric: true, accessor: (r) => r.total },
     { id: "mode",     label: "Payment",      defaultOn: true, accessor: (r) => r.payment_mode },
+    { id: "added_by", label: "Added By",     defaultOn: true, accessor: (r) => r.added_by_name ?? "" },
   ];
   const slug = branchName.replace(/\s+/g, "-").toLowerCase();
   const date = new Date().toISOString().slice(0, 10);
   const base = `sales-${slug}-${date}`;
+  const disabled = sales.length === 0;
   return (
-    <div className="flex gap-2 shrink-0">
-      <Button variant="outline" size="sm" className="h-8 text-xs"
-        onClick={() => downloadReportCsv({ filename: base, columns: COLS, rows: sales, totalsRow: true })}>
+    <div className="flex items-center gap-1">
+      <button
+        disabled={disabled}
+        onClick={() => downloadReportCsv({ filename: base, columns: COLS, rows: sales, totalsRow: true })}
+        className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+        title="Export Excel"
+      >
+        <FileSpreadsheet className="w-3.5 h-3.5" />
         Excel
-      </Button>
-      <Button variant="outline" size="sm" className="h-8 text-xs"
-        onClick={() => downloadReportPdf({ meta: { title: "Sales Report", shopName: `${shopName} — ${branchName}`, filename: base }, columns: COLS, rows: sales, totalsRow: true })}>
+      </button>
+      <button
+        disabled={disabled}
+        onClick={() => downloadReportPdf({ meta: { title: "Sales Report", shopName: `${shopName} — ${branchName}`, filename: base }, columns: COLS, rows: sales, totalsRow: true })}
+        className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+        title="Export PDF"
+      >
+        <FileText className="w-3.5 h-3.5" />
         PDF
-      </Button>
+      </button>
     </div>
   );
 }
@@ -219,7 +231,8 @@ function ReportExportButtons({ sales, shopName, branchName }: { sales: Sale[]; s
 
 export function SalesClient() {
   const { branchId, branch } = useBranchContext();
-  const { shop } = useShopContext();
+  const { shop, profile } = useShopContext();
+  const isOwner = profile?.role === "owner";
 
   // ── Data state ──────────────────────────────────────────────────────────────
   const [sales, setSales] = useState<Sale[]>([]);
@@ -524,18 +537,11 @@ export function SalesClient() {
           <h1 className="text-2xl font-bold tracking-tight">Sales</h1>
           <p className="text-xs text-muted-foreground mt-0.5">Record and track daily transactions</p>
         </div>
-        <div className="flex items-center gap-3 shrink-0">
-          <ReportExportButtons
-            sales={sales}
-            shopName={shop?.shop_name ?? "Shop"}
-            branchName={branch?.name ?? "Branch"}
-          />
-          <div className="text-right">
-            <p className="text-2xl font-bold text-amber-400 tabular-nums leading-none">{formatPKR(dailyTotal)}</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {dailyCount} transaction{dailyCount !== 1 ? "s" : ""} today
-            </p>
-          </div>
+        <div className="text-right shrink-0">
+          <p className="text-2xl font-bold text-amber-400 tabular-nums leading-none">{formatPKR(dailyTotal)}</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {dailyCount} transaction{dailyCount !== 1 ? "s" : ""} today
+          </p>
         </div>
       </div>
 
@@ -697,14 +703,23 @@ export function SalesClient() {
             ))}
           </div>
 
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-            <Input
-              placeholder="Search…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-7 h-7 text-xs w-36"
-            />
+          <div className="flex items-center gap-2">
+            {isOwner && (
+              <ReportExportButtons
+                sales={filteredSales}
+                shopName={shop?.shop_name ?? "Shop"}
+                branchName={branch?.name ?? "Branch"}
+              />
+            )}
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+              <Input
+                placeholder="Search…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-7 h-7 text-xs w-36"
+              />
+            </div>
           </div>
         </div>
 
@@ -733,7 +748,7 @@ export function SalesClient() {
                 <th className="text-center text-xs font-medium text-muted-foreground px-3 py-2 hidden md:table-cell">Mode</th>
                 <th className="text-left text-xs font-medium text-muted-foreground px-3 py-2 hidden lg:table-cell">Customer</th>
                 <th className="text-left text-xs font-medium text-muted-foreground px-3 py-2 hidden xl:table-cell">Added by</th>
-                <th className="px-3 py-2 w-16" />
+                {isOwner && <th className="px-3 py-2 w-16" />}
               </tr>
             </thead>
 
@@ -750,7 +765,7 @@ export function SalesClient() {
                 ))
               ) : filteredSales.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={isOwner ? 8 : 7} className="px-4 py-12 text-center text-muted-foreground">
                     <ShoppingCart className="w-8 h-8 opacity-20 mx-auto mb-2" />
                     <p className="text-sm">No sales for this period</p>
                   </td>
@@ -781,24 +796,26 @@ export function SalesClient() {
                     <td className="px-3 py-2 text-xs text-muted-foreground hidden xl:table-cell truncate max-w-[120px]">
                       {sale.added_by_name ?? <span className="opacity-30">—</span>}
                     </td>
-                    <td className="px-3 py-2">
-                      <div className="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 sm:opacity-100 transition-opacity">
-                        <button
-                          onClick={() => openEdit(sale)}
-                          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                          title="Edit"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => setDeleteId(sale.id)}
-                          className="p-1.5 rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
+                    {isOwner && (
+                      <td className="px-3 py-2">
+                        <div className="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 sm:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => openEdit(sale)}
+                            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                            title="Edit"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setDeleteId(sale.id)}
+                            className="p-1.5 rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))
               )}

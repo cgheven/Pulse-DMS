@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, ShoppingCart, Package, Receipt,
-  BookOpen, BarChart3, Boxes, Settings, X, Zap, Users,
+  BookOpen, BarChart3, Boxes, Settings, X, Zap, Users, TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useShopContext } from "@/contexts/shop-context";
@@ -34,6 +34,7 @@ const navGroups = [
     label: "Reports",
     items: [
       { href: "/pl-report",        label: "P&L Report",      icon: BarChart3 },
+      { href: "/insights",         label: "Insights",         icon: TrendingUp },
     ],
   },
   {
