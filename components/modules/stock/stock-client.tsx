@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useBranchContext } from "@/contexts/branch-context";
 import {
   ArrowDown, ArrowUp, AlertTriangle, Package,
-  Plus, History, Check, Loader2,
+  Plus, History, Check, Loader2, Search,
 } from "lucide-react";
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -372,6 +372,8 @@ export function StockClient() {
   const [loading, setLoading] = useState(true);
   const [dialog, setDialog] = useState<MovementDialogState>(emptyDialog);
   const [historyFilter, setHistoryFilter] = useState("all");
+  const [stockSearch, setStockSearch] = useState("");
+  const [stockFilter, setStockFilter] = useState<"all" | "low">("all");
 
   async function fetchData() {
     if (!branchId) return;
@@ -417,6 +419,17 @@ export function StockClient() {
     historyFilter === "all" ? movements : movements.filter((m) => m.product_id === historyFilter),
     [movements, historyFilter]
   );
+
+  const filteredStockLevels = useMemo(() => {
+    let list = stockFilter === "low"
+      ? stockLevels.filter((s) => s.current_stock <= s.low_stock_threshold)
+      : stockLevels;
+    if (stockSearch.trim()) {
+      const q = stockSearch.toLowerCase();
+      list = list.filter((s) => s.product_name.toLowerCase().includes(q));
+    }
+    return list;
+  }, [stockLevels, stockSearch, stockFilter]);
 
   function openDialog(type: "in" | "out", productId: string) {
     setDialog({ open: true, type, productId });
@@ -476,19 +489,40 @@ export function StockClient() {
       <div className="rounded-xl border border-sidebar-border bg-card overflow-hidden">
 
         {/* Section toolbar */}
-        <div className="px-4 py-2.5 border-b border-sidebar-border flex items-center justify-between">
+        <div className="px-4 py-2.5 border-b border-sidebar-border flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2">
             <Package className="w-3.5 h-3.5 text-muted-foreground" />
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Stock Levels</span>
           </div>
-          <button
-            onClick={() => openDialog("in", "")}
-            className="inline-flex items-center gap-1.5 h-7 px-3 rounded-md text-xs font-semibold
-              bg-emerald-500 text-black hover:bg-emerald-400 transition-colors"
-          >
-            <ArrowDown className="w-3 h-3" />
-            Stock In
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-0.5 bg-muted/20 rounded-lg p-0.5">
+              {(["all", "low"] as const).map((f) => (
+                <button key={f} type="button" onClick={() => setStockFilter(f)}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                    stockFilter === f ? "bg-amber-500/20 text-amber-400" : "text-muted-foreground hover:text-foreground"
+                  }`}>
+                  {f === "all" ? "All" : "Low Stock"}
+                </button>
+              ))}
+            </div>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+              <input
+                placeholder="Search products…"
+                value={stockSearch}
+                onChange={(e) => setStockSearch(e.target.value)}
+                className="pl-7 h-7 w-36 rounded-md bg-background border border-sidebar-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+            <button
+              onClick={() => openDialog("in", "")}
+              className="inline-flex items-center gap-1.5 h-7 px-3 rounded-md text-xs font-semibold
+                bg-emerald-500 text-black hover:bg-emerald-400 transition-colors"
+            >
+              <ArrowDown className="w-3 h-3" />
+              Stock In
+            </button>
+          </div>
         </div>
 
         {stockLevels.length === 0 ? (
@@ -496,6 +530,11 @@ export function StockClient() {
             <Package className="w-8 h-8 opacity-20" />
             <p className="text-sm">No products yet.</p>
             <Link href="/products" className="text-xs text-primary hover:underline">Add products first →</Link>
+          </div>
+        ) : filteredStockLevels.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-14 text-muted-foreground gap-2">
+            <Search className="w-8 h-8 opacity-20" />
+            <p className="text-sm">No products match your search.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -510,7 +549,7 @@ export function StockClient() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-sidebar-border/40">
-                {stockLevels.map((level) => {
+                {filteredStockLevels.map((level) => {
                   const status     = stockStatus(level);
                   const batches    = batchMap[level.product_id] ?? [];
                   const countColor =

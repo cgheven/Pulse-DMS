@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import {
   ShoppingCart, Plus, Pencil, Trash2, Search, Calendar,
-  CreditCard, Banknote, PackageCheck, FileSpreadsheet, FileText,
+  CreditCard, Banknote, PackageCheck, FileSpreadsheet, FileText, AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -237,6 +237,7 @@ export function SalesClient() {
   // ── Data state ──────────────────────────────────────────────────────────────
   const [sales, setSales] = useState<Sale[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [stockMap, setStockMap] = useState<Record<string, number>>({});
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadingSales, setLoadingSales] = useState(false);
 
@@ -250,7 +251,7 @@ export function SalesClient() {
     async function loadInitialData() {
       setInitialLoading(true);
       try {
-        const [salesRes, productsRes] = await Promise.all([
+        const [salesRes, productsRes, stockRes] = await Promise.all([
           supabase
             .from("dms_sales")
             .select("*, product:dms_products(id,name,unit)")
@@ -263,10 +264,21 @@ export function SalesClient() {
             .select("*")
             .eq("branch_id", branchId)
             .order("name"),
+          supabase
+            .from("dms_stock_levels")
+            .select("product_id, current_stock")
+            .eq("branch_id", branchId),
         ]);
 
         if (salesRes.data) setSales(salesRes.data as Sale[]);
         if (productsRes.data) setProducts(productsRes.data as Product[]);
+        if (stockRes.data) {
+          const map: Record<string, number> = {};
+          for (const row of stockRes.data as { product_id: string; current_stock: number }[]) {
+            map[row.product_id] = row.current_stock;
+          }
+          setStockMap(map);
+        }
       } finally {
         setInitialLoading(false);
       }
@@ -290,6 +302,9 @@ export function SalesClient() {
   // ── Search ───────────────────────────────────────────────────────────────────
   const [search, setSearch] = useState("");
 
+  // ── Payment mode filter ──────────────────────────────────────────────────────
+  const [paymentFilter, setPaymentFilter] = useState<"all" | "cash" | "credit">("all");
+
   // ── Edit dialog ──────────────────────────────────────────────────────────────
   const [editSaleRow, setEditSaleRow] = useState<Sale | null>(null);
   const [editForm, setEditForm] = useState<EditFormState | null>(null);
@@ -312,16 +327,23 @@ export function SalesClient() {
     return qty * price;
   }, [addForm.quantity, addForm.unitPrice]);
 
-  // ── Derived: filtered sales (search) ────────────────────────────────────────
+  // ── Derived: filtered sales (payment mode + search) ─────────────────────────
   const filteredSales = useMemo(() => {
-    if (!search.trim()) return sales;
-    const q = search.toLowerCase();
-    return sales.filter(
-      (s) =>
-        (s.product?.name ?? "").toLowerCase().includes(q) ||
-        (s.customer_name ?? "").toLowerCase().includes(q)
-    );
-  }, [sales, search]);
+    let list = sales;
+    if (paymentFilter !== "all") {
+      list = list.filter((s) => s.payment_mode === paymentFilter);
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(
+        (s) =>
+          s.product?.name?.toLowerCase().includes(q) ||
+          s.customer_name?.toLowerCase().includes(q) ||
+          s.added_by_name?.toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [sales, search, paymentFilter]);
 
   // ── Derived: today's running total ──────────────────────────────────────────
   const { dailyTotal, dailyCount } = useMemo(() => {
@@ -561,12 +583,21 @@ export function SalesClient() {
                   {products.length === 0 ? (
                     <div className="px-3 py-4 text-sm text-muted-foreground text-center">No products yet</div>
                   ) : (
-                    products.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.name}
-                        <span className="ml-1.5 text-muted-foreground text-xs">— {formatPKR(p.sale_price)}/{p.unit}</span>
-                      </SelectItem>
-                    ))
+                    products.map((p) => {
+                      const stock = stockMap[p.id] ?? null;
+                      const outOfStock = stock !== null && stock <= 0;
+                      return (
+                        <SelectItem key={p.id} value={p.id}>
+                          <span className={outOfStock ? "text-amber-400" : ""}>
+                            {p.name}
+                          </span>
+                          <span className="ml-1.5 text-muted-foreground text-xs">— {formatPKR(p.sale_price)}/{p.unit}</span>
+                          {outOfStock && (
+                            <span className="ml-2 text-xs text-amber-400">({stock < 0 ? stock : "out of stock"})</span>
+                          )}
+                        </SelectItem>
+                      );
+                    })
                   )}
                 </SelectContent>
               </Select>
@@ -599,6 +630,17 @@ export function SalesClient() {
               </div>
             </div>
           </div>
+
+          {addForm.productId && stockMap[addForm.productId] !== undefined && stockMap[addForm.productId] <= 0 && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-amber-500/10 border border-amber-500/25">
+              <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+              <span className="text-xs text-amber-400">
+                {stockMap[addForm.productId] < 0
+                  ? `Stock is at ${stockMap[addForm.productId]} — selling will increase the deficit`
+                  : "Out of stock — selling will push stock negative"}
+              </span>
+            </div>
+          )}
 
           {addBatches.length > 0 && (
             <div className="space-y-1">
@@ -685,22 +727,35 @@ export function SalesClient() {
 
         {/* Toolbar */}
         <div className="px-3 py-2 border-b border-sidebar-border flex flex-wrap gap-2 items-center justify-between">
-          <div className="flex items-center gap-0.5 bg-muted/20 rounded-lg p-0.5">
-            {(["today", "week", "month", "custom"] as DateFilter[]).map((f) => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => handleDateFilterChange(f)}
-                className={[
-                  "px-2.5 py-1 rounded-md text-xs font-medium transition-colors",
-                  dateFilter === f
-                    ? "bg-amber-500/20 text-amber-400"
-                    : "text-muted-foreground hover:text-foreground",
-                ].join(" ")}
-              >
-                {f === "week" ? "Week" : f === "month" ? "Month" : f === "custom" ? "Custom" : "Today"}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-0.5 bg-muted/20 rounded-lg p-0.5">
+              {(["today", "week", "month", "custom"] as DateFilter[]).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => handleDateFilterChange(f)}
+                  className={[
+                    "px-2.5 py-1 rounded-md text-xs font-medium transition-colors",
+                    dateFilter === f
+                      ? "bg-amber-500/20 text-amber-400"
+                      : "text-muted-foreground hover:text-foreground",
+                  ].join(" ")}
+                >
+                  {f === "week" ? "Week" : f === "month" ? "Month" : f === "custom" ? "Custom" : "Today"}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-0.5 bg-muted/20 rounded-lg p-0.5">
+              {(["all", "cash", "credit"] as const).map((m) => (
+                <button key={m} type="button" onClick={() => setPaymentFilter(m)}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                    paymentFilter === m ? "bg-amber-500/20 text-amber-400" : "text-muted-foreground hover:text-foreground"
+                  }`}>
+                  {m === "all" ? "All" : m === "cash" ? "Cash" : "Credit"}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="flex items-center gap-2">

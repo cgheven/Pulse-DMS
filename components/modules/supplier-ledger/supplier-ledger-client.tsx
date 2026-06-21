@@ -15,6 +15,7 @@ import {
   Wallet,
   CreditCard,
   Clock,
+  Search,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -228,6 +229,8 @@ export function SupplierLedgerClient() {
   const [payments, setPayments] = useState<SupplierPayment[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [mobileView, setMobileView] = useState<"list" | "ledger">("list");
+  const [supplierSearch, setSupplierSearch] = useState("");
+  const [invoiceFilter, setInvoiceFilter] = useState<"all" | "unpaid" | "partial" | "paid">("all");
 
   // Add invoice form
   const [invAmount, setInvAmount] = useState("");
@@ -255,6 +258,15 @@ export function SupplierLedgerClient() {
     [balances]
   );
 
+  const filteredSuppliers = useMemo(() => {
+    if (!supplierSearch.trim()) return balances;
+    const q = supplierSearch.toLowerCase();
+    return balances.filter((sb) =>
+      sb.supplier.name.toLowerCase().includes(q) ||
+      (sb.supplier.brand ?? "").toLowerCase().includes(q)
+    );
+  }, [balances, supplierSearch]);
+
   // Only show purchase invoices; sort newest first
   const sortedInvoices = useMemo(
     () =>
@@ -267,6 +279,11 @@ export function SupplierLedgerClient() {
         ),
     [invoices]
   );
+
+  const visibleInvoices = useMemo(() => {
+    if (invoiceFilter === "all") return sortedInvoices;
+    return sortedInvoices.filter((inv) => getStatus(inv) === invoiceFilter);
+  }, [sortedInvoices, invoiceFilter]);
 
   // ── Load invoices for a supplier ──────────────────────────────────────────
 
@@ -350,6 +367,7 @@ export function SupplierLedgerClient() {
     setMobileView("ledger");
     setExpandedId(null);
     setPayments([]);
+    setInvoiceFilter("all");
     loadInvoices(id);
     setInvAmount("");
     setInvNumber("");
@@ -441,6 +459,19 @@ export function SupplierLedgerClient() {
             </p>
           </div>
 
+          {/* Supplier search */}
+          <div className="p-3 border border-sidebar-border rounded-xl bg-card mb-4">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+              <input
+                placeholder="Search supplier…"
+                value={supplierSearch}
+                onChange={(e) => setSupplierSearch(e.target.value)}
+                className="w-full pl-8 h-8 rounded-lg bg-muted/20 border border-sidebar-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+          </div>
+
           {/* Supplier list */}
           <div className="flex-1 overflow-y-auto space-y-2 pr-0.5 scrollbar-hide">
             {balancesLoading ? (
@@ -452,8 +483,14 @@ export function SupplierLedgerClient() {
                 <p className="text-xs text-muted-foreground mb-4">Add suppliers in Products to start tracking.</p>
                 <Link href="/products" className="text-xs text-amber-400 hover:underline">Go to Products →</Link>
               </div>
+            ) : filteredSuppliers.length === 0 ? (
+              <div className="rounded-xl border border-sidebar-border bg-card p-6 text-center">
+                <Search className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
+                <p className="text-sm font-medium mb-1">No suppliers found.</p>
+                <p className="text-xs text-muted-foreground">Try a different search term.</p>
+              </div>
             ) : (
-              balances.map((b) => (
+              filteredSuppliers.map((b) => (
                 <button
                   key={b.supplier.id}
                   onClick={() => selectSupplier(b.supplier.id)}
@@ -629,10 +666,23 @@ export function SupplierLedgerClient() {
                   Invoices
                   {sortedInvoices.length > 0 && (
                     <span className="ml-auto text-xs text-muted-foreground font-normal">
-                      {sortedInvoices.length} invoice{sortedInvoices.length !== 1 ? "s" : ""}
+                      {visibleInvoices.length}{visibleInvoices.length !== sortedInvoices.length ? ` of ${sortedInvoices.length}` : ""} invoice{sortedInvoices.length !== 1 ? "s" : ""}
                     </span>
                   )}
                 </h3>
+
+                {sortedInvoices.length > 0 && (
+                  <div className="flex items-center gap-0.5 bg-muted/20 rounded-lg p-0.5 mb-4">
+                    {(["all", "unpaid", "partial", "paid"] as const).map((f) => (
+                      <button key={f} type="button" onClick={() => setInvoiceFilter(f)}
+                        className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                          invoiceFilter === f ? "bg-amber-500/20 text-amber-400" : "text-muted-foreground hover:text-foreground"
+                        }`}>
+                        {f.charAt(0).toUpperCase() + f.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                )}
 
                 {invoicesLoading ? (
                   <InvoiceListSkeleton />
@@ -640,6 +690,11 @@ export function SupplierLedgerClient() {
                   <div className="flex flex-col items-center justify-center py-12 text-center">
                     <Wallet className="h-8 w-8 text-muted-foreground mb-3" />
                     <p className="text-sm text-muted-foreground">No invoices yet. Add the first one above.</p>
+                  </div>
+                ) : visibleInvoices.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <Receipt className="h-8 w-8 text-muted-foreground mb-3" />
+                    <p className="text-sm text-muted-foreground">No invoices match the selected filter.</p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto -mx-1">
@@ -656,7 +711,7 @@ export function SupplierLedgerClient() {
                         </tr>
                       </thead>
                       <tbody>
-                        {sortedInvoices.map((inv) => {
+                        {visibleInvoices.map((inv) => {
                           const paid = Number(inv.paid_amount);
                           const remaining = Math.max(0, inv.amount - paid);
                           const status = getStatus(inv);
