@@ -15,6 +15,33 @@ async function verifyBranchOwnership(branchId: string, userId: string): Promise<
   return !!data;
 }
 
+async function verifyBranchAccess(branchId: string, userId: string): Promise<boolean> {
+  const admin = createAdminClient();
+  // Owner check
+  const { data: own } = await admin
+    .from("dms_branches")
+    .select("id, dms_shops!inner(owner_id)")
+    .eq("id", branchId)
+    .eq("dms_shops.owner_id", userId)
+    .maybeSingle();
+  if (own) return true;
+  // Staff check: user is active staff AND branch belongs to their shop
+  const { data: st } = await admin
+    .from("dms_staff")
+    .select("shop_id")
+    .eq("profile_id", userId)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (!st) return false;
+  const { data: br } = await admin
+    .from("dms_branches")
+    .select("id")
+    .eq("id", branchId)
+    .eq("shop_id", st.shop_id)
+    .maybeSingle();
+  return !!br;
+}
+
 export async function addSale(data: {
   branchId: string;
   productId: string;
@@ -29,7 +56,7 @@ export async function addSale(data: {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
-  if (!(await verifyBranchOwnership(data.branchId, user.id))) return { error: "Forbidden" };
+  if (!(await verifyBranchAccess(data.branchId, user.id))) return { error: "Forbidden" };
 
   if (data.quantity <= 0) return { error: "Quantity must be greater than 0" };
   if (data.unitPrice < 0) return { error: "Price cannot be negative" };
@@ -41,7 +68,18 @@ export async function addSale(data: {
 
   const total = data.quantity * data.unitPrice;
 
-  const { error } = await supabase.from("dms_sales").insert({
+  // Use admin client — access already verified above; RLS would block staff users on insert
+  const admin = createAdminClient();
+
+  // Snapshot the adder's name at write time (avoids join + RLS issues on reads)
+  const { data: profileRow } = await admin
+    .from("dms_profiles")
+    .select("full_name")
+    .eq("id", user.id)
+    .single();
+  const added_by_name = profileRow?.full_name ?? null;
+
+  const { error } = await admin.from("dms_sales").insert({
     branch_id: data.branchId,
     product_id: data.productId,
     quantity: data.quantity,
@@ -51,6 +89,8 @@ export async function addSale(data: {
     customer_name: data.customerName?.trim() || null,
     sale_date: data.saleDate ?? new Date().toISOString().slice(0, 10),
     unit_cost: data.unitCost ?? null,
+    added_by: user.id,
+    added_by_name,
   });
 
   if (error) return { error: error.message };

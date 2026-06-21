@@ -4,9 +4,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, ShoppingCart, Package, Receipt,
-  BookOpen, BarChart3, Boxes, Settings, X, Zap,
+  BookOpen, BarChart3, Boxes, Settings, X, Zap, Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useShopContext } from "@/contexts/shop-context";
 
 const navGroups = [
   {
@@ -39,6 +40,12 @@ const navGroups = [
     label: "Catalogue",
     items: [
       { href: "/products",         label: "Products",        icon: Package },
+    ],
+  },
+  {
+    label: "Team",
+    items: [
+      { href: "/staff",            label: "Staff",           icon: Users },
     ],
   },
   {
@@ -87,6 +94,8 @@ interface SidebarProps {
 
 export function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
+  const { profile } = useShopContext();
+  const isStaff = profile?.role === "staff";
 
   return (
     <>
@@ -130,7 +139,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto py-4 px-2.5 space-y-4 scrollbar-hide">
-          {navGroups.map((group) => (
+          {(isStaff ? [{ label: "Operations", items: [{ href: "/sales", label: "Sales", icon: ShoppingCart }] }] : navGroups).map((group) => (
             <div key={group.label}>
               <p className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-widest px-3 mb-1.5">
                 {group.label}

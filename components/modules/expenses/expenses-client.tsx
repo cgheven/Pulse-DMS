@@ -9,6 +9,10 @@ import { addExpense, deleteExpense, fetchExpenses } from "@/app/actions/expenses
 import { formatDateInput } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { useBranchContext } from "@/contexts/branch-context";
+import { useShopContext } from "@/contexts/shop-context";
+import { downloadReportCsv } from "@/lib/reports/csv-export";
+import { downloadReportPdf } from "@/lib/reports/pdf-export";
+import type { ReportColumn } from "@/lib/reports/types";
 import { toast } from "@/hooks/use-toast";
 import type { Expense } from "@/types";
 
@@ -164,7 +168,8 @@ function CategoryBadge({ category }: { category: Category }) {
 type FilterMode = "this_month" | "last_month" | "custom";
 
 export function ExpensesClient() {
-  const { branchId } = useBranchContext();
+  const { branchId, branch } = useBranchContext();
+  const { shop } = useShopContext();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingFilter, setLoadingFilter] = useState(false);
@@ -321,9 +326,38 @@ export function ExpensesClient() {
           <h1 className="text-2xl font-bold tracking-tight">Expenses</h1>
           <p className="text-xs text-muted-foreground mt-0.5">Track all shop costs</p>
         </div>
-        <div className="text-right shrink-0">
-          <p className="text-2xl font-bold tabular-nums leading-none">{formatPKR(total)}</p>
-          <p className="text-xs text-muted-foreground mt-1">total this period</p>
+        <div className="flex items-center gap-3 shrink-0">
+          {expenses.length > 0 && (() => {
+            const COLS: ReportColumn<Expense>[] = [
+              { id: "date",     label: "Date",         defaultOn: true, accessor: (r) => r.expense_date },
+              { id: "category", label: "Category",     defaultOn: true, accessor: (r) => r.category },
+              { id: "note",     label: "Note",         defaultOn: true, accessor: (r) => r.note ?? "" },
+              { id: "amount",   label: "Amount (PKR)", defaultOn: true, numeric: true, accessor: (r) => Number(r.amount) },
+            ];
+            const slug = (branch?.name ?? "branch").replace(/\s+/g, "-").toLowerCase();
+            const base = `expenses-${slug}-${new Date().toISOString().slice(0, 10)}`;
+            const shopName = `${shop?.shop_name ?? "Shop"} — ${branch?.name ?? "Branch"}`;
+            return (
+              <>
+                <button
+                  className="inline-flex items-center h-8 px-3 rounded-md text-xs font-medium border border-sidebar-border text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+                  onClick={() => downloadReportCsv({ filename: base, columns: COLS, rows: expenses, totalsRow: true })}
+                >
+                  Excel
+                </button>
+                <button
+                  className="inline-flex items-center h-8 px-3 rounded-md text-xs font-medium border border-sidebar-border text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+                  onClick={() => downloadReportPdf({ meta: { title: "Expenses Report", shopName, filename: base }, columns: COLS, rows: expenses, totalsRow: true })}
+                >
+                  PDF
+                </button>
+              </>
+            );
+          })()}
+          <div className="text-right">
+            <p className="text-2xl font-bold tabular-nums leading-none">{formatPKR(total)}</p>
+            <p className="text-xs text-muted-foreground mt-1">total this period</p>
+          </div>
         </div>
       </div>
 

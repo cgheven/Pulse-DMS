@@ -22,6 +22,10 @@ import { addSale, editSale, deleteSale } from "@/app/actions/sales";
 import { fetchSales } from "@/app/actions/sales-data";
 import { createClient } from "@/lib/supabase/client";
 import { useBranchContext } from "@/contexts/branch-context";
+import { useShopContext } from "@/contexts/shop-context";
+import { downloadReportCsv } from "@/lib/reports/csv-export";
+import { downloadReportPdf } from "@/lib/reports/pdf-export";
+import type { ReportColumn } from "@/lib/reports/types";
 import type { Sale, Product } from "@/types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -182,10 +186,40 @@ function SkeletonRows() {
   );
 }
 
+// ─── Report Export Buttons ────────────────────────────────────────────────────
+
+function ReportExportButtons({ sales, shopName, branchName }: { sales: Sale[]; shopName: string; branchName: string }) {
+  const COLS: ReportColumn<Sale>[] = [
+    { id: "date",     label: "Date",         defaultOn: true, accessor: (r) => r.sale_date },
+    { id: "customer", label: "Customer",     defaultOn: true, accessor: (r) => r.customer_name ?? "Walk-in" },
+    { id: "product",  label: "Product",      defaultOn: true, accessor: (r) => (r.product as any)?.name ?? "" },
+    { id: "qty",      label: "Qty",          defaultOn: true, numeric: true, accessor: (r) => r.quantity },
+    { id: "price",    label: "Unit Price",   defaultOn: true, numeric: true, accessor: (r) => r.unit_price },
+    { id: "total",    label: "Total (PKR)",  defaultOn: true, numeric: true, accessor: (r) => r.total },
+    { id: "mode",     label: "Payment",      defaultOn: true, accessor: (r) => r.payment_mode },
+  ];
+  const slug = branchName.replace(/\s+/g, "-").toLowerCase();
+  const date = new Date().toISOString().slice(0, 10);
+  const base = `sales-${slug}-${date}`;
+  return (
+    <div className="flex gap-2 shrink-0">
+      <Button variant="outline" size="sm" className="h-8 text-xs"
+        onClick={() => downloadReportCsv({ filename: base, columns: COLS, rows: sales, totalsRow: true })}>
+        Excel
+      </Button>
+      <Button variant="outline" size="sm" className="h-8 text-xs"
+        onClick={() => downloadReportPdf({ meta: { title: "Sales Report", shopName: `${shopName} — ${branchName}`, filename: base }, columns: COLS, rows: sales, totalsRow: true })}>
+        PDF
+      </Button>
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function SalesClient() {
-  const { branchId } = useBranchContext();
+  const { branchId, branch } = useBranchContext();
+  const { shop } = useShopContext();
 
   // ── Data state ──────────────────────────────────────────────────────────────
   const [sales, setSales] = useState<Sale[]>([]);
@@ -490,11 +524,18 @@ export function SalesClient() {
           <h1 className="text-2xl font-bold tracking-tight">Sales</h1>
           <p className="text-xs text-muted-foreground mt-0.5">Record and track daily transactions</p>
         </div>
-        <div className="text-right shrink-0">
-          <p className="text-2xl font-bold text-amber-400 tabular-nums leading-none">{formatPKR(dailyTotal)}</p>
-          <p className="text-xs text-muted-foreground mt-1">
-            {dailyCount} transaction{dailyCount !== 1 ? "s" : ""} today
-          </p>
+        <div className="flex items-center gap-3 shrink-0">
+          <ReportExportButtons
+            sales={sales}
+            shopName={shop?.shop_name ?? "Shop"}
+            branchName={branch?.name ?? "Branch"}
+          />
+          <div className="text-right">
+            <p className="text-2xl font-bold text-amber-400 tabular-nums leading-none">{formatPKR(dailyTotal)}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {dailyCount} transaction{dailyCount !== 1 ? "s" : ""} today
+            </p>
+          </div>
         </div>
       </div>
 
@@ -691,6 +732,7 @@ export function SalesClient() {
                 <th className="text-right text-xs font-medium text-muted-foreground px-3 py-2">Total</th>
                 <th className="text-center text-xs font-medium text-muted-foreground px-3 py-2 hidden md:table-cell">Mode</th>
                 <th className="text-left text-xs font-medium text-muted-foreground px-3 py-2 hidden lg:table-cell">Customer</th>
+                <th className="text-left text-xs font-medium text-muted-foreground px-3 py-2 hidden xl:table-cell">Added by</th>
                 <th className="px-3 py-2 w-16" />
               </tr>
             </thead>
@@ -708,7 +750,7 @@ export function SalesClient() {
                 ))
               ) : filteredSales.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
                     <ShoppingCart className="w-8 h-8 opacity-20 mx-auto mb-2" />
                     <p className="text-sm">No sales for this period</p>
                   </td>
@@ -735,6 +777,9 @@ export function SalesClient() {
                     </td>
                     <td className="px-3 py-2 text-xs text-muted-foreground hidden lg:table-cell truncate max-w-[120px]">
                       {sale.customer_name ?? <span className="opacity-30">—</span>}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-muted-foreground hidden xl:table-cell truncate max-w-[120px]">
+                      {sale.added_by_name ?? <span className="opacity-30">—</span>}
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 sm:opacity-100 transition-opacity">

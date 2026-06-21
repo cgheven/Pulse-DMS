@@ -12,6 +12,13 @@ interface NavbarProps {
   profile: Profile | null;
 }
 
+function displayIdentity(email: string | undefined): string {
+  if (!email) return "";
+  const m = email.match(/^staff-(\d+)@dms\.staff\.local$/);
+  if (m) return m[1];
+  return email;
+}
+
 export function Navbar({ onMenuClick, profile }: NavbarProps) {
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
@@ -73,7 +80,7 @@ export function Navbar({ onMenuClick, profile }: NavbarProps) {
                   {profile?.full_name ?? "Owner"}
                 </p>
                 <p className="text-xs text-muted-foreground truncate mt-0.5">
-                  {profile?.email ?? ""}
+                  {displayIdentity(profile?.email)}
                 </p>
               </div>
               <div className="p-1">

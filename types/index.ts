@@ -22,6 +22,21 @@ export type Profile = {
   created_at: string;
 };
 
+export type DmsStaffRole = "manager" | "sales" | "cashier" | "stock" | "accountant" | "driver" | "other";
+
+export type Staff = {
+  id: string;
+  shop_id: string;
+  full_name: string;
+  phone: string;
+  role: DmsStaffRole;
+  is_active: boolean;
+  profile_id: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Supplier = {
   id: string;
   shop_id?: string | null;
@@ -82,6 +97,8 @@ export type Sale = {
   sale_date: string;
   created_at: string;
   unit_cost: number | null;
+  added_by: string | null;
+  added_by_name: string | null;
   product?: Pick<Product, "id" | "name" | "unit"> | null;
 };
 

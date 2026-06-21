@@ -3,14 +3,21 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, Loader2, Zap } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { normalizePhone, syntheticEmailFromPhone } from "@/lib/phone";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 
+function resolveEmail(input: string): string {
+  const canonical = normalizePhone(input);
+  if (canonical) return syntheticEmailFromPhone(canonical);
+  return input;
+}
+
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const [identity, setIdentity] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -18,6 +25,7 @@ export default function LoginPage() {
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
+    const email = resolveEmail(identity.trim());
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
@@ -54,17 +62,17 @@ export default function LoginPage() {
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="email" className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Email
+              <Label htmlFor="identity" className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Mobile / Email
               </Label>
               <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                id="identity"
+                type="text"
+                placeholder="03001234567 or you@example.com"
+                value={identity}
+                onChange={(e) => setIdentity(e.target.value)}
                 required
-                autoComplete="email"
+                autoComplete="username"
                 disabled={loading}
                 className="h-10 bg-background/50 border-sidebar-border focus-visible:ring-primary/40 focus-visible:border-primary/50"
               />

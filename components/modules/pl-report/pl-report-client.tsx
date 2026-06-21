@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Printer, TrendingUp, TrendingDown, AlertCircle } from "lucide-react";
 import { useBranchContext } from "@/contexts/branch-context";
+import { useShopContext } from "@/contexts/shop-context";
 import { createClient } from "@/lib/supabase/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -461,8 +462,50 @@ function Skeleton() {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
+async function downloadPlPdf(pl: PLData, shopName: string, branchName: string) {
+  const { default: jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const M = 20;
+  const INK: [number, number, number] = [15, 23, 42];
+  const MUTED: [number, number, number] = [100, 116, 139];
+  const GREEN: [number, number, number] = [34, 197, 94];
+  const RED: [number, number, number] = [239, 68, 68];
+  const fmt = (n: number) => new Intl.NumberFormat("en-PK").format(Math.round(n));
+
+  doc.setFont("helvetica", "bold"); doc.setFontSize(18); doc.setTextColor(...INK);
+  doc.text("Profit & Loss Report", M, 22);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(...MUTED);
+  doc.text(`${shopName} — ${branchName}`, M, 30);
+  doc.text("Generated: " + new Date().toLocaleString("en-PK", { timeZone: "Asia/Karachi" }), M, 36);
+  doc.setDrawColor(215, 215, 222); doc.setLineWidth(0.3); doc.line(M, 40, 190, 40);
+
+  let y = 52;
+  function row(label: string, value: string, color?: [number, number, number]) {
+    doc.setFont("helvetica", "normal"); doc.setFontSize(11); doc.setTextColor(...INK);
+    doc.text(label, M, y);
+    if (color) doc.setTextColor(...color); else doc.setTextColor(...INK);
+    doc.setFont("helvetica", "bold");
+    doc.text("PKR " + value, 190, y, { align: "right" });
+    doc.setTextColor(...MUTED); doc.setLineWidth(0.2); doc.line(M, y + 3, 190, y + 3);
+    y += 14;
+  }
+  row("Total Sales", fmt(pl.total_sales));
+  row("Cost of Goods Sold", fmt(pl.total_cogs));
+  row("Gross Profit", fmt(pl.gross_profit), pl.gross_profit >= 0 ? GREEN : RED);
+  row("Total Expenses", fmt(pl.total_expenses));
+  y += 4;
+  doc.setFontSize(14); doc.setFont("helvetica", "bold");
+  doc.setTextColor(...(pl.net_profit >= 0 ? GREEN : RED));
+  doc.text("Net Profit: PKR " + fmt(pl.net_profit), M, y);
+  doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.setTextColor(...MUTED);
+  doc.text(`Margin: ${pl.margin_pct.toFixed(1)}%`, M, y + 9);
+
+  doc.save(`pl-report-${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
 export function PLReportClient() {
-  const { branchId } = useBranchContext();
+  const { branchId, branch } = useBranchContext();
+  const { shop } = useShopContext();
 
   const [preset, setPreset]       = useState<Preset>("month");
   const [customFrom, setCustomFrom] = useState(startOfMonth());
@@ -527,14 +570,23 @@ export function PLReportClient() {
           <h1 className="text-2xl font-bold tracking-tight">P&amp;L Report</h1>
           <p className="text-xs text-muted-foreground mt-0.5">How much did you make?</p>
         </div>
-        <button
-          onClick={() => window.print()}
-          disabled={!report || loading}
-          className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium border border-sidebar-border text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-        >
-          <Printer className="w-3.5 h-3.5" />
-          Print
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => report && downloadPlPdf(report, shop?.shop_name ?? "Shop", branch?.name ?? "Branch")}
+            disabled={!report || loading}
+            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium border border-sidebar-border text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            PDF
+          </button>
+          <button
+            onClick={() => window.print()}
+            disabled={!report || loading}
+            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium border border-sidebar-border text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            Print
+          </button>
+        </div>
       </div>
 
       {/* Period selector */}
