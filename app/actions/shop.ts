@@ -1,6 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function createShop(shopName: string) {
   const supabase = await createClient();
@@ -10,6 +11,8 @@ export async function createShop(shopName: string) {
   const trimmed = shopName.trim();
   if (!trimmed) return { error: "Shop name is required" };
 
+  const admin = createAdminClient();
+
   const { data: shop, error: shopErr } = await supabase
     .from("dms_shops")
     .insert({ owner_id: user.id, shop_name: trimmed })
@@ -17,6 +20,13 @@ export async function createShop(shopName: string) {
     .single();
 
   if (shopErr) return { error: shopErr.message };
+
+  // Create a default branch — required for the dashboard branch context to resolve.
+  const { error: branchErr } = await admin
+    .from("dms_branches")
+    .insert({ shop_id: shop.id, name: "Main Branch", is_default: true, is_active: true });
+
+  if (branchErr) return { error: branchErr.message };
 
   const { error: profileErr } = await supabase
     .from("dms_profiles")
