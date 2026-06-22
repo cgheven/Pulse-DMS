@@ -16,7 +16,11 @@ export function BranchSelector() {
   const branchLimit = shop?.branch_limit ?? 1;
   const canAddBranch = branches.length < branchLimit;
   const isMultiBranch = branchLimit > 1 || branches.length > 1;
-  const displayName = branch?.name ?? shop?.shop_name ?? "My Shop";
+  // Single-branch: show shop name (branch name like "Main Branch" is meaningless to the user).
+  // Multi-branch: show the active branch name so users know which branch they're on.
+  const displayName = isMultiBranch
+    ? (branch?.name ?? shop?.shop_name ?? "My Shop")
+    : (shop?.shop_name ?? branch?.name ?? "My Shop");
 
   // Single branch — static label, no dropdown
   if (!isMultiBranch) {
