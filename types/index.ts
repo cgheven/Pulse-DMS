@@ -23,6 +23,7 @@ export type Profile = {
   role: "owner" | "staff";
   shop_id: string | null;
   is_admin: boolean;
+  is_sales_rep: boolean;
   created_at: string;
 };
 

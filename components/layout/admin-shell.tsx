@@ -4,17 +4,18 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Shield, Users, LayoutDashboard,
-  Menu, X, LogOut, ClipboardList, Zap, Target, Inbox,
+  Menu, X, LogOut, ClipboardList, Zap, Target, Inbox, Users2,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
 const adminNav = [
-  { href: "/admin",             label: "Dashboard",  icon: LayoutDashboard, exact: true },
-  { href: "/admin/users",       label: "Clients",    icon: Users },
-  { href: "/admin/leads",       label: "Leads",      icon: Target },
-  { href: "/admin/inquiries",   label: "Inquiries",  icon: Inbox },
-  { href: "/admin/audit",       label: "Audit Log",  icon: ClipboardList },
+  { href: "/admin",               label: "Dashboard",    icon: LayoutDashboard, exact: true },
+  { href: "/admin/users",         label: "Clients",      icon: Users },
+  { href: "/admin/leads",         label: "Leads",        icon: Target },
+  { href: "/admin/inquiries",     label: "Inquiries",    icon: Inbox },
+  { href: "/admin/sales-teams",   label: "Sales Teams",  icon: Users2 },
+  { href: "/admin/audit",         label: "Audit Log",    icon: ClipboardList },
 ];
 
 function AdminSidebar({ open, onClose, email }: { open: boolean; onClose: () => void; email: string }) {
