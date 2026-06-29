@@ -64,7 +64,7 @@ export type SalesRepStats = {
   pipeline_by_stage: Record<string, number>;
 };
 
-async function requireSalesRep() {
+export async function requireSalesRep() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");

@@ -6,9 +6,10 @@ import Link from "next/link";
 import {
   Search, Plus, ChevronRight, Loader2, Target,
   CalendarCheck, AlertTriangle, Trophy, Filter,
-  MessageCircle, Phone,
+  MessageCircle, Phone, Zap,
 } from "lucide-react";
 import { createLead, type Lead, type LeadStatus } from "@/app/actions/sales-rep";
+import { CreateTrialModal } from "@/components/modules/sales/create-trial-modal";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -210,6 +211,7 @@ export default function LeadsClient({ leads }: { leads: Lead[] }) {
   const [dueOnly, setDueOnly] = useState(false);
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [trialLead, setTrialLead] = useState<Lead | null>(null);
 
   // Top-line stats
   const stats = useMemo(() => ({
@@ -402,11 +404,20 @@ export default function LeadsClient({ leads }: { leads: Lead[] }) {
 
                     {/* Action */}
                     <td className="px-4 py-3 text-right">
-                      <Link href={`/sales/leads/${lead.id}`}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-sidebar-border text-xs text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors"
-                      >
-                        View <ChevronRight size={12} />
-                      </Link>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={e => { e.stopPropagation(); setTrialLead(lead); }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-sidebar-border text-xs text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors whitespace-nowrap"
+                        >
+                          <Zap size={11} className="text-primary" />
+                          Trial
+                        </button>
+                        <Link href={`/sales/leads/${lead.id}`}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-sidebar-border text-xs text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors"
+                        >
+                          View <ChevronRight size={12} />
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -425,6 +436,7 @@ export default function LeadsClient({ leads }: { leads: Lead[] }) {
       </div>
 
       {showAdd && <AddLeadModal onClose={() => setShowAdd(false)} />}
+      {trialLead && <CreateTrialModal lead={trialLead} onClose={() => setTrialLead(null)} />}
     </div>
   );
 }

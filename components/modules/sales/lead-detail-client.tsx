@@ -43,17 +43,19 @@ const STATUS_COLORS: Record<LeadStatus, string> = {
 const ACTIVITY_ICONS: Record<string, string> = {
   call: "📞", whatsapp: "💬", email: "✉️", meeting: "🤝",
   demo: "🖥", follow_up: "📅", payment_received: "💰", note: "📝",
+  trial_account_created: "🚀",
 };
 
 const ACTIVITY_COLORS: Record<string, string> = {
-  call:             "border-blue-500/30 bg-blue-500/10",
-  whatsapp:         "border-[#25D366]/30 bg-[#25D366]/10",
-  email:            "border-violet-500/30 bg-violet-500/10",
-  meeting:          "border-orange-500/30 bg-orange-500/10",
-  demo:             "border-cyan-500/30 bg-cyan-500/10",
-  follow_up:        "border-amber-500/30 bg-amber-500/10",
-  payment_received: "border-green-500/30 bg-green-500/10",
-  note:             "border-sidebar-border bg-sidebar/50",
+  call:                   "border-blue-500/30 bg-blue-500/10",
+  whatsapp:               "border-[#25D366]/30 bg-[#25D366]/10",
+  email:                  "border-violet-500/30 bg-violet-500/10",
+  meeting:                "border-orange-500/30 bg-orange-500/10",
+  demo:                   "border-cyan-500/30 bg-cyan-500/10",
+  follow_up:              "border-amber-500/30 bg-amber-500/10",
+  payment_received:       "border-green-500/30 bg-green-500/10",
+  note:                   "border-sidebar-border bg-sidebar/50",
+  trial_account_created:  "border-primary/30 bg-primary/10",
 };
 
 function timeAgo(dateStr: string): string {

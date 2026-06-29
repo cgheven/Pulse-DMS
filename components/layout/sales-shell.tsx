@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Zap, LayoutDashboard, Users, CalendarCheck,
-  LogOut, Menu, X, TrendingUp, Plus,
+  LogOut, Menu, X, TrendingUp,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -70,15 +70,6 @@ function SalesSidebar({ open, onClose, email, name }: {
             );
           })}
 
-          {/* Add Lead — fills dead space and is the most common action */}
-          <div className="mt-3 px-1">
-            <Link href="/sales/leads" onClick={onClose}
-              className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg bg-primary/10 border border-primary/25 text-primary text-sm font-semibold hover:bg-primary/20 transition-colors"
-            >
-              <Plus size={14} />
-              New Lead
-            </Link>
-          </div>
         </nav>
 
         {/* Footer */}
