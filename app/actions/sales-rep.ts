@@ -34,6 +34,7 @@ export type Lead = {
   lost_reason: string | null;
   payment_amount: number | null;
   payment_method: string | null;
+  plan_type: string | null;
   assigned_to: string | null;
   team_id: string | null;
   created_at: string;
@@ -312,7 +313,7 @@ export async function addActivity(data: {
 export async function updateLeadStatus(
   leadId: string,
   status: LeadStatus,
-  extra?: { lost_reason?: string; payment_amount?: number; payment_method?: string }
+  extra?: { lost_reason?: string; payment_amount?: number; payment_method?: string; plan_type?: string }
 ): Promise<{ error?: string }> {
   try {
     const user = await requireSalesRep();
@@ -325,8 +326,8 @@ export async function updateLeadStatus(
     if (!validStatuses.includes(status)) throw new Error("Invalid status");
 
     if (extra?.lost_reason && extra.lost_reason.length > MAX_LOST_REASON) throw new Error("Lost reason too long");
-    if (extra?.payment_amount !== undefined && (isNaN(extra.payment_amount) || extra.payment_amount < 0)) {
-      throw new Error("Invalid payment amount");
+    if (extra?.payment_amount !== undefined && (isNaN(extra.payment_amount) || extra.payment_amount < 0 || extra.payment_amount > 10_000_000)) {
+      throw new Error("Payment amount must be between 0 and 10,000,000");
     }
 
     const VALID_PAYMENT_METHODS = ["cash", "bank_transfer", "easypaisa", "jazzcash", "cheque", ""];
@@ -334,11 +335,17 @@ export async function updateLeadStatus(
       throw new Error("Invalid payment method");
     }
 
+    const VALID_PLAN_TYPES = ["monthly", "annual", ""];
+    if (extra?.plan_type !== undefined && !VALID_PLAN_TYPES.includes(extra.plan_type ?? "")) {
+      throw new Error("Invalid plan type");
+    }
+
     const admin = createAdminClient();
     const updateData: Record<string, unknown> = { status, updated_at: new Date().toISOString() };
     if (extra?.lost_reason !== undefined) updateData.lost_reason = extra.lost_reason;
     if (extra?.payment_amount !== undefined) updateData.payment_amount = extra.payment_amount;
     if (extra?.payment_method !== undefined) updateData.payment_method = extra.payment_method;
+    if (extra?.plan_type !== undefined && extra.plan_type) updateData.plan_type = extra.plan_type;
 
     const { error } = await admin.from("dms_leads").update(updateData).eq("id", leadId);
     if (error) throw error;
@@ -421,5 +428,86 @@ export async function getTodaysFollowUps(): Promise<{ leads: Lead[]; error?: str
     return { leads };
   } catch (err) {
     return { leads: [], error: err instanceof Error ? err.message : "Failed to load follow-ups" };
+  }
+}
+
+export type MemberGoals = {
+  monthly_commission_pct: number;
+  annual_commission_pct: number;
+  monthly_deal_target: number;
+  monthly_revenue_target: number;
+};
+
+export type MonthlyEarnings = {
+  goals: MemberGoals;
+  deals_closed: number;
+  revenue_this_month: number;
+  commission_earned: number;
+  monthly_deals: number;
+  annual_deals: number;
+  month_label: string;
+};
+
+export async function getMyGoalsAndEarnings(): Promise<{ data: MonthlyEarnings | null; error?: string }> {
+  try {
+    const user = await requireSalesRep();
+    const admin = createAdminClient();
+
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    const month_label = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+    const [{ data: membership }, { data: closedLeads }] = await Promise.all([
+      admin
+        .from("dms_sales_team_members")
+        .select("monthly_commission_pct, annual_commission_pct, monthly_deal_target, monthly_revenue_target")
+        .eq("user_id", user.id)
+        .eq("is_active", true)
+        .maybeSingle(),
+      admin
+        .from("dms_leads")
+        .select("payment_amount, plan_type")
+        .eq("assigned_to", user.id)
+        .eq("status", "payment_received")
+        .gte("updated_at", monthStart),
+    ]);
+
+    const goals: MemberGoals = {
+      monthly_commission_pct: Number(membership?.monthly_commission_pct ?? 0),
+      annual_commission_pct: Number(membership?.annual_commission_pct ?? 0),
+      monthly_deal_target: Number(membership?.monthly_deal_target ?? 0),
+      monthly_revenue_target: Number(membership?.monthly_revenue_target ?? 0),
+    };
+
+    let commission_earned = 0;
+    let monthly_deals = 0;
+    let annual_deals = 0;
+    let revenue_this_month = 0;
+
+    for (const lead of closedLeads ?? []) {
+      const amt = Number(lead.payment_amount ?? 0);
+      revenue_this_month += amt;
+      if (lead.plan_type === "monthly") {
+        commission_earned += amt * (goals.monthly_commission_pct / 100);
+        monthly_deals++;
+      } else if (lead.plan_type === "annual") {
+        commission_earned += amt * (goals.annual_commission_pct / 100);
+        annual_deals++;
+      }
+    }
+
+    return {
+      data: {
+        goals,
+        deals_closed: (closedLeads ?? []).length,
+        revenue_this_month,
+        commission_earned: Math.round(commission_earned),
+        monthly_deals,
+        annual_deals,
+        month_label,
+      },
+    };
+  } catch (err) {
+    return { data: null, error: err instanceof Error ? err.message : "Failed to load earnings" };
   }
 }

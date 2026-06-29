@@ -28,6 +28,10 @@ export type SalesTeamMember = {
   role: string;
   is_active: boolean;
   created_at: string;
+  monthly_commission_pct: number;
+  annual_commission_pct: number;
+  monthly_deal_target: number;
+  monthly_revenue_target: number;
 };
 
 export type SalesTeam = {
@@ -74,6 +78,10 @@ export async function listSalesTeams(): Promise<{ teams: SalesTeam[]; error?: st
         role: m.role,
         is_active: m.is_active,
         created_at: m.created_at,
+        monthly_commission_pct: Number(m.monthly_commission_pct ?? 0),
+        annual_commission_pct: Number(m.annual_commission_pct ?? 0),
+        monthly_deal_target: Number(m.monthly_deal_target ?? 0),
+        monthly_revenue_target: Number(m.monthly_revenue_target ?? 0),
       });
       membersByTeam.set(m.team_id, list);
     }
@@ -188,6 +196,51 @@ export async function toggleTeamActive(teamId: string, is_active: boolean): Prom
     return {};
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Failed to update team" };
+  }
+}
+
+export async function setMemberGoals(
+  memberId: string,
+  goals: {
+    monthly_commission_pct: number;
+    annual_commission_pct: number;
+    monthly_deal_target: number;
+    monthly_revenue_target: number;
+  }
+): Promise<{ error?: string }> {
+  try {
+    await requireAdmin();
+    if (!UUID_RE.test(memberId)) throw new Error("Invalid member ID");
+
+    const pct = (v: number) => {
+      if (typeof v !== "number" || isNaN(v) || v < 0 || v > 100) throw new Error("Commission % must be between 0 and 100");
+      return Math.round(v * 100) / 100;
+    };
+    const posInt = (v: number, name: string) => {
+      if (typeof v !== "number" || isNaN(v) || v < 0 || !Number.isFinite(v)) throw new Error(`${name} must be a non-negative number`);
+      if (v > 10_000) throw new Error(`${name} cannot exceed 10,000`);
+      return Math.round(v);
+    };
+    const posNum = (v: number, name: string) => {
+      if (typeof v !== "number" || isNaN(v) || v < 0 || !Number.isFinite(v)) throw new Error(`${name} must be a non-negative number`);
+      if (v > 100_000_000) throw new Error(`${name} cannot exceed 100,000,000`);
+      return Math.round(v * 100) / 100;
+    };
+
+    const monthly_commission_pct = pct(goals.monthly_commission_pct);
+    const annual_commission_pct = pct(goals.annual_commission_pct);
+    const monthly_deal_target = posInt(goals.monthly_deal_target, "Monthly deal target");
+    const monthly_revenue_target = posNum(goals.monthly_revenue_target, "Monthly revenue target");
+
+    const admin = createAdminClient();
+    const { error } = await admin
+      .from("dms_sales_team_members")
+      .update({ monthly_commission_pct, annual_commission_pct, monthly_deal_target, monthly_revenue_target })
+      .eq("id", memberId);
+    if (error) throw error;
+    return {};
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Failed to save goals" };
   }
 }
 

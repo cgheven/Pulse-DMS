@@ -4,11 +4,13 @@ import { useState, useTransition } from "react";
 import {
   Users2, Plus, UserPlus, ChevronDown, ChevronUp,
   ToggleLeft, ToggleRight, Trash2, Loader2, Eye, EyeOff,
+  SlidersHorizontal,
 } from "lucide-react";
 import {
   createSalesTeam, createSalesRep, removeTeamMember, toggleTeamActive,
-  type SalesTeam,
+  type SalesTeam, type SalesTeamMember,
 } from "@/app/actions/admin-sales-teams";
+import { SetGoalsModal } from "@/components/modules/admin/set-goals-modal";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -84,7 +86,7 @@ function CreateTeamModal({ onClose, onCreated }: { onClose: () => void; onCreate
 function AddMemberModal({ team, onClose, onAdded }: {
   team: SalesTeam;
   onClose: () => void;
-  onAdded: (member: { id: string; team_id: string; user_id: string; email: string | null; full_name: string | null; role: string; is_active: boolean; created_at: string }) => void;
+  onAdded: (member: SalesTeamMember) => void;
 }) {
   const [form, setForm] = useState({ email: "", password: "", full_name: "", role: "member" });
   const [showPwd, setShowPwd] = useState(false);
@@ -109,6 +111,10 @@ function AddMemberModal({ team, onClose, onAdded }: {
         role: form.role,
         is_active: true,
         created_at: new Date().toISOString(),
+        monthly_commission_pct: 0,
+        annual_commission_pct: 0,
+        monthly_deal_target: 0,
+        monthly_revenue_target: 0,
       });
       onClose();
     });
@@ -178,6 +184,7 @@ function TeamCard({ team: initialTeam }: { team: SalesTeam }) {
   const [team, setTeam] = useState(initialTeam);
   const [expanded, setExpanded] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
+  const [goalsTarget, setGoalsTarget] = useState<SalesTeamMember | null>(null);
   const [pending, startTransition] = useTransition();
 
   function handleToggleActive() {
@@ -277,10 +284,25 @@ function TeamCard({ team: initialTeam }: { team: SalesTeam }) {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-foreground truncate">{m.full_name ?? "—"}</p>
                     <p className="text-xs text-muted-foreground truncate">{m.email ?? "—"}</p>
+                    {(m.monthly_commission_pct > 0 || m.annual_commission_pct > 0) && (
+                      <p className="text-[10px] text-primary/70 mt-0.5 font-medium">
+                        {m.monthly_commission_pct > 0 && `M:${m.monthly_commission_pct}%`}
+                        {m.monthly_commission_pct > 0 && m.annual_commission_pct > 0 && " · "}
+                        {m.annual_commission_pct > 0 && `A:${m.annual_commission_pct}%`}
+                        {m.monthly_deal_target > 0 && ` · ${m.monthly_deal_target} deals/mo`}
+                      </p>
+                    )}
                   </div>
                   <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${m.role === "manager" ? "bg-amber-500/15 text-amber-400 border border-amber-500/25" : "bg-sidebar border border-sidebar-border text-muted-foreground"}`}>
                     {m.role}
                   </span>
+                  <button
+                    onClick={() => setGoalsTarget(m)}
+                    className="text-muted-foreground hover:text-primary transition-colors p-1"
+                    title="Set goals & commission"
+                  >
+                    <SlidersHorizontal size={13} />
+                  </button>
                   <button
                     onClick={() => handleRemoveMember(m.id)}
                     disabled={pending}
@@ -301,6 +323,16 @@ function TeamCard({ team: initialTeam }: { team: SalesTeam }) {
           team={team}
           onClose={() => setShowAddMember(false)}
           onAdded={(member) => setTeam(t => ({ ...t, members: [...t.members, member] }))}
+        />
+      )}
+      {goalsTarget && (
+        <SetGoalsModal
+          member={goalsTarget}
+          onClose={() => setGoalsTarget(null)}
+          onSaved={(goals) => setTeam(t => ({
+            ...t,
+            members: t.members.map(m => m.id === goalsTarget.id ? { ...m, ...goals } : m)
+          }))}
         />
       )}
     </>

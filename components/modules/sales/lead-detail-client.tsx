@@ -115,7 +115,7 @@ function PipelineBar({ current }: { current: LeadStatus }) {
 
 function StatusDropdown({ current, onChange, disabled }: {
   current: LeadStatus;
-  onChange: (s: LeadStatus, extra?: { lost_reason?: string; payment_amount?: number; payment_method?: string }) => void;
+  onChange: (s: LeadStatus, extra?: { lost_reason?: string; payment_amount?: number; payment_method?: string; plan_type?: string }) => void;
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -123,6 +123,7 @@ function StatusDropdown({ current, onChange, disabled }: {
   const [lostReason, setLostReason] = useState("");
   const [paymentAmt, setPaymentAmt] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
+  const [planType, setPlanType] = useState("monthly");
 
   function select(key: LeadStatus) {
     if (key === "lost") { setPendingStatus("lost"); setOpen(false); return; }
@@ -202,10 +203,29 @@ function StatusDropdown({ current, onChange, disabled }: {
                   <option value="cheque">Cheque</option>
                 </select>
               </div>
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1">Plan Type</label>
+                <div className="flex gap-2">
+                  {[{ value: "monthly", label: "Monthly" }, { value: "annual", label: "Annual" }].map(opt => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setPlanType(opt.value)}
+                      className={`flex-1 py-2 rounded-lg border text-sm font-semibold transition-colors ${
+                        planType === opt.value
+                          ? "bg-primary/15 border-primary/40 text-primary"
+                          : "border-sidebar-border text-muted-foreground hover:bg-white/5"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={() => setPendingStatus(null)} className="px-4 py-2 rounded-lg text-sm font-semibold text-muted-foreground hover:bg-white/5">Cancel</button>
-              <button onClick={() => { onChange("payment_received", { payment_amount: paymentAmt ? Number(paymentAmt) : undefined, payment_method: paymentMethod || undefined }); setPendingStatus(null); setPaymentAmt(""); setPaymentMethod(""); }}
+              <button onClick={() => { onChange("payment_received", { payment_amount: paymentAmt ? Number(paymentAmt) : undefined, payment_method: paymentMethod || undefined, plan_type: planType }); setPendingStatus(null); setPaymentAmt(""); setPaymentMethod(""); }}
                 className="px-4 py-2 rounded-lg text-sm font-semibold bg-green-600 text-white hover:bg-green-700">Confirm</button>
             </div>
           </div>
@@ -328,7 +348,7 @@ export default function LeadDetailClient({
 
   function handleStatusChange(
     status: LeadStatus,
-    extra?: { lost_reason?: string; payment_amount?: number; payment_method?: string },
+    extra?: { lost_reason?: string; payment_amount?: number; payment_method?: string; plan_type?: string },
   ) {
     startTransition(async () => {
       setError(null);

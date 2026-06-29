@@ -39,12 +39,12 @@ function SalesSidebar({ open, onClose, email, name }: {
         {/* Logo */}
         <div className="flex items-center justify-between px-4 h-14 border-b border-sidebar-border shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-primary/15 border border-primary/25 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-white/8 border border-white/10 flex items-center justify-center">
               <Zap className="w-4 h-4 text-primary" />
             </div>
             <div>
               <p className="text-sm font-bold text-foreground leading-none">Pulse</p>
-              <p className="text-primary/60 text-[9px] mt-0.5 font-bold tracking-[0.12em] uppercase">Sales CRM</p>
+              <p className="text-muted-foreground/50 text-[9px] mt-0.5 font-bold tracking-[0.12em] uppercase">Sales CRM</p>
             </div>
           </div>
           <button onClick={onClose} className="lg:hidden p-1 rounded text-muted-foreground hover:text-foreground">
@@ -60,7 +60,7 @@ function SalesSidebar({ open, onClose, email, name }: {
               <Link key={href} href={href} onClick={onClose}
                 className={cn(
                   "relative flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all group",
-                  active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                  active ? "bg-white/6 text-foreground font-semibold" : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
                 )}
               >
                 {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-full bg-primary" />}

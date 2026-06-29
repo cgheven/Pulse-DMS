@@ -1,10 +1,11 @@
-import { getMyStats, getTodaysFollowUps } from "@/app/actions/sales-rep";
+import { getMyStats, getTodaysFollowUps, getMyGoalsAndEarnings } from "@/app/actions/sales-rep";
 import SalesDashboardClient from "@/components/modules/sales/dashboard-client";
 
 export default async function SalesDashboardPage() {
-  const [{ stats, error: statsError }, { leads: followups }] = await Promise.all([
+  const [{ stats, error: statsError }, { leads: followups }, { data: earnings }] = await Promise.all([
     getMyStats(),
     getTodaysFollowUps(),
+    getMyGoalsAndEarnings(),
   ]);
 
   return (
@@ -14,7 +15,7 @@ export default async function SalesDashboardPage() {
           {statsError}
         </div>
       )}
-      <SalesDashboardClient stats={stats} todayFollowups={followups} />
+      <SalesDashboardClient stats={stats} todayFollowups={followups} earnings={earnings} />
     </div>
   );
 }

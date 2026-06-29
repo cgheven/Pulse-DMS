@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { getMyLeads } from "@/app/actions/sales-rep";
 import LeadsClient from "@/components/modules/sales/leads-client";
 
@@ -11,7 +12,9 @@ export default async function SalesLeadsPage() {
           {error}
         </div>
       )}
-      <LeadsClient leads={leads} />
+      <Suspense fallback={null}>
+        <LeadsClient leads={leads} />
+      </Suspense>
     </div>
   );
 }

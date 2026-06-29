@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   Search, Plus, ChevronRight, Loader2, Target,
@@ -206,11 +206,12 @@ const STATUS_OPTIONS: { value: LeadStatus | "all"; label: string }[] = [
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function LeadsClient({ leads }: { leads: Lead[] }) {
+  const searchParams = useSearchParams();
   const [status, setStatus] = useState<LeadStatus | "all">("all");
   const [search, setSearch] = useState("");
   const [dueOnly, setDueOnly] = useState(false);
   const [overdueOnly, setOverdueOnly] = useState(false);
-  const [showAdd, setShowAdd] = useState(false);
+  const [showAdd, setShowAdd] = useState(() => searchParams.get("new") === "1");
   const [trialLead, setTrialLead] = useState<Lead | null>(null);
 
   // Top-line stats
@@ -247,7 +248,7 @@ export default function LeadsClient({ leads }: { leads: Lead[] }) {
           <p className="text-sm text-muted-foreground mt-0.5">Track every conversation from cold visit to closed deal</p>
         </div>
         <button onClick={() => setShowAdd(true)}
-          className="shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20"
+          className="shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary/10 border border-primary/30 text-primary text-sm font-bold hover:bg-primary/18 transition-colors"
         >
           <Plus size={15} />
           Add Lead
