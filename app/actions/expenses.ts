@@ -97,6 +97,7 @@ export async function fetchExpenses(branchId: string, from: string, to: string) 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated", expenses: [] };
+  if (!(await verifyBranchOwnership(branchId, user.id))) return { error: "Forbidden", expenses: [] };
 
   const { data, error } = await supabase
     .from("dms_expenses")

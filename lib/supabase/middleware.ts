@@ -1,6 +1,10 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+// Paths that shop staff (role="staff") must not access.
+// Staff are only permitted to record sales at /sales.
+const STAFF_BLOCKED = /^\/(dashboard|expenses|pl-report|insights|supplier-ledger|products|stock|staff|settings)(\/|$)/;
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
@@ -26,20 +30,12 @@ export async function updateSession(request: NextRequest) {
   );
 
   // getUser() validates the token with Supabase's auth server and refreshes it if needed.
-  // This correctly handles deleted users — if the auth account was removed the token is
-  // rejected, Supabase SSR clears the stale cookies, and routing treats them as logged out.
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   const { pathname } = request.nextUrl;
   const isAuthRoute = pathname.startsWith("/login");
-  // Finding 7 fix: /register and /verify-email must be public so unauthenticated
-  // users can access the registration flow without being redirected to /login.
-  // Finding 4 fix: /forgot-password, /reset-password, and /auth/callback must be
-  // public. Without these entries an unauthenticated user clicking a password-reset
-  // link hits /auth/callback → middleware redirects to /login before the code
-  // exchange can happen, breaking the entire reset flow.
   const isPublic =
     isAuthRoute ||
     pathname.startsWith("/register") ||
@@ -63,6 +59,22 @@ export async function updateSession(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     return NextResponse.redirect(url);
+  }
+
+  // Role-based path guard: shop staff may only access /sales.
+  // Check runs only on paths they must not see — one DB call, no cookie needed.
+  if (user && STAFF_BLOCKED.test(pathname)) {
+    const { data: profile } = await supabase
+      .from("dms_profiles")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profile?.role === "staff") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/sales";
+      return NextResponse.redirect(url);
+    }
   }
 
   return supabaseResponse;

@@ -175,11 +175,36 @@ export async function removeTeamMember(memberId: string): Promise<{ error?: stri
     await requireAdmin();
     if (!UUID_RE.test(memberId)) throw new Error("Invalid member ID");
     const admin = createAdminClient();
+
+    // Fetch the member's user_id before deactivating so we can sync the profile flag.
+    const { data: member } = await admin
+      .from("dms_sales_team_members")
+      .select("user_id")
+      .eq("id", memberId)
+      .single();
+
     const { error } = await admin
       .from("dms_sales_team_members")
       .update({ is_active: false })
       .eq("id", memberId);
     if (error) throw error;
+
+    // If this was their last active membership, clear is_sales_rep so the
+    // profile-flag guard (layer 1 in the dashboard layout) stays in sync.
+    if (member?.user_id) {
+      const { count } = await admin
+        .from("dms_sales_team_members")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", member.user_id)
+        .eq("is_active", true);
+      if ((count ?? 0) === 0) {
+        await admin
+          .from("dms_profiles")
+          .update({ is_sales_rep: false })
+          .eq("id", member.user_id);
+      }
+    }
+
     return {};
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Failed to remove member" };

@@ -41,8 +41,21 @@ export async function createShop(shopName: string) {
 
 export async function updateShopName(shopId: string, shopName: string) {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
   const trimmed = shopName.trim();
   if (!trimmed) return { error: "Shop name is required" };
+
+  // Verify the caller owns this shop — prevents any authenticated user from
+  // renaming another shop by supplying an arbitrary shopId.
+  const admin = createAdminClient();
+  const { data: shop } = await admin
+    .from("dms_shops")
+    .select("owner_id")
+    .eq("id", shopId)
+    .single();
+  if (!shop || shop.owner_id !== user.id) return { error: "Forbidden" };
 
   const { error } = await supabase
     .from("dms_shops")

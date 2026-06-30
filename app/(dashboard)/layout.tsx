@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/data";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { ShopProvider } from "@/contexts/shop-context";
 import { BranchProvider } from "@/contexts/branch-context";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
@@ -8,8 +9,19 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const ctx = await getAuthContext();
   if (!ctx?.user) redirect("/login");
 
-  // Sales reps have no shop — send to sales portal
+  // Primary gate: profile flag
   if (ctx.profile?.is_sales_rep) redirect("/sales/dashboard");
+
+  // Defense-in-depth: check active team membership in case the flag was not
+  // set (e.g. accounts created before the flag was wired up).
+  const admin = createAdminClient();
+  const { data: membership } = await admin
+    .from("dms_sales_team_members")
+    .select("id")
+    .eq("user_id", ctx.user.id)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (membership) redirect("/sales/dashboard");
 
   // Admin has no shop — send to admin panel, not onboarding
   if (!ctx.shop) {
