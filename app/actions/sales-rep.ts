@@ -1,5 +1,6 @@
 "use server";
 
+import { cache } from "react";
 import { unstable_cache, revalidateTag } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -65,23 +66,30 @@ export type SalesRepStats = {
   pipeline_by_stage: Record<string, number>;
 };
 
-export async function requireSalesRep() {
+// Deduped with React cache() so every getXxx() call and the (sales) layout's
+// own check collapse into a single getUser()+profile round-trip per request.
+export const getSalesAuthContext = cache(async () => {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Unauthorized");
+  if (!user) return null;
 
   const admin = createAdminClient();
   const { data: profile } = await admin
     .from("dms_profiles")
-    .select("is_sales_rep, is_admin")
+    .select("is_sales_rep, is_admin, full_name")
     .eq("id", user.id)
     .single();
 
-  if (!profile?.is_sales_rep && !profile?.is_admin) {
+  return { user, profile };
+});
+
+export async function requireSalesRep() {
+  const ctx = await getSalesAuthContext();
+  if (!ctx?.user) throw new Error("Unauthorized");
+  if (!ctx.profile?.is_sales_rep && !ctx.profile?.is_admin) {
     throw new Error("Forbidden: sales rep access required");
   }
-
-  return user;
+  return ctx.user;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -416,9 +424,8 @@ export async function updateLeadNotes(
 
 export async function getTodaysFollowUps(): Promise<{ leads: Lead[]; error?: string }> {
   try {
-    const user = await requireSalesRep();
-
-    // Derive from the cached all-leads list — zero extra DB round-trip
+    // Derive from the cached all-leads list — zero extra DB round-trip.
+    // getMyLeads() already enforces requireSalesRep() internally.
     const { leads: all } = await getMyLeads();
     const today = new Date().toISOString().slice(0, 10);
     const leads = all
@@ -451,26 +458,35 @@ export type MonthlyEarnings = {
 export async function getMyGoalsAndEarnings(): Promise<{ data: MonthlyEarnings | null; error?: string }> {
   try {
     const user = await requireSalesRep();
-    const admin = createAdminClient();
 
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-    const month_label = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    const fetch = unstable_cache(
+      async () => {
+        const admin = createAdminClient();
+        const now = new Date();
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-    const [{ data: membership }, { data: closedLeads }] = await Promise.all([
-      admin
-        .from("dms_sales_team_members")
-        .select("monthly_commission_pct, annual_commission_pct, monthly_deal_target, monthly_revenue_target")
-        .eq("user_id", user.id)
-        .eq("is_active", true)
-        .maybeSingle(),
-      admin
-        .from("dms_leads")
-        .select("payment_amount, plan_type")
-        .eq("assigned_to", user.id)
-        .eq("status", "payment_received")
-        .gte("updated_at", monthStart),
-    ]);
+        const [{ data: membership }, { data: closedLeads }] = await Promise.all([
+          admin
+            .from("dms_sales_team_members")
+            .select("monthly_commission_pct, annual_commission_pct, monthly_deal_target, monthly_revenue_target")
+            .eq("user_id", user.id)
+            .eq("is_active", true)
+            .maybeSingle(),
+          admin
+            .from("dms_leads")
+            .select("payment_amount, plan_type")
+            .eq("assigned_to", user.id)
+            .eq("status", "payment_received")
+            .gte("updated_at", monthStart),
+        ]);
+        return { membership, closedLeads };
+      },
+      [`goals-earnings-${user.id}`],
+      { tags: [leadsTag(user.id)], revalidate: 60 }
+    );
+
+    const { membership, closedLeads } = await fetch();
+    const month_label = new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
     const goals: MemberGoals = {
       monthly_commission_pct: Number(membership?.monthly_commission_pct ?? 0),

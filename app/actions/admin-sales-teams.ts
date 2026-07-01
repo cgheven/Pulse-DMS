@@ -2,6 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { normalizePhone } from "@/lib/phone";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -25,6 +26,7 @@ export type SalesTeamMember = {
   user_id: string;
   email: string | null;
   full_name: string | null;
+  phone: string | null;
   role: string;
   is_active: boolean;
   created_at: string;
@@ -60,11 +62,12 @@ export async function listSalesTeams(): Promise<{ teams: SalesTeam[]; error?: st
 
     const profileIds = (members ?? []).map((m) => m.user_id);
     const { data: profiles } = profileIds.length
-      ? await admin.from("dms_profiles").select("id, full_name").in("id", profileIds)
+      ? await admin.from("dms_profiles").select("id, full_name, phone").in("id", profileIds)
       : { data: [] };
 
     const userEmailMap = new Map(users.map((u) => [u.id, u.email ?? null]));
     const profileNameMap = new Map((profiles ?? []).map((p) => [p.id, p.full_name ?? null]));
+    const profilePhoneMap = new Map((profiles ?? []).map((p) => [p.id, p.phone ?? null]));
 
     const membersByTeam = new Map<string, SalesTeamMember[]>();
     for (const m of members ?? []) {
@@ -75,6 +78,7 @@ export async function listSalesTeams(): Promise<{ teams: SalesTeam[]; error?: st
         user_id: m.user_id,
         email: userEmailMap.get(m.user_id) ?? null,
         full_name: profileNameMap.get(m.user_id) ?? null,
+        phone: profilePhoneMap.get(m.user_id) ?? null,
         role: m.role,
         is_active: m.is_active,
         created_at: m.created_at,
@@ -135,13 +139,17 @@ export async function createSalesRep(data: {
   full_name: string;
   team_id: string;
   role: string;
-}): Promise<{ userId?: string; tempPassword?: string; error?: string }> {
+  phone: string;
+}): Promise<{ userId?: string; phone?: string; error?: string }> {
   try {
     await requireAdmin();
     if (!data.email || !data.full_name.trim()) throw new Error("Email and name are required");
     if (data.password.length < 8) throw new Error("Password must be at least 8 characters");
     if (!["manager", "member"].includes(data.role)) throw new Error("Invalid role");
     if (!UUID_RE.test(data.team_id)) throw new Error("Invalid team ID");
+    if (!data.phone || !normalizePhone(data.phone)) throw new Error("A valid Pakistani mobile number is required");
+
+    const normalizedPhone = normalizePhone(data.phone)!;
 
     const admin = createAdminClient();
     const { data: created, error: createErr } = await admin.auth.admin.createUser({
@@ -154,56 +162,76 @@ export async function createSalesRep(data: {
 
     const userId = created.user.id;
 
-    await admin.from("dms_profiles").upsert(
-      { id: userId, full_name: data.full_name.trim(), role: "member", is_sales_rep: true },
+    // dms_profiles.role only allows 'owner' | 'staff' (shop-level roles) — sales
+    // reps have no shop, so leave whatever the on-signup trigger set and only
+    // touch the fields that actually apply to a sales rep.
+    const { error: profileErr } = await admin.from("dms_profiles").upsert(
+      { id: userId, full_name: data.full_name.trim(), is_sales_rep: true, phone: normalizedPhone },
       { onConflict: "id" }
     );
+    if (profileErr) throw profileErr;
 
     const { error: memberErr } = await admin
       .from("dms_sales_team_members")
       .insert({ team_id: data.team_id, user_id: userId, role: data.role });
     if (memberErr) throw memberErr;
 
-    return { userId };
+    return { userId, phone: normalizedPhone };
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Failed to create sales rep" };
   }
 }
 
-export async function removeTeamMember(memberId: string): Promise<{ error?: string }> {
+export async function removeTeamMember(memberId: string): Promise<{ error?: string; warning?: string }> {
   try {
     await requireAdmin();
     if (!UUID_RE.test(memberId)) throw new Error("Invalid member ID");
     const admin = createAdminClient();
 
-    // Fetch the member's user_id before deactivating so we can sync the profile flag.
     const { data: member } = await admin
       .from("dms_sales_team_members")
       .select("user_id")
       .eq("id", memberId)
       .single();
+    if (!member) throw new Error("Member not found");
 
-    const { error } = await admin
+    const { error: deleteErr } = await admin
       .from("dms_sales_team_members")
-      .update({ is_active: false })
+      .delete()
       .eq("id", memberId);
-    if (error) throw error;
+    if (deleteErr) throw deleteErr;
 
-    // If this was their last active membership, clear is_sales_rep so the
-    // profile-flag guard (layer 1 in the dashboard layout) stays in sync.
-    if (member?.user_id) {
-      const { count } = await admin
-        .from("dms_sales_team_members")
+    // If they still hold another active membership, only this one is removed.
+    const { count: remainingActive } = await admin
+      .from("dms_sales_team_members")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", member.user_id)
+      .eq("is_active", true);
+    if ((remainingActive ?? 0) > 0) return {};
+
+    // Last membership removed — delete the account entirely so the email/phone
+    // is freed up for reuse, unless they have lead history that FK-restricts deletion.
+    const [{ count: leadCount }, { count: activityCount }] = await Promise.all([
+      admin
+        .from("dms_leads")
         .select("id", { count: "exact", head: true })
-        .eq("user_id", member.user_id)
-        .eq("is_active", true);
-      if ((count ?? 0) === 0) {
-        await admin
-          .from("dms_profiles")
-          .update({ is_sales_rep: false })
-          .eq("id", member.user_id);
-      }
+        .or(`assigned_to.eq.${member.user_id},owner_id.eq.${member.user_id}`),
+      admin
+        .from("dms_lead_activities")
+        .select("id", { count: "exact", head: true })
+        .eq("actor_id", member.user_id),
+    ]);
+
+    if ((leadCount ?? 0) > 0 || (activityCount ?? 0) > 0) {
+      await admin.from("dms_profiles").update({ is_sales_rep: false }).eq("id", member.user_id);
+      return {
+        warning:
+          "Removed from the team. Their account has lead history so it was deactivated rather than deleted — reassign their leads first if you need to free up their email.",
+      };
     }
+
+    const { error: authErr } = await admin.auth.admin.deleteUser(member.user_id);
+    if (authErr) throw authErr;
 
     return {};
   } catch (err) {

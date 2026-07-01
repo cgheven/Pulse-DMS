@@ -27,3 +27,31 @@ export function shareStaffCredentialsViaWhatsApp(opts: {
   const url = "https://wa.me/" + intl + "?text=" + encodeURIComponent(msg);
   window.open(url, "_blank", "noopener,noreferrer");
 }
+
+export function shareSalesRepCredentialsViaWhatsApp(opts: {
+  fullName: string;
+  phone: string;
+  email: string;
+  password: string;
+}): void {
+  const { fullName, phone, email, password } = opts;
+  const canonical = normalizePhone(phone) ?? phone.replace(/[^0-9]/g, "");
+  const safe = canonical.startsWith("0") ? canonical : "0" + canonical;
+  const intl = toIntlNoPlus(safe);
+
+  const msg = [
+    "Assalam-o-Alaikum " + fullName + "!",
+    "",
+    "Aap ko Pulse DMS Sales CRM ka access de diya gaya hai.",
+    "",
+    "Login Email: " + email,
+    "Password: " + password,
+    "",
+    "Login karein: https://dms.yourpulse.io/login",
+    "",
+    "Kisi bhi maslay ke liye apne manager se rabta karein.",
+  ].join("\n");
+
+  const url = "https://wa.me/" + intl + "?text=" + encodeURIComponent(msg);
+  window.open(url, "_blank", "noopener,noreferrer");
+}
