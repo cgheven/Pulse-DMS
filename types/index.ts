@@ -106,6 +106,7 @@ export type Sale = {
   unit_cost: number | null;
   added_by: string | null;
   added_by_name: string | null;
+  logical_id: string;
   product?: Pick<Product, "id" | "name" | "unit"> | null;
 };
 

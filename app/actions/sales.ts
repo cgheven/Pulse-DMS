@@ -129,7 +129,21 @@ export async function editSale(
 
   const total = data.quantity * data.unitPrice;
 
-  // Delete triggers the reverse-stock trigger; re-insert triggers auto-deduct
+  const admin = createAdminClient();
+  const { data: oldRow, error: fetchErr } = await admin
+    .from("dms_sales")
+    .select("*")
+    .eq("id", saleId)
+    .eq("branch_id", branchId)
+    .single();
+  if (fetchErr || !oldRow) return { error: "Sale not found" };
+
+  const newSaleDate = data.saleDate ?? new Date().toISOString().slice(0, 10);
+  const newCustomerName = data.customerName?.trim() || null;
+
+  // Delete triggers the reverse-stock trigger; re-insert triggers auto-deduct.
+  // logical_id, added_by/added_by_name carry over so history and original
+  // attribution survive this delete+reinsert (the row's own id does not).
   const { error: delErr } = await supabase
     .from("dms_sales")
     .delete()
@@ -140,21 +154,97 @@ export async function editSale(
 
   const { error: insErr } = await supabase.from("dms_sales").insert({
     branch_id: branchId,
+    shop_id: oldRow.shop_id,
     product_id: data.productId,
     quantity: data.quantity,
     unit_price: data.unitPrice,
     total,
     payment_mode: data.paymentMode,
-    customer_name: data.customerName?.trim() || null,
-    sale_date: data.saleDate ?? new Date().toISOString().slice(0, 10),
+    customer_name: newCustomerName,
+    sale_date: newSaleDate,
     unit_cost: data.unitCost ?? null,
+    added_by: oldRow.added_by,
+    added_by_name: oldRow.added_by_name,
+    logical_id: oldRow.logical_id,
   });
 
   if (insErr) return { error: insErr.message };
+
+  // Best-effort edit log — must never block the main action.
+  try {
+    const { data: profileRow } = await admin.from("dms_profiles").select("full_name").eq("id", user.id).single();
+    await admin.from("dms_sale_edits").insert({
+      logical_id: oldRow.logical_id,
+      branch_id: branchId,
+      old_product_id: oldRow.product_id,
+      new_product_id: data.productId,
+      old_quantity: oldRow.quantity,
+      new_quantity: data.quantity,
+      old_unit_price: oldRow.unit_price,
+      new_unit_price: data.unitPrice,
+      old_total: oldRow.total,
+      new_total: total,
+      old_payment_mode: oldRow.payment_mode,
+      new_payment_mode: data.paymentMode,
+      old_customer_name: oldRow.customer_name,
+      new_customer_name: newCustomerName,
+      old_sale_date: oldRow.sale_date,
+      new_sale_date: newSaleDate,
+      edited_by: user.id,
+      edited_by_name: profileRow?.full_name ?? null,
+    });
+  } catch (logErr) {
+    // Never block the edit on logging failure, but don't lose it silently either.
+    console.error("Failed to write sale edit history:", logErr);
+  }
+
   revalidatePath("/sales");
   revalidatePath("/dashboard");
   revalidatePath("/stock");
   return { success: true };
+}
+
+export type SaleEdit = {
+  id: string;
+  logical_id: string;
+  old_product_id: string | null;
+  new_product_id: string | null;
+  old_quantity: number | null;
+  new_quantity: number | null;
+  old_unit_price: number | null;
+  new_unit_price: number | null;
+  old_total: number | null;
+  new_total: number | null;
+  old_payment_mode: string | null;
+  new_payment_mode: string | null;
+  old_customer_name: string | null;
+  new_customer_name: string | null;
+  old_sale_date: string | null;
+  new_sale_date: string | null;
+  edited_by_name: string | null;
+  edited_at: string;
+};
+
+export async function getSaleEditHistory(
+  logicalId: string,
+  branchId: string
+): Promise<{ edits: SaleEdit[]; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { edits: [], error: "Not authenticated" };
+
+  if (!(await verifyBranchAccess(branchId, user.id))) return { edits: [], error: "Forbidden" };
+
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("dms_sale_edits")
+    .select("*")
+    .eq("logical_id", logicalId)
+    .eq("branch_id", branchId)
+    .order("edited_at", { ascending: false });
+
+  if (error) return { edits: [], error: error.message };
+  return { edits: (data as SaleEdit[]) ?? [] };
 }
 
 export async function deleteSale(saleId: string, branchId: string) {

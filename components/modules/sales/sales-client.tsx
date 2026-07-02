@@ -4,6 +4,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import {
   ShoppingCart, Plus, Pencil, Trash2, Search, Calendar,
   CreditCard, Banknote, PackageCheck, FileSpreadsheet, FileText, AlertTriangle, ChevronDown, Check,
+  History as HistoryIcon, ArrowRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,7 +20,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DatePicker } from "@/components/ui/date-picker";
 import { toast } from "@/hooks/use-toast";
 import { formatDateInput } from "@/lib/utils";
-import { addSale, editSale, deleteSale } from "@/app/actions/sales";
+import { addSale, editSale, deleteSale, getSaleEditHistory, type SaleEdit } from "@/app/actions/sales";
 import { fetchSales } from "@/app/actions/sales-data";
 import { createClient } from "@/lib/supabase/client";
 import { useBranchContext } from "@/contexts/branch-context";
@@ -436,6 +437,11 @@ export function SalesClient() {
 
   // ── Delete dialog ────────────────────────────────────────────────────────────
   const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  // ── History dialog ───────────────────────────────────────────────────────────
+  const [historySale, setHistorySale] = useState<Sale | null>(null);
+  const [historyEdits, setHistoryEdits] = useState<SaleEdit[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
 
   // ── Derived: product map ─────────────────────────────────────────────────────
@@ -670,6 +676,21 @@ export function SalesClient() {
       await reloadSales(activeFrom, activeTo);
     }
     setDeleteId(null);
+  }
+
+  // ── History ──────────────────────────────────────────────────────────────────
+  async function openHistory(sale: Sale) {
+    if (!branchId) return;
+    setHistorySale(sale);
+    setHistoryLoading(true);
+    const res = await getSaleEditHistory(sale.logical_id, branchId);
+    setHistoryEdits(res.edits);
+    setHistoryLoading(false);
+  }
+
+  function closeHistory() {
+    setHistorySale(null);
+    setHistoryEdits([]);
   }
 
   // ── Render ───────────────────────────────────────────────────────────────────
@@ -959,6 +980,13 @@ export function SalesClient() {
                       <td className="px-3 py-2">
                         <div className="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 sm:opacity-100 transition-opacity">
                           <button
+                            onClick={() => openHistory(sale)}
+                            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                            title="Edit history"
+                          >
+                            <HistoryIcon className="w-3.5 h-3.5" />
+                          </button>
+                          <button
                             onClick={() => openEdit(sale)}
                             className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
                             title="Edit"
@@ -1095,6 +1123,132 @@ export function SalesClient() {
         onConfirm={handleDelete}
         onCancel={() => setDeleteId(null)}
       />
+
+      {/* ── Edit History ── */}
+      <Dialog open={!!historySale} onOpenChange={(open) => { if (!open) closeHistory(); }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit History</DialogTitle>
+          </DialogHeader>
+
+          <div className="max-h-[60vh] overflow-y-auto space-y-3">
+            {historyLoading ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">Loading…</p>
+            ) : historyEdits.length === 0 ? (
+              <div className="py-8 text-center">
+                <HistoryIcon className="w-8 h-8 opacity-20 mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">No edits recorded yet</p>
+                <p className="text-xs text-muted-foreground/60 mt-1">Changes to this sale will show up here.</p>
+              </div>
+            ) : (
+              historyEdits.map((edit) => {
+                const changes: { label: string; node: React.ReactNode }[] = [];
+                if (edit.old_payment_mode !== edit.new_payment_mode) {
+                  changes.push({
+                    label: "Payment",
+                    node: (
+                      <span className="flex items-center gap-1.5">
+                        <PaymentBadge mode={(edit.old_payment_mode ?? "cash") as "cash" | "credit"} />
+                        <ArrowRight className="w-3 h-3 text-muted-foreground shrink-0" />
+                        <PaymentBadge mode={(edit.new_payment_mode ?? "cash") as "cash" | "credit"} />
+                      </span>
+                    ),
+                  });
+                }
+                if (edit.old_quantity !== edit.new_quantity || edit.old_unit_price !== edit.new_unit_price) {
+                  changes.push({
+                    label: "Qty × Price",
+                    node: (
+                      <span className="text-muted-foreground">
+                        {edit.old_quantity} × {formatPKR(edit.old_unit_price ?? 0)}
+                        <ArrowRight className="w-3 h-3 inline text-muted-foreground mx-1.5" />
+                        <span className="text-foreground font-medium">{edit.new_quantity} × {formatPKR(edit.new_unit_price ?? 0)}</span>
+                      </span>
+                    ),
+                  });
+                }
+                if (edit.old_total !== edit.new_total) {
+                  changes.push({
+                    label: "Total",
+                    node: (
+                      <span className="text-muted-foreground">
+                        {formatPKR(edit.old_total ?? 0)}
+                        <ArrowRight className="w-3 h-3 inline text-muted-foreground mx-1.5" />
+                        <span className="text-foreground font-medium">{formatPKR(edit.new_total ?? 0)}</span>
+                      </span>
+                    ),
+                  });
+                }
+                if (edit.old_product_id !== edit.new_product_id) {
+                  changes.push({
+                    label: "Product",
+                    node: (
+                      <span className="text-muted-foreground">
+                        {productMap.get(edit.old_product_id ?? "")?.name ?? "—"}
+                        <ArrowRight className="w-3 h-3 inline text-muted-foreground mx-1.5" />
+                        <span className="text-foreground font-medium">{productMap.get(edit.new_product_id ?? "")?.name ?? "—"}</span>
+                      </span>
+                    ),
+                  });
+                }
+                if ((edit.old_customer_name ?? "") !== (edit.new_customer_name ?? "")) {
+                  changes.push({
+                    label: "Customer",
+                    node: (
+                      <span className="text-muted-foreground">
+                        {edit.old_customer_name ?? "—"}
+                        <ArrowRight className="w-3 h-3 inline text-muted-foreground mx-1.5" />
+                        <span className="text-foreground font-medium">{edit.new_customer_name ?? "—"}</span>
+                      </span>
+                    ),
+                  });
+                }
+                if (edit.old_sale_date !== edit.new_sale_date) {
+                  changes.push({
+                    label: "Date",
+                    node: (
+                      <span className="text-muted-foreground">
+                        {edit.old_sale_date}
+                        <ArrowRight className="w-3 h-3 inline text-muted-foreground mx-1.5" />
+                        <span className="text-foreground font-medium">{edit.new_sale_date}</span>
+                      </span>
+                    ),
+                  });
+                }
+
+                return (
+                  <div key={edit.id} className="rounded-lg border border-sidebar-border p-3 space-y-2">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground">{edit.edited_by_name ?? "Unknown"}</span>
+                      <span>
+                        {new Date(edit.edited_at).toLocaleString("en-PK", {
+                          day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit",
+                        })}
+                      </span>
+                    </div>
+                    {changes.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic">No field changes recorded</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {changes.map((c) => (
+                          <div key={c.label} className="flex items-start gap-2 text-sm">
+                            <span className="text-xs font-semibold text-muted-foreground w-20 shrink-0 pt-0.5">{c.label}</span>
+                            {c.node}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closeHistory}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
