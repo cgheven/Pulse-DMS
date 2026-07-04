@@ -5,7 +5,10 @@ const securityHeaders = [
   { key: "X-Frame-Options",           value: "DENY" },
   { key: "X-XSS-Protection",          value: "1; mode=block" },
   { key: "Referrer-Policy",           value: "strict-origin-when-cross-origin" },
-  { key: "Permissions-Policy",        value: "camera=(self), microphone=(), geolocation=()" },
+  // geolocation=(self) — the rider portal captures GPS on order creation and
+  // client tagging; geolocation=() here would silently disable that for
+  // every browser regardless of the user's own permission choice.
+  { key: "Permissions-Policy",        value: "camera=(self), microphone=(), geolocation=(self)" },
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
 ];
 

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/data";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getEnabledModules } from "@/lib/modules";
 import { ShopProvider } from "@/contexts/shop-context";
 import { BranchProvider } from "@/contexts/branch-context";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
@@ -11,6 +12,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   // Primary gate: profile flag
   if (ctx.profile?.is_sales_rep) redirect("/sales/dashboard");
+  if (ctx.profile?.is_rider) redirect("/rider/dashboard");
 
   // Defense-in-depth: check active team membership in case the flag was not
   // set (e.g. accounts created before the flag was wired up).
@@ -22,6 +24,16 @@ export default async function DashboardLayout({ children }: { children: React.Re
     .eq("is_active", true)
     .maybeSingle();
   if (membership) redirect("/sales/dashboard");
+
+  // Defense-in-depth mirror for riders: a rider row can exist (and be active)
+  // even if dms_profiles.is_rider fell out of sync.
+  const { data: riderRow } = await admin
+    .from("dms_riders")
+    .select("id")
+    .eq("profile_id", ctx.user.id)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (riderRow) redirect("/rider/dashboard");
 
   // Admin has no shop — send to admin panel, not onboarding
   if (!ctx.shop) {
@@ -38,8 +50,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
     redirect("/pricing");
   }
 
+  const enabledModules = [...(await getEnabledModules(ctx.shop.id))];
+
   return (
-    <ShopProvider profile={ctx.profile} shop={ctx.shop}>
+    <ShopProvider profile={ctx.profile} shop={ctx.shop} enabledModules={enabledModules}>
       <BranchProvider branch={ctx.branch ?? null} branches={ctx.branches ?? []}>
         <DashboardShell>{children}</DashboardShell>
       </BranchProvider>

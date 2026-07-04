@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // Paths that shop staff (role="staff") must not access.
 // Staff are only permitted to record sales at /sales.
-const STAFF_BLOCKED = /^\/(dashboard|expenses|pl-report|insights|supplier-ledger|products|stock|staff|settings)(\/|$)/;
+const STAFF_BLOCKED = /^\/(dashboard|expenses|pl-report|insights|supplier-ledger|products|stock|staff|settings|riders)(\/|$)/;
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -66,11 +66,14 @@ export async function updateSession(request: NextRequest) {
   if (user && STAFF_BLOCKED.test(pathname)) {
     const { data: profile } = await supabase
       .from("dms_profiles")
-      .select("role")
+      .select("role, is_rider, is_sales_rep")
       .eq("id", user.id)
       .maybeSingle();
 
-    if (profile?.role === "staff") {
+    // Riders and platform sales-reps are never shop "staff" — they have their
+    // own portals (/rider, /sales) with their own layout redirects. Skip the
+    // staff bounce-to-/sales for them so it never fights with those redirects.
+    if (profile?.role === "staff" && !profile.is_rider && !profile.is_sales_rep) {
       const url = request.nextUrl.clone();
       url.pathname = "/sales";
       return NextResponse.redirect(url);

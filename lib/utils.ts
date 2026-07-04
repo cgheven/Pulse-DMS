@@ -127,3 +127,15 @@ const UUID_RE =
 export function isUUID(value: string): boolean {
   return UUID_RE.test(value);
 }
+
+// Whole days between a YYYY-MM-DD date string and "today" (UTC midnight to
+// UTC midnight, so it's stable regardless of server timezone). Used for
+// pending-cheque aging ("days outstanding") — computed on read, never stored,
+// shared by both the rider-portal and owner-side cheque collection actions.
+export function daysSince(dateStr: string): number {
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const then = new Date(dateStr + "T00:00:00Z");
+  const diffMs = today.getTime() - then.getTime();
+  return Math.max(0, Math.round(diffMs / 86400000));
+}

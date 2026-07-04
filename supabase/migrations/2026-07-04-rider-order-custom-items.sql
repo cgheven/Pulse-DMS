@@ -1,0 +1,13 @@
+-- Rider Management — "Add Custom Item" in order taking.
+-- Riders can already add order items without a resolvable dms_products row
+-- (product_id IS NULL — see dms_rider_order_items in
+-- 2026-07-04-rider-order-taking.sql and createOrder() in app/actions/rider.ts,
+-- which already validates/recomputes quantity/unitPrice/line_total from raw
+-- numbers regardless of whether a real product was matched). This migration
+-- only adds a denormalized flag on the order header so list views (which
+-- select from dms_rider_orders alone, no item join) can cheaply show a
+-- "Custom" badge without an N+1 per-order items query. Set once at order
+-- creation time in createOrder(); never updated afterwards. Existing rows
+-- default to false, which is correct — the feature didn't exist before, so
+-- no historical order can have contained a custom item.
+ALTER TABLE dms_rider_orders ADD COLUMN IF NOT EXISTS has_custom_item BOOLEAN NOT NULL DEFAULT false;

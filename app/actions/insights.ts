@@ -41,7 +41,11 @@ export async function getInsightsData(
 ): Promise<{ data: InsightsData | null; error?: string }> {
   const ctx = await getAuthContext();
   if (!ctx?.user) redirect("/login");
-  if (ctx.profile?.role !== "owner") redirect("/dashboard");
+  // role='owner' alone is not sufficient defense-in-depth: is_rider/is_sales_rep
+  // guard against a data-integrity slip ever leaving a rider/sales-rep profile
+  // with role='owner' (e.g. a brand-new profile upsert omitting `role`, which
+  // falls back to the column's 'owner' default).
+  if (ctx.profile?.role !== "owner" || ctx.profile?.is_rider || ctx.profile?.is_sales_rep) redirect("/dashboard");
 
   const branchId = ctx.branchId;
   if (!branchId) return { data: null, error: "No active branch found." };

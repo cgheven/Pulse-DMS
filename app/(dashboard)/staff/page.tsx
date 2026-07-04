@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export default async function StaffPage() {
   const ctx = await getAuthContext();
   if (!ctx?.user) redirect("/login");
-  if (ctx.profile?.role !== "owner") redirect("/sales");
+  if (ctx.profile?.role !== "owner" || ctx.profile?.is_rider || ctx.profile?.is_sales_rep) redirect("/sales");
   const { staff } = await listStaff();
   return <StaffClient staff={staff ?? []} shopName={ctx.shop?.shop_name ?? "My Shop"} />;
 }

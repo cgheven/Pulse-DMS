@@ -1,10 +1,11 @@
 "use client";
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, ShoppingCart, Package, Receipt,
-  BookOpen, BarChart3, Boxes, Settings, X, Zap, Users, TrendingUp,
+  BookOpen, BarChart3, Boxes, Settings, X, Zap, Users, TrendingUp, Bike,
+  ClipboardList, Contact, Wallet, Landmark, FileBarChart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useShopContext } from "@/contexts/shop-context";
@@ -59,10 +60,29 @@ const navGroups = [
 
 type NavItem = (typeof navGroups)[0]["items"][0];
 
+// Nav groups gated behind an optional module — only shown once the shop's
+// super-admin-toggled module is enabled (see lib/modules.ts). This is UX
+// convenience only; the actual routes must enforce the gate server-side too.
+const MODULE_NAV_GROUPS: Record<string, { label: string; items: NavItem[] }> = {
+  rider_management: {
+    label: "Riders",
+    items: [
+      { href: "/riders",         label: "Riders",          icon: Bike },
+      { href: "/riders/orders",  label: "Orders",          icon: ClipboardList },
+      { href: "/riders/clients", label: "Clients",         icon: Contact },
+      { href: "/riders/cash",    label: "Cash Collection", icon: Wallet },
+      { href: "/riders/cheque",  label: "Cheque Collection", icon: Landmark },
+      { href: "/riders/reports", label: "Rider Reports",   icon: FileBarChart },
+    ],
+  },
+};
+
 const NavLink = memo(function NavLink({
   href, label, icon: Icon, pathname, onClose,
 }: NavItem & { pathname: string; onClose: () => void }) {
-  const active = pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
+  // Boundary-safe prefix match: "/riders" must not stay highlighted on
+  // "/riders/orders" (a sibling nav item), and must not match "/riders-x".
+  const active = pathname === href || pathname.startsWith(href + "/");
   return (
     <Link
       href={href}
@@ -95,8 +115,21 @@ interface SidebarProps {
 
 export function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
-  const { profile } = useShopContext();
+  const { profile, enabledModules } = useShopContext();
   const isStaff = profile?.role === "staff";
+
+  // Staff always see the minimal nav regardless of module state — matches the
+  // existing "staff sees only Sales" precedent. Owners get the full nav plus
+  // any module-gated groups enabled for their shop (server-enforced too).
+  const groups = useMemo(() => {
+    if (isStaff) {
+      return [{ label: "Operations", items: [{ href: "/sales", label: "Sales", icon: ShoppingCart }] }];
+    }
+    const moduleGroups = Object.entries(MODULE_NAV_GROUPS)
+      .filter(([key]) => enabledModules.includes(key))
+      .map(([, group]) => group);
+    return [...navGroups, ...moduleGroups];
+  }, [isStaff, enabledModules]);
 
   return (
     <>
@@ -140,7 +173,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto py-4 px-2.5 space-y-4 scrollbar-hide">
-          {(isStaff ? [{ label: "Operations", items: [{ href: "/sales", label: "Sales", icon: ShoppingCart }] }] : navGroups).map((group) => (
+          {groups.map((group) => (
             <div key={group.label}>
               <p className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-widest px-3 mb-1.5">
                 {group.label}

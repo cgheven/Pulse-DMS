@@ -20,7 +20,7 @@ function getDefaultDateRange(): { from: string; to: string } {
 export default async function InsightsPage() {
   const ctx = await getAuthContext();
   if (!ctx?.user) redirect("/login");
-  if (ctx.profile?.role !== "owner") redirect("/dashboard");
+  if (ctx.profile?.role !== "owner" || ctx.profile?.is_rider || ctx.profile?.is_sales_rep) redirect("/dashboard");
   if (!ctx.branchId) redirect("/dashboard");
 
   const { from, to } = getDefaultDateRange();

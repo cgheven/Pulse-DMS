@@ -1,7 +1,13 @@
 import type { ReportColumn } from "./types";
 
 function esc(v: string | number): string {
-  const s = typeof v === "number" ? String(v) : (v ?? "");
+  let s = typeof v === "number" ? String(v) : (v ?? "");
+  // CSV/formula-injection guard: a cell value sourced from user-controlled
+  // text (e.g. a rider- or client-supplied name/note) that starts with
+  // =, +, -, or @ would be interpreted as a formula by Excel/Sheets when the
+  // exported file is opened. Prefix with a leading apostrophe so it's always
+  // treated as literal text — matches the standard OWASP CSV-injection fix.
+  if (/^[=+\-@]/.test(s)) s = "'" + s;
   return '"' + s.replace(/"/g, '""') + '"';
 }
 

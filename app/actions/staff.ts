@@ -24,11 +24,17 @@ async function requireShopOwner() {
   if (!user) throw new Error("Not authenticated");
   const { data: profile } = await supabase
     .from("dms_profiles")
-    .select("shop_id, role")
+    .select("shop_id, role, is_rider, is_sales_rep")
     .eq("id", user.id)
     .single();
   if (!profile || profile.role !== "owner") throw new Error("Not authorized");
   if (!profile.shop_id) throw new Error("No shop found");
+  // Defense-in-depth: role='owner' alone must never be sufficient. If a data
+  // integrity slip ever leaves a rider/sales-rep profile with role='owner'
+  // (e.g. an upsert against a brand-new profile omitting `role`, which falls
+  // back to the column's 'owner' default), is_rider/is_sales_rep still blocks
+  // owner-equivalent authority over staff records here.
+  if (profile.is_rider || profile.is_sales_rep) throw new Error("Not authorized");
   return { userId: user.id, shopId: profile.shop_id as string };
 }
 
