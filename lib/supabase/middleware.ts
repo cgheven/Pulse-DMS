@@ -5,6 +5,14 @@ import { NextResponse, type NextRequest } from "next/server";
 // Staff are only permitted to record sales at /sales.
 const STAFF_BLOCKED = /^\/(dashboard|expenses|pl-report|insights|supplier-ledger|products|stock|staff|settings|riders)(\/|$)/;
 
+// The actual gated areas of the app. Only these require a session — anything
+// else (marketing pages, unknown paths, public API-style routes like
+// /r/[token]'s receipt links) falls through untouched instead of being
+// swept into "protected" just for not being explicitly allowlisted. This is
+// additive to isPublic below, never a replacement: it only narrows when the
+// login redirect fires, so it can't newly expose a real protected route.
+const PROTECTED_PREFIXES = /^\/(dashboard|expenses|pl-report|products|riders|rider|sales|settings|staff|stock|supplier-ledger|insights|admin)(\/|$)/;
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
@@ -37,19 +45,18 @@ export async function updateSession(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isAuthRoute = pathname.startsWith("/login");
   const isPublic =
+    pathname === "/" ||
     isAuthRoute ||
     pathname.startsWith("/register") ||
     pathname.startsWith("/verify-email") ||
     pathname.startsWith("/forgot-password") ||
     pathname.startsWith("/reset-password") ||
     pathname.startsWith("/auth/callback") ||
-    pathname.startsWith("/find") ||
-    pathname.startsWith("/research") ||
     pathname.startsWith("/api/") ||
     pathname.startsWith("/pricing") ||
     pathname.startsWith("/onboarding");
 
-  if (!user && !isPublic) {
+  if (!user && !isPublic && PROTECTED_PREFIXES.test(pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

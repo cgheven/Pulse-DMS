@@ -12,7 +12,9 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "Pulse DMS",
-  description: "Pulse of your business",
+  description:
+    "Pulse DMS is inventory and sales management software for retail shops and distributors — track stock, sales, and delivery across every branch in real time.",
+  authors: [{ name: "PulseHub (SMC-Private) Limited" }],
 };
 
 export const viewport: Viewport = {

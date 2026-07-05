@@ -2,8 +2,10 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, Zap, GitBranch, CheckCircle2 } from "lucide-react";
+import { ArrowRight, Check, GitBranch, CheckCircle2 } from "lucide-react";
 import { submitDemoRequest } from "@/app/actions/demo-request";
+import { SiteNav } from "@/components/marketing/site-nav";
+import { SiteFooter } from "@/components/marketing/site-footer";
 import {
   Dialog,
   DialogContent,
@@ -363,23 +365,7 @@ export default function PricingPage() {
         <div className="absolute bottom-0 right-0 w-[400px] h-[400px] rounded-full bg-primary/[0.03] blur-3xl" />
       </div>
 
-      {/* Nav */}
-      <nav className="relative z-10 flex items-center justify-between px-6 py-4 max-w-6xl mx-auto">
-        <Link href="/login" className="flex flex-col items-start">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
-              <Zap className="w-3.5 h-3.5 text-primary" />
-            </div>
-            <span className="font-bold text-base text-foreground tracking-tight">Pulse</span>
-          </div>
-          <span className="text-[10px] text-primary/60 uppercase tracking-[0.2em] font-semibold ml-9 -mt-0.5">
-            Pulse of your business
-          </span>
-        </Link>
-        <Link href="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-          Sign in
-        </Link>
-      </nav>
+      <SiteNav />
 
       {/* Heading + billing toggle */}
       <div className="relative z-10 px-6 pt-10 pb-6 max-w-6xl mx-auto">
@@ -550,7 +536,7 @@ export default function PricingPage() {
           </div>
           <div className="flex items-center gap-3 shrink-0">
             <a
-              href={`https://wa.me/?text=${encodeURIComponent("Hi! I'd like to learn more about Pulse DMS.")}`}
+              href={`https://wa.me/923336673553?text=${encodeURIComponent("Hi! I'd like to learn more about Pulse DMS.")}`}
               target="_blank"
               rel="noopener noreferrer"
               className="px-4 py-2 rounded-lg border border-sidebar-border hover:border-primary/30 hover:bg-primary/5 text-foreground font-semibold text-sm transition-all"
@@ -568,23 +554,7 @@ export default function PricingPage() {
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="relative z-10 border-t border-sidebar-border px-6 py-8">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          <Link href="/login" className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
-              <Zap className="w-3 h-3 text-primary" />
-            </div>
-            <span className="font-bold text-base text-foreground">Pulse DMS</span>
-          </Link>
-          <p className="text-xs text-muted-foreground/60">
-            © 2026 Pulse. Built for dealers who mean business.
-          </p>
-          <Link href="/login" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
-            Sign in →
-          </Link>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }
