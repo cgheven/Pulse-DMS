@@ -30,8 +30,8 @@ const PLANS = [
     name: "Single Branch",
     branches: 1,
     tagline: "One shop, fully managed.",
-    monthly: 4500,
-    annual: 40000,
+    monthly: 20,
+    annual: 200,
     highlight: false,
   },
   {
@@ -39,8 +39,8 @@ const PLANS = [
     name: "Double Branch",
     branches: 2,
     tagline: "Two branches, one dashboard.",
-    monthly: 7500,
-    annual: 67000,
+    monthly: 30,
+    annual: 300,
     highlight: true,
     badge: "Most Popular",
   },
@@ -49,8 +49,8 @@ const PLANS = [
     name: "Triple Branch",
     branches: 3,
     tagline: "Scale across three locations.",
-    monthly: 9500,
-    annual: 85000,
+    monthly: 40,
+    annual: 400,
     highlight: false,
   },
 ] as const;
@@ -80,7 +80,7 @@ function annualSavingsPct(plan: (typeof PLANS)[number]) {
 }
 
 function fmt(n: number) {
-  return n.toLocaleString("en-PK");
+  return n.toLocaleString("en-US");
 }
 
 // ── Plan Card ─────────────────────────────────────────────────────────────────
@@ -131,9 +131,8 @@ function PlanCard({
 
         {/* Price */}
         <div className="flex items-end gap-1.5 mb-1">
-          <span className="text-sm text-muted-foreground mb-1">PKR</span>
           <span className="text-5xl font-black text-foreground tabular-nums leading-none">
-            {fmt(price)}
+            ${fmt(price)}
           </span>
           <span className="text-sm text-muted-foreground mb-1">
             {period === "monthly" ? "/mo" : "/yr"}
@@ -143,10 +142,10 @@ function PlanCard({
         {period === "annual" ? (
           <div className="flex items-center gap-2 mt-2">
             <span className="text-xs text-muted-foreground">
-              PKR {fmt(monthlyEquivalent)}/mo
+              ${fmt(monthlyEquivalent)}/mo
             </span>
             <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/10 border border-primary/25 text-[11px] font-bold text-primary">
-              Save PKR {fmt(annualSaved)}
+              Save ${fmt(annualSaved)}
             </span>
           </div>
         ) : (
@@ -158,13 +157,13 @@ function PlanCard({
       <div className="rounded-xl border border-sidebar-border bg-sidebar/50 p-3 space-y-2">
         <div className="flex items-center justify-between text-xs">
           <span className="text-muted-foreground">Per branch / month</span>
-          <span className="font-bold tabular-nums text-foreground">PKR {fmt(perBranchMonthly)}</span>
+          <span className="font-bold tabular-nums text-foreground">${fmt(perBranchMonthly)}</span>
         </div>
         {plan.branches > 1 && (
           <div className="flex items-center justify-between text-xs border-t border-sidebar-border pt-2">
             <span className="text-muted-foreground">vs single branch</span>
             <span className="font-semibold text-primary text-[11px]">
-              PKR {fmt(Math.round(4500 - perBranchMonthly))} cheaper/branch
+              ${fmt(Math.round(20 - perBranchMonthly))} cheaper/branch
             </span>
           </div>
         )}
@@ -294,9 +293,9 @@ function DemoForm({ initialPlan = "" }: { initialPlan?: string }) {
             <SelectValue placeholder="Select a plan" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="single">Single Branch — PKR 4,500 / mo</SelectItem>
-            <SelectItem value="double">Double Branch — PKR 7,500 / mo</SelectItem>
-            <SelectItem value="triple">Triple Branch — PKR 9,500 / mo</SelectItem>
+            <SelectItem value="single">Single Branch — $20/mo</SelectItem>
+            <SelectItem value="double">Double Branch — $30/mo</SelectItem>
+            <SelectItem value="triple">Triple Branch — $40/mo</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -378,6 +377,11 @@ export default function PricingPage() {
             <p className="text-sm text-muted-foreground mt-1.5">
               Every feature included in every plan — no card required.
             </p>
+            <p className="text-xs text-muted-foreground/70 mt-2">
+              Prices shown in USD. Every plan includes a 7-day free trial — if you don&apos;t cancel,
+              it automatically converts to the price shown above. Taxes may apply and will be
+              calculated at checkout.
+            </p>
           </div>
 
           {/* Billing toggle */}
@@ -454,22 +458,22 @@ export default function PricingPage() {
                 {[
                   {
                     label: "Monthly",
-                    getValue: (p: (typeof PLANS)[number]) => `PKR ${fmt(p.monthly)}/mo`,
+                    getValue: (p: (typeof PLANS)[number]) => `$${fmt(p.monthly)}/mo`,
                     highlight: false,
                   },
                   {
                     label: "Annual",
-                    getValue: (p: (typeof PLANS)[number]) => `PKR ${fmt(p.annual)}/yr`,
+                    getValue: (p: (typeof PLANS)[number]) => `$${fmt(p.annual)}/yr`,
                     highlight: false,
                   },
                   {
                     label: "You save",
-                    getValue: (p: (typeof PLANS)[number]) => `PKR ${fmt(p.monthly * 12 - p.annual)}`,
+                    getValue: (p: (typeof PLANS)[number]) => `$${fmt(p.monthly * 12 - p.annual)}`,
                     highlight: true,
                   },
                   {
                     label: "Per branch/mo",
-                    getValue: (p: (typeof PLANS)[number]) => `PKR ${fmt(Math.round(p.monthly / p.branches))}`,
+                    getValue: (p: (typeof PLANS)[number]) => `$${fmt(Math.round(p.monthly / p.branches))}`,
                     highlight: false,
                   },
                 ].map(({ label, getValue, highlight }) => (
@@ -532,7 +536,7 @@ export default function PricingPage() {
         <div className="rounded-2xl border border-sidebar-border bg-card px-6 py-5 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div>
             <p className="font-semibold text-foreground text-sm">Ready to try Pulse DMS?</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Free trial · No card · Live in minutes</p>
+            <p className="text-xs text-muted-foreground mt-0.5">7-day free trial · No card · Live in minutes</p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
             <a

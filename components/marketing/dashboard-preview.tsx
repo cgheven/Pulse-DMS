@@ -85,7 +85,7 @@ export function DashboardPreview() {
             { label: "Total Products", value: "2,143", delta: "+12%", up: true },
             { label: "Low Stock", value: "23", delta: "+5%", up: false },
             { label: "Today's Sales", value: "156", delta: "+18%", up: true },
-            { label: "Outstanding", value: "PKR 84K", delta: "-2%", up: true },
+            { label: "Outstanding", value: "$840", delta: "-2%", up: true },
           ].map((s) => (
             <div key={s.label} className="rounded-xl border border-sidebar-border bg-background/60 p-3">
               <p className="text-[10px] text-muted-foreground truncate">{s.label}</p>
