@@ -1,7 +1,8 @@
 "use server";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { dashboardStatsTag, plReportTag, supplierBalancesTag } from "@/lib/data";
 
 // Verify that branchId belongs to the authenticated user
 async function verifyBranchOwnership(branchId: string, userId: string): Promise<boolean> {
@@ -45,6 +46,9 @@ export async function addInvoice(data: {
 
   if (error) return { error: error.message };
   revalidatePath("/supplier-ledger");
+  revalidateTag(supplierBalancesTag(data.branchId));
+  revalidateTag(dashboardStatsTag(data.branchId));
+  revalidateTag(plReportTag(data.branchId));
   return { success: true };
 }
 
@@ -97,6 +101,9 @@ export async function recordPayment(data: {
   if (updateRes.error) return { error: updateRes.error.message };
 
   revalidatePath("/supplier-ledger");
+  revalidateTag(supplierBalancesTag(data.branchId));
+  revalidateTag(dashboardStatsTag(data.branchId));
+  revalidateTag(plReportTag(data.branchId));
   return { success: true };
 }
 
@@ -115,5 +122,8 @@ export async function deleteLedgerEntry(entryId: string, branchId: string) {
 
   if (error) return { error: error.message };
   revalidatePath("/supplier-ledger");
+  revalidateTag(supplierBalancesTag(branchId));
+  revalidateTag(dashboardStatsTag(branchId));
+  revalidateTag(plReportTag(branchId));
   return { success: true };
 }

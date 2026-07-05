@@ -15,24 +15,25 @@ export default async function DashboardLayout({ children }: { children: React.Re
   if (ctx.profile?.is_rider) redirect("/rider/dashboard");
 
   // Defense-in-depth: check active team membership in case the flag was not
-  // set (e.g. accounts created before the flag was wired up).
+  // set (e.g. accounts created before the flag was wired up). Mirrored for
+  // riders too. These two checks are independent of each other, so run them
+  // concurrently instead of sequentially.
   const admin = createAdminClient();
-  const { data: membership } = await admin
-    .from("dms_sales_team_members")
-    .select("id")
-    .eq("user_id", ctx.user.id)
-    .eq("is_active", true)
-    .maybeSingle();
+  const [{ data: membership }, { data: riderRow }] = await Promise.all([
+    admin
+      .from("dms_sales_team_members")
+      .select("id")
+      .eq("user_id", ctx.user.id)
+      .eq("is_active", true)
+      .maybeSingle(),
+    admin
+      .from("dms_riders")
+      .select("id")
+      .eq("profile_id", ctx.user.id)
+      .eq("is_active", true)
+      .maybeSingle(),
+  ]);
   if (membership) redirect("/sales/dashboard");
-
-  // Defense-in-depth mirror for riders: a rider row can exist (and be active)
-  // even if dms_profiles.is_rider fell out of sync.
-  const { data: riderRow } = await admin
-    .from("dms_riders")
-    .select("id")
-    .eq("profile_id", ctx.user.id)
-    .eq("is_active", true)
-    .maybeSingle();
   if (riderRow) redirect("/rider/dashboard");
 
   // Admin has no shop — send to admin panel, not onboarding

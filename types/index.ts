@@ -163,6 +163,17 @@ export type DashboardStats = {
   total_products: number;
 };
 
+export type CostRow = { label: string; amount: number; sub?: string };
+export type PayableRow = { name: string; balance: number };
+export type ProductRow = {
+  name: string;
+  units_sold: number;
+  revenue: number;
+  cogs: number;
+  gross_profit: number;
+  margin_pct: number;
+};
+
 export type PLReport = {
   total_sales: number;
   total_cogs: number;
@@ -170,7 +181,9 @@ export type PLReport = {
   total_expenses: number;
   net_profit: number;
   margin_pct: number;
-  expense_breakdown: { category: string; amount: number }[];
+  cost_rows: CostRow[];
+  supplier_payables: PayableRow[];
+  product_rows: ProductRow[];
 };
 
 // ─── Multi-branch support ─────────────────────────────────────────────────────

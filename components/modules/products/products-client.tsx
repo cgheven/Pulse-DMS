@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useMemo, useEffect, useCallback } from "react";
+import { useState, useTransition, useMemo, useCallback } from "react";
 import { Pencil, Trash2, Plus, Package, Users } from "lucide-react";
 import type { Product, Supplier } from "@/types";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -31,7 +31,6 @@ import {
   editSupplier,
   deleteSupplier,
 } from "@/app/actions/products";
-import { useBranchContext } from "@/contexts/branch-context";
 import { createClient } from "@/lib/supabase/client";
 
 // ─── helpers ───────────────────────────────────────────────────────────────
@@ -87,30 +86,23 @@ const emptySupplierForm = (): SupplierForm => ({
   contact: "",
 });
 
-// ─── skeleton ──────────────────────────────────────────────────────────────
-
-function ProductsSkeleton() {
-  return (
-    <div className="space-y-6">
-      <div className="space-y-2">
-        <div className="animate-pulse bg-muted rounded-xl h-9 w-48" />
-        <div className="animate-pulse bg-muted rounded-xl h-4 w-36" />
-      </div>
-      <div className="animate-pulse bg-muted rounded-xl h-10 w-48" />
-      <div className="animate-pulse bg-muted rounded-xl h-64" />
-    </div>
-  );
-}
-
 // ─── main component ────────────────────────────────────────────────────────
 
-export function ProductsClient() {
-  const { branchId } = useBranchContext();
+export function ProductsClient({
+  branchId,
+  initialProducts,
+  initialSuppliers,
+}: {
+  branchId: string | null;
+  initialProducts: Product[];
+  initialSuppliers: Supplier[];
+}) {
+  const [products, setProducts] = useState<Product[]>(initialProducts);
+  const [suppliers, setSuppliers] = useState<Supplier[]>(initialSuppliers);
 
-  const [products, setProducts] = useState<Product[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [loading, setLoading] = useState(true);
-
+  // Re-fetches the latest products/suppliers for the current branch. Used
+  // after add/edit/delete mutations to refresh the lists in place — initial
+  // data is already server-rendered, so this never runs on mount.
   const fetchData = useCallback(async () => {
     if (!branchId) return;
     const supabase = createClient();
@@ -128,14 +120,7 @@ export function ProductsClient() {
     ]);
     setProducts((productsData as Product[]) ?? []);
     setSuppliers((suppliersData as Supplier[]) ?? []);
-    setLoading(false);
   }, [branchId]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
-  if (loading) return <ProductsSkeleton />;
 
   return (
     <div className="space-y-6 animate-fade-in">

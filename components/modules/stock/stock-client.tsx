@@ -16,6 +16,7 @@ import { toast } from "@/hooks/use-toast";
 import { cn, formatDate, formatDateInput } from "@/lib/utils";
 
 import { addStockMovement, updateLowStockThreshold } from "@/app/actions/stock";
+import { computeBatches, type BatchRow } from "@/lib/stock-batches";
 import type { StockLevel, StockMovement } from "@/types";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -31,43 +32,14 @@ function urgencyScore(level: StockLevel): number {
   return level.current_stock / level.low_stock_threshold;
 }
 
-// ─── Batch FIFO calculation ───────────────────────────────────────────────────
-
-type BatchRow = { date: string; unitPrice: number | null; remaining: number };
-
-function computeBatches(
-  movements: { type: string; quantity: number; unit_price: number | null; created_at: string }[]
-): BatchRow[] {
-  const sorted = [...movements].sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-  );
-  const batches: BatchRow[] = [];
-  for (const m of sorted) {
-    if (m.type === "in") {
-      batches.push({ date: m.created_at, unitPrice: m.unit_price, remaining: m.quantity });
-    } else {
-      let toDeduct = m.quantity;
-      // Price-matched deduction: if the OUT movement carries a unit_price (from a
-      // user-selected batch), deduct from that batch first before falling back to FIFO.
-      if (m.unit_price != null) {
-        const matched = batches.find((b) => b.remaining > 0 && b.unitPrice === m.unit_price);
-        if (matched) {
-          const d = Math.min(matched.remaining, toDeduct);
-          matched.remaining -= d;
-          toDeduct -= d;
-        }
-      }
-      // FIFO for any remaining qty (covers fallback and manual stock-out movements)
-      for (const b of batches) {
-        if (toDeduct <= 0) break;
-        const d = Math.min(b.remaining, toDeduct);
-        b.remaining -= d;
-        toDeduct -= d;
-      }
-    }
-  }
-  return batches.filter((b) => b.remaining > 0);
+function sortByUrgency(levels: StockLevel[]): StockLevel[] {
+  return [...levels].sort((a, b) => urgencyScore(a) - urgencyScore(b));
 }
+
+// Same bounded window as the server-side fetch in page.tsx (see
+// lib/data.ts's getStockBatchMovements) — keeps the post-mutation client
+// refresh from re-introducing the unbounded "all historical movements" query.
+const BATCH_HISTORY_MONTHS = 12;
 
 // ─── Inline threshold editor ──────────────────────────────────────────────────
 
@@ -364,20 +336,36 @@ function MovementDialog({
 
 // ─── Root Client Component ────────────────────────────────────────────────────
 
-export function StockClient() {
+interface StockClientProps {
+  initialStockLevels: StockLevel[];
+  initialMovements: StockMovement[];
+  initialBatchMap: Record<string, BatchRow[]>;
+}
+
+export function StockClient({ initialStockLevels, initialMovements, initialBatchMap }: StockClientProps) {
   const { branchId } = useBranchContext();
-  const [stockLevels, setStockLevels] = useState<StockLevel[]>([]);
-  const [movements, setMovements] = useState<StockMovement[]>([]);
-  const [batchMap, setBatchMap] = useState<Record<string, BatchRow[]>>({});
-  const [loading, setLoading] = useState(true);
+  // Seeded from server-rendered props (resolved from the server-side branchId
+  // in page.tsx). The parent page.tsx keys this component by branchId, so a
+  // branch switch (which calls router.refresh()) fully remounts this
+  // component with fresh initial props rather than leaving stale state
+  // around from the previous branch.
+  const [stockLevels, setStockLevels] = useState<StockLevel[]>(() => sortByUrgency(initialStockLevels));
+  const [movements, setMovements] = useState<StockMovement[]>(initialMovements);
+  const [batchMap, setBatchMap] = useState<Record<string, BatchRow[]>>(initialBatchMap);
   const [dialog, setDialog] = useState<MovementDialogState>(emptyDialog);
   const [historyFilter, setHistoryFilter] = useState("all");
   const [stockSearch, setStockSearch] = useState("");
   const [stockFilter, setStockFilter] = useState<"all" | "low">("all");
 
+  // Re-fetches everything client-side after an explicit user mutation (add
+  // stock in/out) so the batch/cost breakdown reflects the new movement.
+  // Bounded to the same recent window as the server-side initial fetch —
+  // never pulls a product's entire unbounded history.
   async function fetchData() {
     if (!branchId) return;
     const supabase = createClient();
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - BATCH_HISTORY_MONTHS);
     const [levelsRes, movementsRes, allMovementsRes] = await Promise.all([
       supabase.from("dms_stock_levels").select("*").eq("branch_id", branchId).order("product_name"),
       supabase
@@ -390,28 +378,54 @@ export function StockClient() {
         .from("dms_stock_movements")
         .select("product_id, type, quantity, unit_price, created_at")
         .eq("branch_id", branchId)
+        .gte("created_at", cutoff.toISOString())
         .order("created_at", { ascending: true }),
     ]);
-    if (levelsRes.data) {
-      setStockLevels([...(levelsRes.data as StockLevel[])].sort((a, b) => urgencyScore(a) - urgencyScore(b)));
+    const levels = (levelsRes.data as StockLevel[] | null) ?? null;
+    if (levels) {
+      setStockLevels(sortByUrgency(levels));
     }
     if (movementsRes.data) setMovements(movementsRes.data as StockMovement[]);
-    if (allMovementsRes.data) {
+    if (allMovementsRes.data && levels) {
       const byProduct: Record<string, typeof allMovementsRes.data> = {};
       for (const m of allMovementsRes.data) {
         if (!byProduct[m.product_id]) byProduct[m.product_id] = [];
         byProduct[m.product_id].push(m);
       }
       const map: Record<string, BatchRow[]> = {};
-      for (const [pid, mvs] of Object.entries(byProduct)) {
-        map[pid] = computeBatches(mvs);
+      for (const level of levels) {
+        map[level.product_id] = computeBatches(byProduct[level.product_id] ?? [], level.current_stock);
       }
+
+      // Reconcile the rare product whose windowed history under-accounts for its
+      // real stock (still holds unsold stock older than the window) — refetch
+      // just THAT product's full history so its opening batch carries a real
+      // historical price instead of falling back to current cost_price. Bounded
+      // per-product, so this doesn't reintroduce the old "fetch everything" cost.
+      const legacyProductIds = Object.entries(map)
+        .filter(([, rows]) => rows.some((r) => r.unitPrice === null))
+        .map(([pid]) => pid);
+      if (legacyProductIds.length > 0) {
+        const stockByProduct: Record<string, number> = {};
+        levels.forEach((s) => { stockByProduct[s.product_id] = s.current_stock; });
+        const fullHistories = await Promise.all(
+          legacyProductIds.map((pid) =>
+            supabase
+              .from("dms_stock_movements")
+              .select("type, quantity, unit_price, created_at")
+              .eq("branch_id", branchId)
+              .eq("product_id", pid)
+              .order("created_at", { ascending: true })
+          )
+        );
+        legacyProductIds.forEach((pid, i) => {
+          map[pid] = computeBatches(fullHistories[i].data ?? [], stockByProduct[pid]);
+        });
+      }
+
       setBatchMap(map);
     }
-    setLoading(false);
   }
-
-  useEffect(() => { fetchData(); }, [branchId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const lowStockCount = useMemo(() => stockLevels.filter((s) => s.current_stock <= s.low_stock_threshold).length, [stockLevels]);
 
@@ -437,24 +451,23 @@ export function StockClient() {
 
   function handleThresholdUpdated(productId: string, value: number) {
     setStockLevels((prev) =>
-      [...prev.map((s) => s.product_id === productId ? { ...s, low_stock_threshold: value } : s)]
-        .sort((a, b) => urgencyScore(a) - urgencyScore(b))
+      sortByUrgency(prev.map((s) => s.product_id === productId ? { ...s, low_stock_threshold: value } : s))
     );
   }
 
   function handleMovementSuccess(movement: StockMovement) {
     setStockLevels((prev) =>
-      [...prev.map((s) => {
+      sortByUrgency(prev.map((s) => {
         if (s.product_id !== movement.product_id) return s;
         const delta = movement.type === "in" ? movement.quantity : -movement.quantity;
         return { ...s, current_stock: Math.max(0, s.current_stock + delta) };
-      })].sort((a, b) => urgencyScore(a) - urgencyScore(b))
+      }))
     );
     setMovements((prev) => [movement, ...prev].slice(0, 60));
     fetchData();
   }
 
-  if (loading || !branchId) {
+  if (!branchId) {
     return (
       <div className="space-y-4">
         <div className="h-7 w-40 bg-muted animate-pulse rounded-lg" />

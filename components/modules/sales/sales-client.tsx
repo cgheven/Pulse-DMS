@@ -107,22 +107,6 @@ interface EditFormState {
   saleDate: string;
 }
 
-// ─── Skeleton ─────────────────────────────────────────────────────────────────
-
-function PageSkeleton() {
-  return (
-    <div className="space-y-6">
-      <div className="space-y-2">
-        <div className="animate-pulse bg-muted rounded-xl h-9 w-48" />
-        <div className="animate-pulse bg-muted rounded-xl h-4 w-36" />
-      </div>
-      <div className="animate-pulse bg-muted rounded-xl h-28" />
-      <div className="animate-pulse bg-muted rounded-xl h-64" />
-      <div className="animate-pulse bg-muted rounded-xl h-80" />
-    </div>
-  );
-}
-
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function PaymentBadge({ mode }: { mode: "cash" | "credit" }) {
@@ -354,63 +338,26 @@ function ReportExportButtons({ sales, shopName, branchName }: { sales: Sale[]; s
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export function SalesClient() {
+interface SalesClientProps {
+  initialSales: Sale[];
+  initialProducts: Product[];
+  initialStockMap: Record<string, number>;
+}
+
+export function SalesClient({ initialSales, initialProducts, initialStockMap }: SalesClientProps) {
   const { branchId, branch } = useBranchContext();
   const { shop, profile } = useShopContext();
   const isOwner = profile?.role === "owner";
 
   // ── Data state ──────────────────────────────────────────────────────────────
-  const [sales, setSales] = useState<Sale[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [stockMap, setStockMap] = useState<Record<string, number>>({});
-  const [initialLoading, setInitialLoading] = useState(true);
+  // Seeded from server-rendered props (resolved from the server-side branchId
+  // in page.tsx). The parent page.tsx keys this component by branchId, so a
+  // branch switch (which triggers router.refresh()) fully remounts this
+  // component with fresh initial* props rather than leaving stale state around.
+  const [sales, setSales] = useState<Sale[]>(initialSales);
+  const [products, setProducts] = useState<Product[]>(initialProducts);
+  const [stockMap, setStockMap] = useState<Record<string, number>>(initialStockMap);
   const [loadingSales, setLoadingSales] = useState(false);
-
-  // ── Initial data fetch ───────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!branchId) return;
-
-    const supabase = createClient();
-    const today = todayStr();
-
-    async function loadInitialData() {
-      setInitialLoading(true);
-      try {
-        const [salesRes, productsRes, stockRes] = await Promise.all([
-          supabase
-            .from("dms_sales")
-            .select("*, product:dms_products(id,name,unit)")
-            .eq("branch_id", branchId)
-            .eq("sale_date", today)
-            .order("created_at", { ascending: false })
-            .limit(50),
-          supabase
-            .from("dms_products")
-            .select("*")
-            .eq("branch_id", branchId)
-            .order("name"),
-          supabase
-            .from("dms_stock_levels")
-            .select("product_id, current_stock")
-            .eq("branch_id", branchId),
-        ]);
-
-        if (salesRes.data) setSales(salesRes.data as Sale[]);
-        if (productsRes.data) setProducts(productsRes.data as Product[]);
-        if (stockRes.data) {
-          const map: Record<string, number> = {};
-          for (const row of stockRes.data as { product_id: string; current_stock: number }[]) {
-            map[row.product_id] = row.current_stock;
-          }
-          setStockMap(map);
-        }
-      } finally {
-        setInitialLoading(false);
-      }
-    }
-
-    loadInitialData();
-  }, [branchId]);
 
   // ── Date filter state ────────────────────────────────────────────────────────
   const [dateFilter, setDateFilter] = useState<DateFilter>("today");
@@ -517,11 +464,6 @@ export function SalesClient() {
     },
     [branchId]
   );
-
-  // ── Early return while initial data loads ────────────────────────────────────
-  if (initialLoading) {
-    return <PageSkeleton />;
-  }
 
   // ── Handle date filter tab change ────────────────────────────────────────────
   async function handleDateFilterChange(filter: DateFilter) {

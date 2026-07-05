@@ -1,6 +1,5 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   ShoppingCart,
@@ -14,8 +13,6 @@ import {
   Wallet,
   BarChart2,
 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
-import { useBranchContext } from "@/contexts/branch-context";
 import type { DashboardStats } from "@/types";
 
 function formatPKR(amount: number) {
@@ -48,37 +45,14 @@ function DashboardSkeleton() {
   );
 }
 
-export function DashboardClient() {
-  const { branchId } = useBranchContext();
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [loading, setLoading] = useState(true);
+interface DashboardClientProps {
+  initialStats: DashboardStats | null;
+}
 
-  useEffect(() => {
-    if (!branchId) return;
+export function DashboardClient({ initialStats }: DashboardClientProps) {
+  const stats = initialStats;
 
-    const supabase = createClient();
-
-    async function fetchStats() {
-      setLoading(true);
-      try {
-        const today = new Date();
-        const p_today = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-        const { data, error } = await supabase.rpc("get_dashboard_stats", {
-          p_branch_id: branchId,
-          p_today,
-        });
-        if (!error && data) {
-          setStats(Array.isArray(data) ? data[0] : data);
-        }
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchStats();
-  }, [branchId]);
-
-  if (loading || !stats) {
+  if (!stats) {
     return <DashboardSkeleton />;
   }
 

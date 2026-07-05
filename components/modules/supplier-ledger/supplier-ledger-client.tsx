@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useCallback, useMemo, useEffect, Fragment } from "react";
+import { useState, useTransition, useCallback, useMemo, Fragment } from "react";
 import {
   BookOpen,
   ChevronLeft,
@@ -218,11 +218,15 @@ function PayDialog({ invoice, branchId, onClose, onSuccess }: PayDialogProps) {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-export function SupplierLedgerClient() {
+interface SupplierLedgerClientProps {
+  initialBalances: SupplierBalance[];
+}
+
+export function SupplierLedgerClient({ initialBalances }: SupplierLedgerClientProps) {
   const { branchId } = useBranchContext();
 
-  const [balances, setBalances] = useState<SupplierBalance[]>([]);
-  const [balancesLoading, setBalancesLoading] = useState(true);
+  const [balances, setBalances] = useState<SupplierBalance[]>(initialBalances);
+  const [balancesLoading, setBalancesLoading] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [invoices, setInvoices] = useState<SupplierLedgerEntry[]>([]);
   const [invoicesLoading, setInvoicesLoading] = useState(false);
@@ -358,7 +362,9 @@ export function SupplierLedgerClient() {
     setBalancesLoading(false);
   }, [branchId]);
 
-  useEffect(() => { refreshBalances(); }, [refreshBalances]);
+  // Note: balances are seeded server-side via initialBalances (see page.tsx), so there is no
+  // fetch-on-mount here. refreshBalances() is only invoked after mutations (add invoice,
+  // record payment, delete) to keep the list in sync without a full page reload.
 
   // ── Select supplier ───────────────────────────────────────────────────────
 

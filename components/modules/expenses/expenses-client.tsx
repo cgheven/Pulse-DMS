@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useTransition, useEffect } from "react";
+import { useState, useMemo, useTransition } from "react";
 import {
   Home, Zap, Wifi, Droplets, Flame, Phone,
   Users, MoreHorizontal, Trash2, Plus, Receipt,
@@ -8,7 +8,6 @@ import {
 } from "lucide-react";
 import { addExpense, deleteExpense, fetchExpenses } from "@/app/actions/expenses";
 import { formatDateInput } from "@/lib/utils";
-import { createClient } from "@/lib/supabase/client";
 import { useBranchContext } from "@/contexts/branch-context";
 import { useShopContext } from "@/contexts/shop-context";
 import { downloadReportCsv } from "@/lib/reports/csv-export";
@@ -204,18 +203,22 @@ function ReportExportButtons({ expenses, shopName }: { expenses: Expense[]; shop
 
 type FilterMode = "this_month" | "last_month" | "custom";
 
-export function ExpensesClient() {
+interface ExpensesClientProps {
+  initialExpenses: Expense[];
+  initialFrom: string;
+  initialTo: string;
+}
+
+export function ExpensesClient({ initialExpenses, initialFrom, initialTo }: ExpensesClientProps) {
   const { branchId, branch } = useBranchContext();
   const { shop } = useShopContext();
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [expenses, setExpenses] = useState<Expense[]>(initialExpenses);
   const [loadingFilter, setLoadingFilter] = useState(false);
 
   // Date filter
   const [filterMode, setFilterMode] = useState<FilterMode>("this_month");
-  const { from: initFrom, to: initTo } = getThisMonthRange();
-  const [customFrom, setCustomFrom] = useState(initFrom);
-  const [customTo, setCustomTo] = useState(initTo);
+  const [customFrom, setCustomFrom] = useState(initialFrom);
+  const [customTo, setCustomTo] = useState(initialTo);
 
   // Add form
   const [category, setCategory] = useState<Category>("electricity");
@@ -227,25 +230,6 @@ export function ExpensesClient() {
   // Delete
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [isDeleting, startDeleteTransition] = useTransition();
-
-  // Load on mount
-  useEffect(() => {
-    if (!branchId) return;
-    const { from, to } = getThisMonthRange();
-    const supabase = createClient();
-    supabase
-      .from("dms_expenses")
-      .select("*")
-      .eq("branch_id", branchId)
-      .gte("expense_date", from)
-      .lte("expense_date", to)
-      .order("expense_date", { ascending: false })
-      .limit(200)
-      .then(({ data }) => {
-        if (data) setExpenses(data as Expense[]);
-        setLoading(false);
-      });
-  }, [branchId]);
 
   // Derived
   const total = useMemo(() => expenses.reduce((s, e) => s + Number(e.amount), 0), [expenses]);
@@ -338,20 +322,6 @@ export function ExpensesClient() {
       }
       setConfirmDelete(null);
     });
-  }
-
-  // Loading skeleton
-  if (loading) {
-    return (
-      <div className="space-y-4">
-        <div className="h-7 w-40 bg-muted animate-pulse rounded-lg" />
-        <div className="h-24 bg-muted animate-pulse rounded-xl" />
-        <div className="h-36 bg-muted animate-pulse rounded-xl" />
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-11 bg-muted animate-pulse rounded-lg" />
-        ))}
-      </div>
-    );
   }
 
   return (

@@ -1,7 +1,8 @@
 "use server";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { dashboardStatsTag, plReportTag } from "@/lib/data";
 
 const MAX_UNIT_PRICE = 100_000_000; // 100 million — sanity cap
 
@@ -51,6 +52,8 @@ export async function addStockMovement(data: {
   if (error) return { error: error.message };
   revalidatePath("/stock");
   revalidatePath("/dashboard");
+  revalidateTag(dashboardStatsTag(data.branchId));
+  revalidateTag(plReportTag(data.branchId));
   return { success: true };
 }
 
@@ -71,5 +74,6 @@ export async function updateLowStockThreshold(productId: string, branchId: strin
 
   if (error) return { error: error.message };
   revalidatePath("/stock");
+  revalidateTag(dashboardStatsTag(branchId));
   return { success: true };
 }
