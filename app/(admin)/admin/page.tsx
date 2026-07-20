@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { unstable_cache } from "next/cache";
 import { Building2, Clock, AlertTriangle, Users } from "lucide-react";
+import { LEAD_STATUS_CONFIG, LEAD_STATUS_ORDER } from "@/lib/lead-status";
 
 export const dynamic = "force-dynamic";
 
@@ -75,18 +76,12 @@ function TrialBadge({ trialEndsAt }: { trialEndsAt: string | null }) {
   );
 }
 
-// ── Lead status colours ───────────────────────────────────────────────────────
-
-const LEAD_STATUS_STYLE: Record<string, string> = {
-  new: "bg-primary/10 text-primary",
-  contacted: "bg-blue-500/10 text-blue-400",
-  demo_done: "bg-purple-500/10 text-purple-400",
-  negotiating: "bg-amber-500/10 text-amber-400",
-  won: "bg-emerald-500/10 text-emerald-400",
-  lost: "bg-red-500/10 text-red-400",
-};
-
-const LEAD_STATUS_ORDER = ["new", "contacted", "demo_done", "negotiating", "won", "lost"];
+// Lead status colours/order come from the shared pipeline config — this funnel
+// previously listed its own six statuses and silently dropped every lead whose
+// status wasn't in that list.
+const LEAD_STATUS_STYLE: Record<string, string> = Object.fromEntries(
+  LEAD_STATUS_ORDER.map(s => [s, LEAD_STATUS_CONFIG[s].cls])
+);
 
 // ── Admin guard (never cached — validates the live session) ───────────────────
 

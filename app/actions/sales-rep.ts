@@ -4,20 +4,18 @@ import { cache } from "react";
 import { unstable_cache, revalidateTag } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import {
+  LEAD_STATUS_ORDER, LEAD_STATUS_CLOSED, isTerminalStatus, type LeadStatus,
+} from "@/lib/lead-status";
+import { LEAD_PRIORITY_ORDER, type LeadPriority } from "@/lib/lead-priority";
 
 function leadsTag(userId: string) { return `leads:${userId}`; }
 
-export type LeadStatus =
-  | "new"
-  | "contacted"
-  | "demo_given"
-  | "follow_up"
-  | "negotiating"
-  | "payment_pending"
-  | "payment_received"
-  | "onboarding"
-  | "active"
-  | "lost";
+// Status/priority vocabularies live in lib/lead-status.ts + lib/lead-priority.ts
+// so the server actions, every table/badge, and the DB enum can't drift apart.
+// They are deliberately NOT re-exported from here: this is a "use server" file,
+// and Next's server-actions transform turns a re-exported type into a bogus
+// action-id export that breaks the Turbopack build. Import them from lib/.
 
 // Mirrors actual dms_leads columns
 export type Lead = {
@@ -29,6 +27,7 @@ export type Lead = {
   area: string | null;
   city: string | null;
   status: LeadStatus;
+  priority: LeadPriority;
   source: string | null;
   notes: string | null;
   next_followup_date: string | null;  // actual column name (was follow_up_date)
@@ -53,19 +52,6 @@ export type LeadActivity = {
   actor_id: string | null;      // actual column name (was created_by)
 };
 
-export type SalesRepStats = {
-  calls_today: number;
-  calls_week: number;
-  whatsapp_today: number;
-  whatsapp_week: number;
-  followups_today: number;
-  total_leads: number;
-  active_leads: number;
-  won_this_month: number;
-  lost_this_month: number;
-  pipeline_by_stage: Record<string, number>;
-};
-
 // Deduped with React cache() so every getXxx() call and the (sales) layout's
 // own check collapse into a single getUser()+profile round-trip per request.
 export const getSalesAuthContext = cache(async () => {
@@ -74,13 +60,25 @@ export const getSalesAuthContext = cache(async () => {
   if (!user) return null;
 
   const admin = createAdminClient();
-  const { data: profile } = await admin
-    .from("dms_profiles")
-    .select("is_sales_rep, is_admin, full_name")
-    .eq("id", user.id)
-    .single();
+  const [{ data: profile }, { data: memberships }] = await Promise.all([
+    admin
+      .from("dms_profiles")
+      .select("is_sales_rep, is_admin, full_name")
+      .eq("id", user.id)
+      .single(),
+    admin
+      .from("dms_sales_team_members")
+      .select("team_id, role")
+      .eq("user_id", user.id)
+      .eq("is_active", true),
+  ]);
 
-  return { user, profile };
+  const managerTeamIds = (memberships ?? [])
+    .filter(m => m.role === "manager")
+    .map(m => m.team_id as string);
+  const hasOwnLeadQueue = (memberships ?? []).some(m => m.role === "member");
+
+  return { user, profile, managerTeamIds, hasOwnLeadQueue };
 });
 
 export async function requireSalesRep() {
@@ -90,6 +88,18 @@ export async function requireSalesRep() {
     throw new Error("Forbidden: sales rep access required");
   }
   return ctx.user;
+}
+
+// Bypass convention matches requireSalesRep(): a platform admin can act as a
+// manager of any team. managerTeamIds is empty for a non-manager, non-admin caller.
+export async function requireSalesManager() {
+  const ctx = await getSalesAuthContext();
+  if (!ctx?.user) throw new Error("Unauthorized");
+  const isAdmin = !!ctx.profile?.is_admin;
+  if (!isAdmin && ctx.managerTeamIds.length === 0) {
+    throw new Error("Forbidden: sales manager access required");
+  }
+  return { user: ctx.user, managerTeamIds: ctx.managerTeamIds, isAdmin };
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -119,27 +129,6 @@ async function verifyLeadOwnership(leadId: string, userId: string): Promise<void
 
   // Uniform error for both missing and unowned leads — prevents existence oracle
   if (!lead || lead.assigned_to !== userId) throw new Error("Lead not found");
-}
-
-export async function getMyStats(): Promise<{ stats: SalesRepStats | null; error?: string }> {
-  try {
-    const user = await requireSalesRep();
-    const admin = createAdminClient();
-
-    const fetch = unstable_cache(
-      async () => {
-        const { data, error } = await admin.rpc("get_sales_rep_stats", { p_user_id: user.id });
-        if (error) throw error;
-        return data as SalesRepStats;
-      },
-      [`stats-${user.id}`],
-      { tags: [leadsTag(user.id)], revalidate: 60 }
-    );
-
-    return { stats: await fetch() };
-  } catch (err) {
-    return { stats: null, error: err instanceof Error ? err.message : "Failed to load stats" };
-  }
 }
 
 export async function getMyLeads(filters?: {
@@ -219,6 +208,7 @@ export async function createLead(data: {
   source?: string;
   notes?: string;
   next_followup_date?: string;
+  priority?: string;
 }): Promise<{ leadId?: string; error?: string }> {
   try {
     const user = await requireSalesRep();
@@ -233,6 +223,9 @@ export async function createLead(data: {
     const source = data.source?.trim() || "other";
     if (!VALID_SOURCES.includes(source)) throw new Error("Invalid source value");
 
+    const priority = data.priority?.trim() || "medium";
+    if (!(LEAD_PRIORITY_ORDER as string[]).includes(priority)) throw new Error("Invalid priority value");
+
     const next_followup_date = data.next_followup_date?.trim() || null;
     if (next_followup_date && (!DATE_RE.test(next_followup_date) || isNaN(Date.parse(next_followup_date)))) {
       throw new Error("Invalid follow-up date format");
@@ -240,12 +233,17 @@ export async function createLead(data: {
 
     const admin = createAdminClient();
 
-    const { data: teamMember } = await admin
+    // Selected as a list, not .single(): a user who is a member of one team and
+    // a manager of another has two active rows, and .single() would error out.
+    const { data: memberships } = await admin
       .from("dms_sales_team_members")
-      .select("team_id")
+      .select("team_id, role")
       .eq("user_id", user.id)
-      .eq("is_active", true)
-      .single();
+      .eq("is_active", true);
+    const teamId =
+      (memberships ?? []).find(m => m.role === "member")?.team_id ??
+      (memberships ?? [])[0]?.team_id ??
+      null;
 
     const { data: lead, error } = await admin
       .from("dms_leads")
@@ -256,10 +254,11 @@ export async function createLead(data: {
         email: data.email?.trim() || null,
         city: data.city?.trim() || null,
         source,
+        priority,
         notes: data.notes?.trim() || null,
         next_followup_date,
         assigned_to: user.id,
-        team_id: teamMember?.team_id || null,
+        team_id: teamId,
         status: "new",
       })
       .select("id")
@@ -267,12 +266,8 @@ export async function createLead(data: {
 
     if (error) throw error;
 
-    await admin.from("dms_lead_activities").insert({
-      lead_id: lead.id,
-      activity_type: "note",
-      note: "Lead created",
-      actor_id: user.id,
-    });
+    // No "Lead created" activity is logged — it's noise on the timeline, which
+    // is for real touchpoints (calls, WhatsApp, notes) the rep actually records.
 
     revalidateTag(leadsTag(user.id));
     return { leadId: lead.id };
@@ -327,11 +322,7 @@ export async function updateLeadStatus(
     const user = await requireSalesRep();
     await verifyLeadOwnership(leadId, user.id);
 
-    const validStatuses: LeadStatus[] = [
-      "new", "contacted", "demo_given", "follow_up", "negotiating",
-      "payment_pending", "payment_received", "onboarding", "active", "lost",
-    ];
-    if (!validStatuses.includes(status)) throw new Error("Invalid status");
+    if (!LEAD_STATUS_ORDER.includes(status)) throw new Error("Invalid status");
 
     if (extra?.lost_reason && extra.lost_reason.length > MAX_LOST_REASON) throw new Error("Lost reason too long");
     if (extra?.payment_amount !== undefined && (isNaN(extra.payment_amount) || extra.payment_amount < 0 || extra.payment_amount > 10_000_000)) {
@@ -422,6 +413,100 @@ export async function updateLeadNotes(
   }
 }
 
+export async function setLeadPriority(
+  leadId: string,
+  priority: LeadPriority
+): Promise<{ error?: string }> {
+  try {
+    const user = await requireSalesRep();
+    await verifyLeadOwnership(leadId, user.id);
+    if (!LEAD_PRIORITY_ORDER.includes(priority)) throw new Error("Invalid priority");
+
+    const admin = createAdminClient();
+    const { error } = await admin
+      .from("dms_leads")
+      .update({ priority, updated_at: new Date().toISOString() })
+      .eq("id", leadId);
+    if (error) throw error;
+
+    revalidateTag(leadsTag(user.id));
+    return {};
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Failed to update priority" };
+  }
+}
+
+// Full-record edit behind the Edit modal. Only the contact/detail fields —
+// status, priority and follow-up date have their own dedicated actions so the
+// inline dropdowns stay narrow, and payment/lost fields are only ever written
+// by updateLeadStatus alongside the status change that justifies them.
+export async function updateLead(
+  leadId: string,
+  data: {
+    business_name: string;
+    contact_name?: string;
+    whatsapp_number?: string;
+    email?: string;
+    city?: string;
+    source?: string;
+    notes?: string;
+  }
+): Promise<{ error?: string }> {
+  try {
+    const user = await requireSalesRep();
+    await verifyLeadOwnership(leadId, user.id);
+
+    if (!data.business_name.trim()) throw new Error("Business name is required");
+    if (data.business_name.length > MAX_BUSINESS_NAME) throw new Error("Business name too long");
+    if (data.contact_name && data.contact_name.length > MAX_CONTACT_NAME) throw new Error("Contact name too long");
+    if (data.whatsapp_number && data.whatsapp_number.length > MAX_PHONE) throw new Error("Phone number too long");
+    if (data.email && data.email.length > MAX_EMAIL) throw new Error("Email too long");
+    if (data.city && data.city.length > MAX_CITY) throw new Error("City name too long");
+    if (data.notes && data.notes.length > MAX_NOTES) throw new Error("Notes too long");
+
+    const source = data.source?.trim() || "other";
+    if (!VALID_SOURCES.includes(source)) throw new Error("Invalid source value");
+
+    const admin = createAdminClient();
+    const { error } = await admin
+      .from("dms_leads")
+      .update({
+        business_name: data.business_name.trim(),
+        contact_name: data.contact_name?.trim() || "",
+        whatsapp_number: data.whatsapp_number?.trim() || "",
+        email: data.email?.trim() || null,
+        city: data.city?.trim() || null,
+        source,
+        notes: data.notes?.trim() || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", leadId);
+    if (error) throw error;
+
+    revalidateTag(leadsTag(user.id));
+    return {};
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Failed to update lead" };
+  }
+}
+
+// A rep may delete their own leads. Activities cascade with the lead row.
+export async function deleteLead(leadId: string): Promise<{ error?: string }> {
+  try {
+    const user = await requireSalesRep();
+    await verifyLeadOwnership(leadId, user.id);
+
+    const admin = createAdminClient();
+    const { error } = await admin.from("dms_leads").delete().eq("id", leadId);
+    if (error) throw error;
+
+    revalidateTag(leadsTag(user.id));
+    return {};
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Failed to delete lead" };
+  }
+}
+
 export async function getTodaysFollowUps(): Promise<{ leads: Lead[]; error?: string }> {
   try {
     // Derive from the cached all-leads list — zero extra DB round-trip.
@@ -429,7 +514,7 @@ export async function getTodaysFollowUps(): Promise<{ leads: Lead[]; error?: str
     const { leads: all } = await getMyLeads();
     const today = new Date().toISOString().slice(0, 10);
     const leads = all
-      .filter(l => l.next_followup_date === today && l.status !== "active" && l.status !== "lost")
+      .filter(l => l.next_followup_date === today && !isTerminalStatus(l.status))
       .sort((a, b) => a.business_name.localeCompare(b.business_name));
 
     return { leads };
@@ -476,7 +561,7 @@ export async function getMyGoalsAndEarnings(): Promise<{ data: MonthlyEarnings |
             .from("dms_leads")
             .select("payment_amount, plan_type")
             .eq("assigned_to", user.id)
-            .eq("status", "payment_received")
+            .eq("status", LEAD_STATUS_CLOSED)
             .gte("updated_at", monthStart),
         ]);
         return { membership, closedLeads };

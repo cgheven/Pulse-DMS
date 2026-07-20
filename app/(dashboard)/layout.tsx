@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/data";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getEnabledModules } from "@/lib/modules";
+import { salesLandingPath } from "@/lib/sales-landing";
 import { ShopProvider } from "@/contexts/shop-context";
 import { BranchProvider } from "@/contexts/branch-context";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
@@ -10,22 +11,20 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const ctx = await getAuthContext();
   if (!ctx?.user) redirect("/login");
 
-  // Primary gate: profile flag
-  if (ctx.profile?.is_sales_rep) redirect("/sales/dashboard");
   if (ctx.profile?.is_rider) redirect("/rider/dashboard");
 
-  // Defense-in-depth: check active team membership in case the flag was not
-  // set (e.g. accounts created before the flag was wired up). Mirrored for
-  // riders too. These two checks are independent of each other, so run them
-  // concurrently instead of sequentially.
+  // Sales accounts belong in the (sales) portal, not here. Fetch the team
+  // memberships (with role) so a manager-only account lands on the team view
+  // and a rep on their leads — the old code sent everyone to /sales/dashboard,
+  // which no longer exists and produced a redirect loop. Also covers accounts
+  // whose is_sales_rep flag is out of sync with their membership rows.
   const admin = createAdminClient();
-  const [{ data: membership }, { data: riderRow }] = await Promise.all([
+  const [{ data: memberships }, { data: riderRow }] = await Promise.all([
     admin
       .from("dms_sales_team_members")
-      .select("id")
+      .select("role")
       .eq("user_id", ctx.user.id)
-      .eq("is_active", true)
-      .maybeSingle(),
+      .eq("is_active", true),
     admin
       .from("dms_riders")
       .select("id")
@@ -33,7 +32,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
       .eq("is_active", true)
       .maybeSingle(),
   ]);
-  if (membership) redirect("/sales/dashboard");
+  if (ctx.profile?.is_sales_rep || (memberships?.length ?? 0) > 0) {
+    redirect(salesLandingPath(memberships ?? []));
+  }
   if (riderRow) redirect("/rider/dashboard");
 
   // Admin has no shop — send to admin panel, not onboarding

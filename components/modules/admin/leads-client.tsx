@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "@/hooks/use-toast";
+import { LEAD_STATUS_CONFIG, LEAD_STATUS_ORDER, isLeadStatus } from "@/lib/lead-status";
 import {
   createDmsLead,
   updateDmsLead,
@@ -27,15 +28,12 @@ import {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
+// Driven off the shared pipeline config so the admin list can never offer or
+// write a status the dms_lead_status enum doesn't have (it used to write "won").
 const STATUS_TABS = [
   { value: "all", label: "All" },
-  { value: "new", label: "New" },
-  { value: "contacted", label: "Contacted" },
-  { value: "demo_done", label: "Demo Done" },
-  { value: "negotiating", label: "Negotiating" },
-  { value: "won", label: "Won" },
-  { value: "lost", label: "Lost" },
-] as const;
+  ...LEAD_STATUS_ORDER.map(s => ({ value: s, label: LEAD_STATUS_CONFIG[s].label })),
+];
 
 const SOURCE_OPTIONS = [
   { value: "cold_visit", label: "Cold Visit" },
@@ -45,14 +43,10 @@ const SOURCE_OPTIONS = [
   { value: "other", label: "Other" },
 ];
 
-const STATUS_OPTIONS = [
-  { value: "new", label: "New" },
-  { value: "contacted", label: "Contacted" },
-  { value: "demo_done", label: "Demo Done" },
-  { value: "negotiating", label: "Negotiating" },
-  { value: "won", label: "Won" },
-  { value: "lost", label: "Lost" },
-];
+const STATUS_OPTIONS = LEAD_STATUS_ORDER.map(s => ({
+  value: s,
+  label: LEAD_STATUS_CONFIG[s].label,
+}));
 
 const TEMPERATURE_OPTIONS = [
   { value: "hot", label: "Hot" },
@@ -72,18 +66,12 @@ const ACTIVITY_TYPE_OPTIONS = [
 // ── Badge helpers ─────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; className: string }> = {
-    new: { label: "New", className: "bg-muted/60 text-muted-foreground" },
-    contacted: { label: "Contacted", className: "bg-blue-500/15 text-blue-400" },
-    demo_done: { label: "Demo Done", className: "bg-purple-500/15 text-purple-400" },
-    negotiating: { label: "Negotiating", className: "bg-amber-500/15 text-amber-400" },
-    won: { label: "Won", className: "bg-emerald-500/15 text-emerald-400" },
-    lost: { label: "Lost", className: "bg-red-500/10 text-red-400/70" },
-  };
-  const s = map[status] ?? { label: status, className: "bg-muted/60 text-muted-foreground" };
+  const cfg = isLeadStatus(status)
+    ? LEAD_STATUS_CONFIG[status]
+    : { label: status, cls: "bg-muted/60 text-muted-foreground border-transparent" };
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${s.className}`}>
-      {s.label}
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-medium ${cfg.cls}`}>
+      {cfg.label}
     </span>
   );
 }

@@ -2,7 +2,6 @@
 
 import { useState, useTransition } from "react";
 import { Loader2 } from "lucide-react";
-import { setMemberGoals, type SalesTeamMember } from "@/app/actions/admin-sales-teams";
 
 type Goals = {
   monthly_commission_pct: number;
@@ -11,12 +10,27 @@ type Goals = {
   monthly_revenue_target: number;
 };
 
+type GoalsMember = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  monthly_commission_pct: number;
+  annual_commission_pct: number;
+  monthly_deal_target: number;
+  monthly_revenue_target: number;
+};
+
+// Shared by the platform-admin sales-teams page (setMemberGoals) and the
+// sales-manager team-roster page (setTeamMemberGoals) — only the server
+// action differs between the two callers.
 export function SetGoalsModal({
   member,
+  action,
   onClose,
   onSaved,
 }: {
-  member: SalesTeamMember;
+  member: GoalsMember;
+  action: (memberId: string, goals: Goals) => Promise<{ error?: string }>;
   onClose: () => void;
   onSaved: (goals: Goals) => void;
 }) {
@@ -58,7 +72,7 @@ export function SetGoalsModal({
         monthly_deal_target: mdt,
         monthly_revenue_target: mrt,
       };
-      const res = await setMemberGoals(member.id, goals);
+      const res = await action(member.id, goals);
       if (res.error) { setError(res.error); return; }
       onSaved(goals);
       onClose();

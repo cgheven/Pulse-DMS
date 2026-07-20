@@ -4,22 +4,26 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Zap, LayoutDashboard, Users, CalendarCheck,
+  Zap, Users, Users2,
   LogOut, Menu, X, TrendingUp,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
 const salesNav = [
-  { href: "/sales/dashboard",  label: "Dashboard",    icon: LayoutDashboard },
-  { href: "/sales/leads",      label: "My Leads",     icon: Users },
-  { href: "/sales/followups",  label: "Follow-ups",   icon: CalendarCheck },
+  { href: "/sales/leads", label: "My Leads", icon: Users },
 ];
 
-function SalesSidebar({ open, onClose, email, name }: {
+const managerNav = [
+  { href: "/sales/team", label: "Team", icon: Users2 },
+];
+
+function SalesSidebar({ open, onClose, email, name, isManager, hasOwnLeadQueue }: {
   open: boolean; onClose: () => void; email: string; name: string | null;
+  isManager: boolean; hasOwnLeadQueue: boolean;
 }) {
   const pathname = usePathname();
+  const items = [...(hasOwnLeadQueue ? salesNav : []), ...(isManager ? managerNav : [])];
 
   async function handleSignOut() {
     const supabase = createClient();
@@ -54,7 +58,7 @@ function SalesSidebar({ open, onClose, email, name }: {
 
         {/* Nav */}
         <nav className="flex-1 py-3 px-2 overflow-y-auto flex flex-col gap-1 min-h-0">
-          {salesNav.map(({ href, label, icon: Icon }) => {
+          {items.map(({ href, label, icon: Icon }) => {
             const active = pathname === href || pathname.startsWith(href + "/");
             return (
               <Link key={href} href={href} onClick={onClose}
@@ -93,14 +97,18 @@ function SalesSidebar({ open, onClose, email, name }: {
   );
 }
 
-export function SalesShell({ children, email, name }: {
+export function SalesShell({ children, email, name, isManager, hasOwnLeadQueue }: {
   children: React.ReactNode; email: string; name: string | null;
+  isManager: boolean; hasOwnLeadQueue: boolean;
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
     <div className="flex h-dvh bg-background overflow-hidden">
-      <SalesSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} email={email} name={name} />
+      <SalesSidebar
+        open={sidebarOpen} onClose={() => setSidebarOpen(false)} email={email} name={name}
+        isManager={isManager} hasOwnLeadQueue={hasOwnLeadQueue}
+      />
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         {/* Mobile topbar */}
         <div className="lg:hidden flex items-center gap-3 px-4 h-12 border-b border-sidebar-border bg-sidebar/80 backdrop-blur-md shrink-0">

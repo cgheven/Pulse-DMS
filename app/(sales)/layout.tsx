@@ -8,9 +8,10 @@ export default async function SalesLayout({ children }: { children: React.ReactN
   // getUser()+profile round-trip per navigation instead of a duplicate per call site.
   const ctx = await getSalesAuthContext();
   if (!ctx?.user) redirect("/login");
-  const { user, profile } = ctx;
+  const { user, profile, managerTeamIds, hasOwnLeadQueue } = ctx;
+  const isManager = managerTeamIds.length > 0 || !!profile?.is_admin;
 
-  if (!profile?.is_sales_rep && !profile?.is_admin) {
+  if (!profile?.is_sales_rep && !profile?.is_admin && !isManager) {
     // Defense-in-depth: mirror (dashboard)/layout.tsx's fallback so a profile
     // flag out of sync with team membership can't produce a redirect loop.
     const admin = createAdminClient();
@@ -24,7 +25,12 @@ export default async function SalesLayout({ children }: { children: React.ReactN
   }
 
   return (
-    <SalesShell email={user.email ?? ""} name={profile?.full_name ?? null}>
+    <SalesShell
+      email={user.email ?? ""}
+      name={profile?.full_name ?? null}
+      isManager={isManager}
+      hasOwnLeadQueue={hasOwnLeadQueue || !!profile?.is_admin}
+    >
       {children}
     </SalesShell>
   );
