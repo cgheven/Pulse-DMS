@@ -3,7 +3,7 @@ import { getAuthContext, getStockLevels, getStockMovements, getStockBatchMovemen
 import { computeBatches, type BatchRow } from "@/lib/stock-batches";
 import { StockClient } from "@/components/modules/stock/stock-client";
 
-export const metadata = { title: "Stock | DMS" };
+export const metadata = { title: "Stock" };
 export const dynamic = "force-dynamic";
 
 export default async function StockPage() {

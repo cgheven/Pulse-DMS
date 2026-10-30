@@ -6,7 +6,7 @@ import { formatDateInput } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = { title: "P&L Report | Pulse DMS" };
+export const metadata: Metadata = { title: "P&L Report" };
 
 // Uses LOCAL date components (via formatDateInput) rather than toISOString(),
 // which would shift the date back a day for positive-offset timezones (e.g.

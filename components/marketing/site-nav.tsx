@@ -2,15 +2,14 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Zap, Menu, X, ArrowRight } from "lucide-react";
+import { Menu, X, ArrowRight } from "lucide-react";
+import { LogoMark } from "@/components/logo-mark";
 
 function Logo() {
   return (
     <Link href="/" className="flex items-center gap-2 shrink-0">
-      <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
-        <Zap className="w-3.5 h-3.5 text-primary" />
-      </div>
-      <span className="font-bold text-base text-foreground tracking-tight">Pulse DMS</span>
+      <LogoMark size={28} />
+      <span className="font-bold text-base text-foreground tracking-tight">Pulse</span>
     </Link>
   );
 }

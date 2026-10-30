@@ -33,7 +33,7 @@ function trialLabel(plan: string | null, endsAt: string | null): { label: string
 function buildWhatsAppUrl(phone: string | null, name: string | null, daysInactive: number | null): string {
   const greeting = name ? `Assalam-o-Alaikum ${name.split(" ")[0]}!` : "Assalam-o-Alaikum!";
   const inactiveNote = daysInactive && daysInactive > 3
-    ? `\n\nHum ne notice kiya ke aap ${daysInactive} din se Pulse DMS use nahi kar rahe. Kya koi masla hai?`
+    ? `\n\nHum ne notice kiya ke aap ${daysInactive} din se Pulse use nahi kar rahe. Kya koi masla hai?`
     : "";
   const msg = `${greeting}${inactiveNote}\n\nAgar koi bhi help chahiye ho to hum hamesha available hain!\n\nLogin: https://dms.yourpulse.io`;
 

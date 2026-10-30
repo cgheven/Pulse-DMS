@@ -106,7 +106,7 @@ const FIELD_CLASS =
   "w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/50";
 
 function buildWelcomeMessage(creds: CreatedCredentials, loginUrl: string) {
-  return `Assalam-o-Alaikum ${creds.full_name}!\n\n*Your DMS login credentials:*\n\n*Email:* ${creds.email}\n*Password:* ${creds.password}\n\nLogin at: ${loginUrl}`;
+  return `Assalam-o-Alaikum ${creds.full_name}!\n\n*Your Pulse login credentials:*\n\n*Email:* ${creds.email}\n*Password:* ${creds.password}\n\nLogin at: ${loginUrl}`;
 }
 
 function CreateClientDialog({

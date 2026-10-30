@@ -5,7 +5,7 @@ import { ExpensesClient } from "@/components/modules/expenses/expenses-client";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "Expenses | DMS" };
+export const metadata = { title: "Expenses" };
 
 function getThisMonthRange() {
   const now = new Date();

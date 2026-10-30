@@ -4,7 +4,7 @@ import { SupplierLedgerClient } from "@/components/modules/supplier-ledger/suppl
 
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "Supplier Ledger | DMS" };
+export const metadata = { title: "Supplier Ledger" };
 
 export default async function SupplierLedgerPage() {
   const ctx = await getAuthContext();

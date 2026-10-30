@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Zap } from "lucide-react";
+import { LogoMark } from "@/components/logo-mark";
 
 const WHATSAPP_NUMBER = "923336673553";
 const CONTACT_EMAIL = "hello@yourpulse.io";
@@ -18,10 +18,8 @@ export function SiteFooter() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-8 pb-8">
           <div className="col-span-2 sm:col-span-1">
             <Link href="/" className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
-                <Zap className="w-3 h-3 text-primary" />
-              </div>
-              <span className="font-bold text-base text-foreground">Pulse DMS</span>
+              <LogoMark size={24} />
+              <span className="font-bold text-base text-foreground">Pulse</span>
             </Link>
             <p className="text-xs text-muted-foreground/70 mt-3 max-w-[200px] leading-relaxed">
               Inventory and sales management software for retail shops and distributors.

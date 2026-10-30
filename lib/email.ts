@@ -25,7 +25,7 @@ export async function sendOTPEmail(
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Your Pulse DMS Verification Code</title>
+  <title>Your Pulse Verification Code</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -172,9 +172,9 @@ export async function sendOTPEmail(
       <div class="header">
         <div class="logo-row">
           <span class="logo-dot"></span>
-          <span class="logo-text">Pulse DMS</span>
+          <span class="logo-text">Pulse</span>
         </div>
-        <div class="logo-sub">Dealer Management System</div>
+        <div class="logo-sub">Inventory Management System</div>
       </div>
 
       <!-- Body -->
@@ -203,7 +203,7 @@ export async function sendOTPEmail(
       <!-- Footer -->
       <div class="footer">
         <p class="footer-brand">
-          <span>Pulse</span> DMS &mdash; Dealer Management System
+          <span>Pulse</span> &mdash; Inventory Management System
         </p>
         <a href="https://yourpulse.io" class="footer-link">yourpulse.io</a>
       </div>
@@ -216,7 +216,7 @@ export async function sendOTPEmail(
     const { error } = await resend.emails.send({
       from: 'noreply@yourpulse.io',
       to,
-      subject: 'Your Pulse DMS verification code',
+      subject: 'Your Pulse verification code',
       html,
     });
 
@@ -255,7 +255,7 @@ export async function sendWelcomeEmail(
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Welcome to Pulse DMS</title>
+  <title>Welcome to Pulse</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -454,9 +454,9 @@ export async function sendWelcomeEmail(
       <div class="header">
         <div class="logo-row">
           <span class="logo-dot"></span>
-          <span class="logo-text">Pulse DMS</span>
+          <span class="logo-text">Pulse</span>
         </div>
-        <div class="logo-sub">Dealer Management System</div>
+        <div class="logo-sub">Inventory Management System</div>
         <div class="hero-badge">Welcome aboard</div>
       </div>
 
@@ -510,7 +510,7 @@ export async function sendWelcomeEmail(
       <!-- Footer -->
       <div class="footer">
         <p class="footer-brand">
-          <span>Pulse</span> DMS &mdash; Dealer Management System
+          <span>Pulse</span> &mdash; Inventory Management System
         </p>
         <a href="https://yourpulse.io" class="footer-link">yourpulse.io</a>
       </div>
@@ -523,7 +523,7 @@ export async function sendWelcomeEmail(
     const { error } = await resend.emails.send({
       from: 'noreply@yourpulse.io',
       to,
-      subject: `Welcome to Pulse DMS, ${rawFirstName}! Your trial is active`,
+      subject: `Welcome to Pulse, ${rawFirstName}! Your trial is active`,
       html,
     });
 
@@ -563,7 +563,7 @@ export async function sendPasswordResetEmail(
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Reset your Pulse DMS password</title>
+  <title>Reset your Pulse password</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -704,16 +704,16 @@ export async function sendPasswordResetEmail(
       <div class="header">
         <div class="logo-row">
           <span class="logo-dot"></span>
-          <span class="logo-text">Pulse DMS</span>
+          <span class="logo-text">Pulse</span>
         </div>
-        <div class="logo-sub">Dealer Management System</div>
+        <div class="logo-sub">Inventory Management System</div>
         <div class="hero-badge">Password Reset</div>
       </div>
 
       <div class="body">
         <p class="heading">Reset your password</p>
         <p class="intro">
-          We received a request to reset the password for your Pulse DMS account.
+          We received a request to reset the password for your Pulse account.
           Click the button below to choose a new password.
         </p>
 
@@ -734,7 +734,7 @@ export async function sendPasswordResetEmail(
       </div>
 
       <div class="footer">
-        <p class="footer-brand"><span>Pulse</span> DMS &mdash; Dealer Management System</p>
+        <p class="footer-brand"><span>Pulse</span> &mdash; Inventory Management System</p>
         <a href="https://yourpulse.io" class="footer-link">yourpulse.io</a>
       </div>
     </div>
@@ -746,7 +746,7 @@ export async function sendPasswordResetEmail(
     const { error } = await resend.emails.send({
       from: 'noreply@yourpulse.io',
       to,
-      subject: 'Reset your Pulse DMS password',
+      subject: 'Reset your Pulse password',
       html,
     });
 

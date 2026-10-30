@@ -1,12 +1,13 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Store, Zap, Loader2 } from "lucide-react";
+import { Store, Loader2 } from "lucide-react";
 import { createShop } from "@/app/actions/shop";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
+import { LogoMark } from "@/components/logo-mark";
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -35,9 +36,7 @@ export default function OnboardingPage() {
 
       <div className="w-full max-w-sm relative animate-fade-up">
         <div className="flex flex-col items-center mb-8">
-          <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 mb-5">
-            <Zap className="w-6 h-6 text-primary" />
-          </div>
+          <LogoMark size={56} className="mb-5" />
           <h1 className="font-serif text-3xl text-foreground tracking-tight">Welcome to Pulse</h1>
           <p className="mt-2 text-sm text-muted-foreground text-center leading-relaxed">
             Let&apos;s set up your shop to get started.

@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Loader2, MailCheck, Zap } from "lucide-react";
+import { Loader2, MailCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { verifyRegistrationOTP, resendRegistrationOTP } from "@/app/actions/registration";
+import { LogoMark } from "@/components/logo-mark";
 
 const OTP_LENGTH = 6;
 const RESEND_COOLDOWN = 60;
@@ -181,12 +182,10 @@ export default function VerifyEmailPage() {
       <div className="w-full max-w-sm relative animate-fade-up">
         {/* Header */}
         <div className="flex flex-col items-center mb-8">
-          <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 mb-5">
-            <Zap className="w-6 h-6 text-primary" />
-          </div>
-          <h1 className="font-serif text-3xl text-foreground tracking-tight">Pulse DMS</h1>
+          <LogoMark size={56} className="mb-5" />
+          <h1 className="font-serif text-3xl text-foreground tracking-tight">Pulse</h1>
           <p className="mt-2 text-xs font-semibold uppercase tracking-[0.2em] text-primary/70">
-            Dealer Management System
+            Inventory Management System
           </p>
         </div>
 

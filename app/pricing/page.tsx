@@ -535,12 +535,12 @@ export default function PricingPage() {
       <section className="relative z-10 px-6 py-8 max-w-6xl mx-auto">
         <div className="rounded-2xl border border-sidebar-border bg-card px-6 py-5 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div>
-            <p className="font-semibold text-foreground text-sm">Ready to try Pulse DMS?</p>
+            <p className="font-semibold text-foreground text-sm">Ready to try Pulse?</p>
             <p className="text-xs text-muted-foreground mt-0.5">7-day free trial · No card · Live in minutes</p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
             <a
-              href={`https://wa.me/923336673553?text=${encodeURIComponent("Hi! I'd like to learn more about Pulse DMS.")}`}
+              href={`https://wa.me/923336673553?text=${encodeURIComponent("Hi! I'd like to learn more about Pulse.")}`}
               target="_blank"
               rel="noopener noreferrer"
               className="px-4 py-2 rounded-lg border border-sidebar-border hover:border-primary/30 hover:bg-primary/5 text-foreground font-semibold text-sm transition-all"

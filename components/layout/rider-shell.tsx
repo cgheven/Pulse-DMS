@@ -4,10 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Zap, LayoutDashboard, LogOut, Menu, X, Bike, PlusCircle, ClipboardList, Wallet, Landmark,
+  LayoutDashboard, LogOut, Menu, X, Bike, PlusCircle, ClipboardList, Wallet, Landmark,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import { LogoMark } from "@/components/logo-mark";
 
 // Nav items grow as later phases add more routes under app/(rider)/rider/*.
 // Only pages that actually exist are listed here to avoid dead links. The
@@ -45,9 +46,7 @@ function RiderSidebar({ open, onClose, email, fullName }: {
         {/* Logo */}
         <div className="flex items-center justify-between px-4 h-14 border-b border-sidebar-border shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-white/8 border border-white/10 flex items-center justify-center">
-              <Zap className="w-4 h-4 text-primary" />
-            </div>
+            <LogoMark size={32} />
             <div>
               <p className="text-sm font-bold text-foreground leading-none">Pulse</p>
               <p className="text-muted-foreground/50 text-[9px] mt-0.5 font-bold tracking-[0.12em] uppercase">Rider Portal</p>

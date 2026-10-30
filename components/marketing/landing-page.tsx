@@ -230,7 +230,7 @@ export function LandingPage() {
             </h1>
 
             <p className="text-lg text-muted-foreground mt-5 max-w-lg leading-relaxed">
-              Pulse DMS is inventory and sales management software for retail shops and
+              Pulse is inventory and sales management software for retail shops and
               distributors. Track stock across every branch, record sales and payments,
               manage delivery riders, and see real-time profit and loss — all from one
               dashboard, whether you run one branch or twenty.
@@ -335,7 +335,7 @@ export function LandingPage() {
       {/* Benefits */}
       <section className="relative z-10 px-6 pb-16 max-w-6xl mx-auto">
         <div className="text-center mb-10">
-          <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-primary mb-2">Why Pulse DMS</p>
+          <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-primary mb-2">Why Pulse</p>
           <h2 className="text-2xl sm:text-3xl font-black text-foreground tracking-tight">
             Software that keeps up with your business.
           </h2>

@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Loader2, Zap, ArrowLeft, Mail } from "lucide-react";
+import { Loader2, ArrowLeft, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { sendPasswordReset } from "@/app/actions/password-reset";
+import { LogoMark } from "@/components/logo-mark";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -43,11 +44,9 @@ export default function ForgotPasswordPage() {
       <div className="w-full max-w-sm relative z-10">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 mb-4">
-            <Zap className="w-6 h-6 text-primary" />
-          </div>
+          <LogoMark size={48} className="inline-block mb-4" />
           <h1 className="text-2xl font-bold font-serif text-foreground tracking-tight">
-            Pulse DMS
+            Pulse
           </h1>
         </div>
 

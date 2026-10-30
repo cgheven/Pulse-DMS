@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff, Loader2, Zap, CheckCircle } from "lucide-react";
+import { Eye, EyeOff, Loader2, CheckCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LogoMark } from "@/components/logo-mark";
 
 export default function ResetPasswordPage() {
   const router = useRouter();
@@ -101,11 +102,9 @@ export default function ResetPasswordPage() {
       <div className="w-full max-w-sm relative z-10">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 mb-4">
-            <Zap className="w-6 h-6 text-primary" />
-          </div>
+          <LogoMark size={48} className="inline-block mb-4" />
           <h1 className="text-2xl font-bold font-serif text-foreground tracking-tight">
-            Pulse DMS
+            Pulse
           </h1>
         </div>
 

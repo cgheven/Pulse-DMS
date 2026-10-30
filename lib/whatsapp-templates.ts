@@ -14,7 +14,7 @@ export function shareStaffCredentialsViaWhatsApp(opts: {
   const msg = [
     "Assalam-o-Alaikum " + fullName + "!",
     "",
-    shopName + " ki taraf se aap ko Pulse DMS ka access de diya gaya hai.",
+    shopName + " ki taraf se aap ko Pulse ka access de diya gaya hai.",
     "",
     "Login ID (Mobile): " + safe,
     "Password: " + password,
@@ -42,7 +42,7 @@ export function shareRiderCredentialsViaWhatsApp(opts: {
   const msg = [
     "Assalam-o-Alaikum " + fullName + "!",
     "",
-    "Aap ko Pulse DMS Rider Portal ka access de diya gaya hai.",
+    "Aap ko Pulse Rider Portal ka access de diya gaya hai.",
     "",
     "Login Email: " + email,
     "Password: " + password,
@@ -70,7 +70,7 @@ export function shareSalesRepCredentialsViaWhatsApp(opts: {
   const msg = [
     "Assalam-o-Alaikum " + fullName + "!",
     "",
-    "Aap ko Pulse DMS Sales CRM ka access de diya gaya hai.",
+    "Aap ko Pulse Sales CRM ka access de diya gaya hai.",
     "",
     "Login Email: " + email,
     "Password: " + password,

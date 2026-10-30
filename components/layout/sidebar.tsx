@@ -4,11 +4,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, ShoppingCart, Package, Receipt,
-  BookOpen, BarChart3, Boxes, Settings, X, Zap, Users, TrendingUp, Bike,
+  BookOpen, BarChart3, Boxes, Settings, X, Users, TrendingUp, Bike,
   ClipboardList, Contact, Wallet, Landmark, FileBarChart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useShopContext } from "@/contexts/shop-context";
+import { LogoMark } from "@/components/logo-mark";
 
 const navGroups = [
   {
@@ -153,11 +154,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             className="flex items-center gap-2.5 group"
             onClick={onClose}
           >
-            <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary/15 border border-primary/25 transition-all group-hover:bg-primary/20">
-              <Zap className="w-5 h-5 text-primary" />
-            </div>
+            <LogoMark size={36} />
             <div>
-              <p className="text-foreground font-bold text-base tracking-tight leading-none">Pulse DMS</p>
+              <p className="text-foreground font-bold text-base tracking-tight leading-none">Pulse</p>
               <p className="text-primary/60 text-[10px] mt-1 font-semibold tracking-[0.15em] uppercase">
                 Pulse of your business
               </p>

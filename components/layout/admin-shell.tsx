@@ -4,10 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Shield, Users, LayoutDashboard,
-  Menu, X, LogOut, ClipboardList, Zap, Target, Inbox, Users2, ToggleLeft,
+  Menu, X, LogOut, ClipboardList, Target, Inbox, Users2, ToggleLeft,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import { LogoMark } from "@/components/logo-mark";
 
 const adminNav = [
   { href: "/admin",               label: "Dashboard",    icon: LayoutDashboard, exact: true },
@@ -39,9 +40,7 @@ function AdminSidebar({ open, onClose, email }: { open: boolean; onClose: () => 
       )}>
         <div className="flex items-center justify-between px-4 h-16 border-b border-sidebar-border">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-lg bg-primary/15 border border-primary/25 flex items-center justify-center">
-              <Zap className="w-5 h-5 text-primary" />
-            </div>
+            <LogoMark size={36} />
             <div>
               <p className="text-base font-bold text-foreground leading-none">Pulse</p>
               <p className="text-primary/60 text-[10px] mt-1 font-semibold tracking-[0.15em] uppercase">Pulse of your business</p>

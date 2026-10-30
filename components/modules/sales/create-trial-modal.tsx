@@ -150,7 +150,7 @@ export function CreateTrialModal({
 
     const message = `Assalam-o-Alaikum ${result?.email ? contactName || lead.contact_name : lead.contact_name}! 🎉
 
-Aapka *Pulse DMS* ka *7-din FREE trial* account tayaar ho gaya hai!
+Aapka *Pulse* ka *7-din FREE trial* account tayaar ho gaya hai!
 
 📧 *Email:* ${result?.email ?? ""}
 🔑 *Password:* ${result?.password ?? ""}

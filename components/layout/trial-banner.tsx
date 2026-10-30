@@ -20,7 +20,7 @@ export function TrialBanner({ trialEndsAt, trialPlan }: TrialBannerProps) {
       <div className="w-full border-b border-red-500/40 bg-red-500/10 py-2.5 px-4 flex items-center justify-center gap-3">
         <XCircle className="w-4 h-4 text-red-400 shrink-0" />
         <span className="text-sm font-semibold text-red-400">
-          Your trial has expired. Upgrade to continue using Pulse DMS.
+          Your trial has expired. Upgrade to continue using Pulse.
         </span>
         <Button
           asChild

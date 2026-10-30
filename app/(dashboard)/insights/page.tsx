@@ -6,7 +6,7 @@ import { InsightsClient } from "@/components/modules/insights/insights-client";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = { title: "Insights | Pulse DMS" };
+export const metadata: Metadata = { title: "Insights" };
 
 function getDefaultDateRange(): { from: string; to: string } {
   const now = new Date();
