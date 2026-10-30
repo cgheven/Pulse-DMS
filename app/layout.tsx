@@ -1,13 +1,17 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 
-const inter = Inter({
-  subsets: ["latin"],
+// Inter (variable, latin subset) is self-hosted rather than loaded through
+// next/font/google: that loader downloads from Google Fonts at build time, and
+// a malformed response there failed a Vercel build outright.
+const inter = localFont({
+  src: "./fonts/inter-latin-variable.woff2",
+  weight: "100 900",
+  style: "normal",
   display: "swap",
   variable: "--font-sans",
-  weight: ["300", "400", "500", "600", "700", "800"],
 });
 
 const SITE_TITLE = "Pulse - Inventory Management System";
